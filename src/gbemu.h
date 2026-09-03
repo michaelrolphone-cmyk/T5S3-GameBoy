@@ -88,6 +88,7 @@ void gbemu_reset(gbemu_t *emu);
 
 gbemu_status_t gbemu_get_status(const gbemu_t *emu);
 uint16_t gbemu_get_last_error_addr(const gbemu_t *emu);
+const char *gbemu_get_last_error_string(const gbemu_t *emu);
 const char *gbemu_status_string(gbemu_status_t status);
 const char *gbemu_get_rom_title(const gbemu_t *emu);
 uint32_t gbemu_get_rom_fingerprint(const gbemu_t *emu);

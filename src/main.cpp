@@ -988,8 +988,13 @@ bool prepare_sd_candidate(
 }
 
 bool capture_current_state_for_rom_swap(
-    bool &previous_disk_snapshot_available) {
+    bool &previous_disk_snapshot_available,
+    bool preserve_memory_snapshot) {
   previous_disk_snapshot_available = g_current_disk_snapshot_available;
+  if (preserve_memory_snapshot && g_memory_quicksave_valid &&
+      g_quicksave != nullptr) {
+    return true;
+  }
   return capture_current_quicksave();
 }
 
@@ -1059,7 +1064,10 @@ bool activate_builtin_after_failed_rom_swap() {
   return true;
 }
 
-bool launch_sd_rom(const char *rom_path, bool restore_snapshot) {
+bool launch_sd_rom(
+    const char *rom_path,
+    bool restore_snapshot,
+    bool preserve_memory_snapshot) {
   if (!g_storage_ready || rom_path == nullptr || rom_path[0] == '\0') {
     copy_text(g_library_status, sizeof(g_library_status), "SD ROM UNAVAILABLE");
     return false;
@@ -1104,7 +1112,8 @@ bool launch_sd_rom(const char *rom_path, bool restore_snapshot) {
     copy_text(previous_rom_path, sizeof(previous_rom_path), g_current_rom_path);
     bool previous_disk_snapshot_available = false;
     if (!capture_current_state_for_rom_swap(
-            previous_disk_snapshot_available)) {
+            previous_disk_snapshot_available,
+            preserve_memory_snapshot)) {
       copy_text(g_library_status, sizeof(g_library_status), "ROM SWITCH MEMORY ERROR");
       heap_caps_free(previous_apu);
       return false;
@@ -1385,6 +1394,7 @@ void run_console(void *unused) {
   TimingWindow compose_timing = {};
   TimingWindow flip_timing = {};
   bool notice_was_visible = visible_notice() != nullptr;
+  bool emu_faulted = false;
 
   const bool battery_probe_ok = battery_read_status(battery);
   ESP_LOGI(
@@ -1524,17 +1534,39 @@ void run_console(void *unused) {
     }
 
     if ((actions & PAPERBOY_ACTION_POWER) != 0U) {
-      if (power_on && !save_current_persist(true)) {
-        set_notice("SAVE FAILED");
+      if (emu_faulted) {
+        if (gbemu_get_status(g_emu) != GBEMU_STATUS_OK) {
+          gbemu_reset(g_emu);
+        }
+        if (gbemu_get_status(g_emu) == GBEMU_STATUS_OK) {
+          emu_faulted = false;
+          power_on = true;
+          memset(g_game_frame, 0xFF, GBEMU_FRAMEBUFFER_SIZE);
+          set_notice("EMULATOR RESET");
+          ESP_LOGI(kTag, "emulator resumed after cold reset");
+        } else {
+          power_on = false;
+          set_notice("RESET FAILED");
+          ESP_LOGE(kTag, "emulator cold reset failed");
+        }
+      } else {
+        if (power_on && !save_current_persist(true)) {
+          set_notice("SAVE FAILED");
+        }
+        power_on = !power_on;
+        ESP_LOGI(kTag, "soft power=%s", power_on ? "on" : "off");
       }
-      power_on = !power_on;
-      audio_set_paused(!power_on);
+      audio_set_paused(emu_faulted || !power_on);
       full_scene_syncs = kPanelBufferCount;
-      ESP_LOGI(kTag, "soft power=%s", power_on ? "on" : "off");
+      skipped_since_render = 0U;
+      reset_game_frame_pacer(game_frame_pacer);
     }
 
     if ((actions & PAPERBOY_ACTION_SAVE) != 0U) {
-      if (save_current_session()) {
+      if (emu_faulted) {
+        set_notice("RESET OR LOAD FIRST");
+        ESP_LOGW(kTag, "state save rejected while emulator is faulted");
+      } else if (save_current_session()) {
         set_notice(current_rom_is_from_sd() ? "SAVED TO SD" : "STATE SAVED");
         ESP_LOGI(kTag, "game session saved");
       } else {
@@ -1546,6 +1578,7 @@ void run_console(void *unused) {
 
     if ((actions & PAPERBOY_ACTION_LOAD) != 0U) {
       if (load_current_state()) {
+        emu_faulted = false;
         power_on = true;
         audio_set_paused(false);
         set_notice("STATE RESTORED");
@@ -1593,7 +1626,8 @@ void run_console(void *unused) {
     if ((actions & PAPERBOY_ACTION_ROM_LAUNCH) != 0U &&
         page == PaperboyPage::SdCard) {
       const PaperboyRomInfo *rom = paperboy_storage_rom(g_rom_selection);
-      if (rom != nullptr && launch_sd_rom(rom->path, false)) {
+      if (rom != nullptr && launch_sd_rom(rom->path, false, emu_faulted)) {
+        emu_faulted = false;
         power_on = true;
         next_page = PaperboyPage::Game;
       } else if (rom == nullptr) {
@@ -1605,7 +1639,9 @@ void run_console(void *unused) {
         page == PaperboyPage::SdCard) {
       char last_rom[PAPERBOY_STORAGE_PATH_MAX];
       copy_text(last_rom, sizeof(last_rom), g_storage_config.last_rom);
-      if (g_last_snapshot_available && launch_sd_rom(last_rom, true)) {
+      if (g_last_snapshot_available &&
+          launch_sd_rom(last_rom, true, emu_faulted)) {
+        emu_faulted = false;
         power_on = true;
         next_page = PaperboyPage::Game;
       } else if (!g_last_snapshot_available) {
@@ -1664,7 +1700,7 @@ void run_console(void *unused) {
       pca_button_pressed_since_ms = 0U;
     }
 
-    if (page == PaperboyPage::Game && power_on) {
+    if (page == PaperboyPage::Game && power_on && !emu_faulted) {
       const uint32_t vsync_now = epd_video_get_vsync_count();
       const uint32_t vsync_gap = vsync_now - last_vsync;
       if (vsync_gap > 1U) {
@@ -1685,13 +1721,29 @@ void run_console(void *unused) {
               buttons,
               skip_render,
               &frame_stats)) {
+        const gbemu_status_t error_status = gbemu_get_status(g_emu);
+        const uint16_t error_addr = gbemu_get_last_error_addr(g_emu);
+        const char *error_kind = gbemu_get_last_error_string(g_emu);
         ESP_LOGE(
             kTag,
-            "emulator stopped: %s at 0x%04X",
-            gbemu_status_string(gbemu_get_status(g_emu)),
-            gbemu_get_last_error_addr(g_emu));
-        present_error("EMU ERROR", "RUNTIME FAILURE");
-        break;
+            "emulator paused: %s (%s) at 0x%04X",
+            gbemu_status_string(error_status),
+            error_kind,
+            error_addr);
+        power_on = false;
+        emu_faulted = true;
+        audio_set_paused(true);
+        last_buttons = 0U;
+        last_touch_down = touch_down;
+        skipped_since_render = 0U;
+        full_scene_syncs = kPanelBufferCount;
+        reset_game_frame_pacer(game_frame_pacer);
+        gbemu_reset(g_emu);
+        if (gbemu_get_status(g_emu) != GBEMU_STATUS_OK) {
+          ESP_LOGE(kTag, "emulator could not be prepared for recovery");
+        }
+        set_notice("EMU ERROR - TAP ON-OFF", 10000U);
+        continue;
       }
       if (!skip_render) {
         draw_game_low_battery_overlay(g_game_frame, battery);

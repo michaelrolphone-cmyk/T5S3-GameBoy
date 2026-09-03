@@ -814,6 +814,14 @@ __section__(".rare.cb") static void __gb_rare_write(
             return;
         case 0x76:  // PCM12 (CGB Audio)
         case 0x77:  // PCM34 (CGB Audio)
+        case 0x78:  // Unmapped I/O
+        case 0x79:
+        case 0x7A:
+        case 0x7B:
+        case 0x7C:
+        case 0x7D:
+        case 0x7E:
+        case 0x7F:
             return;
 
         // Undocumented CGB registers
@@ -906,6 +914,14 @@ __section__(".rare.cb") static uint8_t __gb_rare_read(gb_s* gb, const uint16_t a
         case 0x6B:  // OCPD (CGB OBJ Palette Data)
         case 0x76:  // PCM12 (CGB Audio)
         case 0x77:  // PCM34 (CGB Audio)
+        case 0x78:  // Unmapped I/O
+        case 0x79:
+        case 0x7A:
+        case 0x7B:
+        case 0x7C:
+        case 0x7D:
+        case 0x7E:
+        case 0x7F:
             return 0xFF;
 
             // CGB registers

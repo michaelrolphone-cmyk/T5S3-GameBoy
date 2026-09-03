@@ -227,6 +227,9 @@ static void gb_error_cb(
   if (emu == NULL) {
     return;
   }
+  if (emu->runtime_error) {
+    return;
+  }
 
   emu->runtime_error = true;
   emu->status = GBEMU_STATUS_RUNTIME_ERROR;
@@ -740,7 +743,9 @@ void gbemu_mark_persist_clean(gbemu_t *emu) {
 }
 
 void gbemu_reset(gbemu_t *emu) {
-  if (!is_ready(emu)) {
+  if (emu == NULL ||
+      (emu->status != GBEMU_STATUS_OK &&
+       emu->status != GBEMU_STATUS_RUNTIME_ERROR)) {
     return;
   }
 
@@ -764,6 +769,24 @@ gbemu_status_t gbemu_get_status(const gbemu_t *emu) {
 
 uint16_t gbemu_get_last_error_addr(const gbemu_t *emu) {
   return emu == NULL ? 0U : emu->last_error_addr;
+}
+
+const char *gbemu_get_last_error_string(const gbemu_t *emu) {
+  if (emu == NULL) {
+    return "unknown error";
+  }
+  switch (emu->last_error) {
+    case GB_INVALID_OPCODE:
+      return "invalid opcode";
+    case GB_INVALID_READ:
+      return "invalid read";
+    case GB_INVALID_WRITE:
+      return "invalid write";
+    case GB_UNKNOWN_ERROR:
+    case GB_INVALID_MAX:
+    default:
+      return "unknown error";
+  }
 }
 
 const char *gbemu_status_string(gbemu_status_t status) {
