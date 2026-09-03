@@ -317,14 +317,6 @@ const char *main_battery_state_text(const PaperboyBatteryStatus *battery) {
 
 void draw_main_battery_indicator(
     uint8_t *framebuffer, const PaperboyBatteryStatus *battery) {
-  mono_fill_rect(
-      framebuffer, kPitch, kWidth, kHeight,
-      kMainBatteryRect.x, kMainBatteryRect.y,
-      kMainBatteryRect.width, kMainBatteryRect.height, true);
-  mono_draw_frame(
-      framebuffer, kPitch, kWidth, kHeight,
-      kMainBatteryRect.x, kMainBatteryRect.y,
-      kMainBatteryRect.width, kMainBatteryRect.height, 2, false);
 
   constexpr int kIconX = 30;
   constexpr int kIconY = 912;
@@ -349,18 +341,9 @@ void draw_main_battery_indicator(
         kIconX + 4, kIconY + 4, fill_width, kIconHeight - 8, false);
   }
 
-  char percent[8];
-  if (soc_available) {
-    snprintf(percent, sizeof(percent), "%u%%", soc);
-  } else {
-    snprintf(percent, sizeof(percent), "--%%");
-  }
   mono_draw_text(
       framebuffer, kPitch, kWidth, kHeight,
-      92, 914, percent, 2, false);
-  mono_draw_text(
-      framebuffer, kPitch, kWidth, kHeight,
-      120, 919, main_battery_state_text(battery), 1, false);
+      90, 919, main_battery_state_text(battery), 1, false);
 }
 
 void draw_value_row(uint8_t *framebuffer, int y, const char *label, const char *value) {
