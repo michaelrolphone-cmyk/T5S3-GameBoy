@@ -873,6 +873,12 @@ __section__(".rare.cb") static void __gb_rare_write(
             gb->direct.joypad_interrupts = (val & CONTROL_INTR) != 0;
             return;
         }
+
+        /* Ignore writes to I/O registers that this core does not implement. */
+        if (addr < HRAM_ADDR)
+        {
+            return;
+        }
     }
 
     (gb->gb_error)(gb, GB_INVALID_WRITE, addr);
@@ -990,6 +996,12 @@ __section__(".rare.cb") static uint8_t __gb_rare_read(gb_s* gb, const uint16_t a
         /* Interrupt Enable Register */
         case 0xFF:
             return gb->gb_reg.IE;
+        }
+
+        /* Unimplemented I/O registers use the usual unused-register value. */
+        if (addr < HRAM_ADDR)
+        {
+            return 0xFF;
         }
     }
 
