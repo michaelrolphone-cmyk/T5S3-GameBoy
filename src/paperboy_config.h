@@ -1,5 +1,9 @@
 #pragma once
 
+#ifndef PAPERBOY_FIRMWARE_VERSION
+#define PAPERBOY_FIRMWARE_VERSION "development"
+#endif
+
 /*
  * T5S3 Pro has no onboard speaker, and GPIO1 is wired to LORA_RST. Audio is
  * disabled at the pin by default to avoid driving or back-powering that rail.

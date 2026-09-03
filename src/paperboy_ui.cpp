@@ -238,13 +238,18 @@ void draw_settings_header(uint8_t *framebuffer, const char *title) {
   mono_draw_line(framebuffer, kPitch, kWidth, kHeight, 20, 130, 520, 130, false);
 }
 
-void draw_version_footer(uint8_t *framebuffer, const char *firmware_version) {
+void draw_version_label(
+    uint8_t *framebuffer, int y, const char *firmware_version) {
   char version[48];
   snprintf(
       version, sizeof(version), "VERSION %s",
       firmware_version == nullptr ? "UNKNOWN" : firmware_version);
+  draw_centered_text(framebuffer, y, version, 1);
+}
+
+void draw_version_footer(uint8_t *framebuffer, const char *firmware_version) {
   mono_draw_line(framebuffer, kPitch, kWidth, kHeight, 120, 908, 420, 908, false);
-  draw_centered_text(framebuffer, 924, version, 1);
+  draw_version_label(framebuffer, 924, firmware_version);
 }
 
 void draw_menu_item(
@@ -642,7 +647,9 @@ uint32_t paperboy_ui_map_actions(const touch_state_t *touch, PaperboyPage page) 
   return fired;
 }
 
-void paperboy_ui_draw_static(uint8_t *framebuffer) {
+void paperboy_ui_draw_static(
+    uint8_t *framebuffer,
+    const char *firmware_version) {
   if (framebuffer == nullptr) {
     return;
   }
@@ -658,6 +665,7 @@ void paperboy_ui_draw_static(uint8_t *framebuffer) {
   mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 428, 696, "A", 2, false);
   mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 169, 882, "SELECT", 1, false);
   mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 304, 882, "START", 1, false);
+  draw_version_label(framebuffer, 935, firmware_version);
 }
 
 void paperboy_ui_draw_dynamic(

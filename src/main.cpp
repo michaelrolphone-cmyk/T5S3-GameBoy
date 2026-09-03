@@ -16,6 +16,7 @@
 #include "epd_video.h"
 #include "gbemu.h"
 #include "mono_canvas.h"
+#include "paperboy_config.h"
 #include "paperboy_storage.h"
 #include "paperboy_ui.h"
 #include "pca9535_min.h"
@@ -32,7 +33,7 @@
 namespace {
 
 constexpr const char *kTag = "T5S3-GameBoy";
-constexpr const char *kFirmwareVersion = "paperboy-t5s3-v1";
+constexpr const char *kFirmwareVersion = PAPERBOY_FIRMWARE_VERSION;
 constexpr uint8_t kMinSkippedFramesBetweenRenders = 1;
 constexpr uint8_t kPanelBufferCount = 2;
 constexpr uint32_t kDmgClockHz = 4194304U;
@@ -668,7 +669,7 @@ bool allocate_runtime() {
     return false;
   }
   memset(g_game_frame, 0xFF, GBEMU_FRAMEBUFFER_SIZE);
-  paperboy_ui_draw_static(g_background);
+  paperboy_ui_draw_static(g_background, kFirmwareVersion);
   return true;
 }
 

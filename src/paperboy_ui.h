@@ -57,7 +57,9 @@ void paperboy_ui_init();
 void paperboy_ui_on_page_changed();
 uint8_t paperboy_ui_map_buttons(const touch_state_t *touch);
 uint32_t paperboy_ui_map_actions(const touch_state_t *touch, PaperboyPage page);
-void paperboy_ui_draw_static(uint8_t *framebuffer);
+void paperboy_ui_draw_static(
+    uint8_t *framebuffer,
+    const char *firmware_version);
 void paperboy_ui_draw_dynamic(
     uint8_t *framebuffer,
     uint8_t buttons,
