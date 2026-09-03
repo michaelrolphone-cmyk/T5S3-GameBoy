@@ -18,6 +18,7 @@ struct PaperboyBatteryStatus {
   bool otg_enabled = false;
   bool thermal_regulation_active = false;
   bool fault_present = false;
+  bool low_battery = false;
   bool watchdog_fault = false;
   bool boost_fault = false;
   bool battery_fault = false;

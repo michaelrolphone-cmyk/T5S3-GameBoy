@@ -805,6 +805,16 @@ bool epd_video_submit(uint16_t dirty_y, uint16_t dirty_height) {
   return accepted;
 }
 
+bool epd_video_can_submit() {
+  bool ready = false;
+  portENTER_CRITICAL(&g_buffer_lock);
+  // The state buffer may still be completing an older pixel transition. That
+  // does not own the back buffer, so a new frame can still be queued safely.
+  ready = g_running && !g_flip_req;
+  portEXIT_CRITICAL(&g_buffer_lock);
+  return ready;
+}
+
 bool epd_video_submit_pending() {
   bool pending = false;
   portENTER_CRITICAL(&g_buffer_lock);

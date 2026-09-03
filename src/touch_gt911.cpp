@@ -238,7 +238,6 @@ bool touch_read(touch_state_t *out_state) {
   if (!g_touch_available) {
     return false;
   }
-  memset(&g_last_raw_state, 0, sizeof(g_last_raw_state));
   if (!read_regs(kRegStatus, &status, 1)) {
     ++g_read_errors;
     return false;
@@ -246,13 +245,17 @@ bool touch_read(touch_state_t *out_state) {
   ++g_status_polls;
   g_last_status = status;
 
+  if ((status & kReadyMask) == 0U) {
+    *out_state = g_last_state;
+    return true;
+  }
+  memset(&g_last_raw_state, 0, sizeof(g_last_raw_state));
+
   const uint8_t point_count = (uint8_t)(status & kTouchCountMask);
   out_state->home_pressed =
-      (status & kReadyMask) != 0U && (status & kHomeKeyMask) != 0U;
+      (status & kHomeKeyMask) != 0U;
   if (point_count == 0U) {
-    if ((status & kReadyMask) != 0U) {
-      (void)write_reg8(kRegStatus, 0);
-    }
+    (void)write_reg8(kRegStatus, 0);
     g_last_state = *out_state;
     g_last_raw_state = *out_state;
     return true;

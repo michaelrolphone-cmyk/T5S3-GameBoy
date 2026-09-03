@@ -12,6 +12,10 @@ constexpr uint16_t kWidth = PAPERBOY_LOGICAL_WIDTH;
 constexpr uint16_t kHeight = PAPERBOY_LOGICAL_HEIGHT;
 constexpr uint16_t kPitch = PAPERBOY_LOGICAL_PITCH;
 constexpr uint32_t kActionDebounceMs = 120U;
+constexpr uint32_t kRomNavigationRepeatDelayMs = 500U;
+constexpr uint32_t kRomNavigationRepeatRateMs = 150U;
+constexpr uint32_t kRomNavigationActions =
+    PAPERBOY_ACTION_ROM_PREVIOUS | PAPERBOY_ACTION_ROM_NEXT;
 
 struct Rect {
   int x;
@@ -37,6 +41,15 @@ constexpr Rect kBatteryRect = {30, 150, 480, 120};
 constexpr Rect kSdCardRect = {30, 290, 480, 120};
 constexpr Rect kAboutRect = {30, 430, 480, 120};
 constexpr Rect kRefreshRect = {170, 826, 200, 48};
+constexpr Rect kAudioEngineRect = {20, 158, 500, 52};
+constexpr Rect kRomPreviousRect = {20, 686, 156, 54};
+constexpr Rect kRomNextRect = {192, 686, 156, 54};
+constexpr Rect kRomLaunchRect = {364, 686, 156, 54};
+constexpr Rect kLoadLastRect = {20, 762, 242, 54};
+constexpr Rect kSdRescanRect = {278, 762, 242, 54};
+constexpr int kRomListY = 224;
+constexpr int kRomRowStep = 68;
+constexpr int kRomRowHeight = 58;
 
 constexpr int kDpadX = 142;
 constexpr int kDpadY = 702;
@@ -49,8 +62,19 @@ constexpr int kButtonBY = 720;
 constexpr int kButtonRadius = 40;
 
 uint32_t g_last_action_mask = 0;
-uint32_t g_last_action_ms[10] = {0};
+uint32_t g_last_action_ms[16] = {0};
 bool g_ignore_actions_until_release = false;
+uint32_t g_rom_navigation_repeat_action = 0;
+uint32_t g_rom_navigation_repeat_next_ms = 0;
+
+void reset_rom_navigation_repeat() {
+  g_rom_navigation_repeat_action = 0U;
+  g_rom_navigation_repeat_next_ms = 0U;
+}
+
+bool deadline_reached(uint32_t now, uint32_t deadline) {
+  return static_cast<int32_t>(now - deadline) >= 0;
+}
 
 bool point_in_rect(uint16_t x, uint16_t y, const Rect &rect) {
   return x >= rect.x && x < (rect.x + rect.width) &&
@@ -111,8 +135,29 @@ uint32_t current_action_mask(const touch_state_t *touch, PaperboyPage page) {
       if (point_in_rect(x, y, kAboutRect)) {
         mask |= PAPERBOY_ACTION_ABOUT;
       }
-    } else if (page == PaperboyPage::Battery && point_in_rect(x, y, kRefreshRect)) {
-      mask |= PAPERBOY_ACTION_REFRESH;
+    } else if (page == PaperboyPage::Battery) {
+      if (point_in_rect(x, y, kRefreshRect)) {
+        mask |= PAPERBOY_ACTION_REFRESH;
+      }
+    } else if (page == PaperboyPage::SdCard) {
+      if (point_in_rect(x, y, kAudioEngineRect)) {
+        mask |= PAPERBOY_ACTION_AUDIO_ENGINE;
+      }
+      if (point_in_rect(x, y, kRomPreviousRect)) {
+        mask |= PAPERBOY_ACTION_ROM_PREVIOUS;
+      }
+      if (point_in_rect(x, y, kRomNextRect)) {
+        mask |= PAPERBOY_ACTION_ROM_NEXT;
+      }
+      if (point_in_rect(x, y, kRomLaunchRect)) {
+        mask |= PAPERBOY_ACTION_ROM_LAUNCH;
+      }
+      if (point_in_rect(x, y, kLoadLastRect)) {
+        mask |= PAPERBOY_ACTION_LOAD_LAST;
+      }
+      if (point_in_rect(x, y, kSdRescanRect)) {
+        mask |= PAPERBOY_ACTION_SD_RESCAN;
+      }
     }
   }
   return mask;
@@ -220,7 +265,7 @@ void draw_menu_item(
 
 void draw_settings_menu(uint8_t *framebuffer) {
   draw_menu_item(framebuffer, kBatteryRect, "BATTERY STATUS", "POWER AND CHARGE DETAILS");
-  draw_menu_item(framebuffer, kSdCardRect, "SD CARD", "GAME LIBRARY (COMING SOON)");
+  draw_menu_item(framebuffer, kSdCardRect, "SD CARD", "ROM LIBRARY AND SAVE FILES");
   draw_menu_item(framebuffer, kAboutRect, "ABOUT SYSTEM", "DEVICE AND SOFTWARE INFO");
   draw_centered_text(framebuffer, 650, "SELECT AN ITEM TO OPEN", 1);
 }
@@ -398,15 +443,79 @@ void draw_battery_page(
   draw_button_box(framebuffer, kRefreshRect, "REFRESH", false);
 }
 
-void draw_sd_card_page(uint8_t *framebuffer) {
-  mono_draw_frame(framebuffer, kPitch, kWidth, kHeight, 165, 190, 210, 260, 5, false);
-  mono_fill_rect(framebuffer, kPitch, kWidth, kHeight, 185, 190, 105, 42, false);
-  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 218, 292, "SD", 5, false);
-  draw_centered_text(framebuffer, 520, "SD CARD GAME LIBRARY", 2);
-  draw_centered_text(framebuffer, 570, "UI PLACEHOLDER IS READY", 1);
-  draw_centered_text(framebuffer, 610, "CARD ACCESS IS NOT IMPLEMENTED", 1);
-  mono_draw_frame(framebuffer, kPitch, kWidth, kHeight, 120, 690, 300, 62, 3, false);
-  draw_centered_text(framebuffer, 710, "COMING SOON", 2);
+void draw_sd_card_page(
+    uint8_t *framebuffer, const PaperboyRomLibraryView *library) {
+  const bool mounted = library != nullptr && library->mounted;
+  char line[96];
+
+  if (mounted) {
+    snprintf(
+        line, sizeof(line), "%u ROMS  %lu MB CARD",
+        static_cast<unsigned>(library->rom_count),
+        static_cast<unsigned long>(library->card_size_mb));
+  } else {
+    snprintf(line, sizeof(line), "SD CARD NOT MOUNTED");
+  }
+  draw_centered_text(framebuffer, 138, line, 1);
+
+  const char *engine =
+      library == nullptr || library->audio_engine == nullptr
+          ? "MUTE"
+          : library->audio_engine;
+  snprintf(
+      line, sizeof(line), "SOUND %s%s",
+      engine,
+      library != nullptr && library->audio_output_available ? "  GPIO" : "  NO SPEAKER");
+  draw_button_box(framebuffer, kAudioEngineRect, line, false);
+
+  if (!mounted) {
+    draw_centered_text(framebuffer, 330, "INSERT A FAT32 SD CARD", 2);
+    draw_centered_text(framebuffer, 380, "ROM FILES MAY BE IN ONE SUBFOLDER", 1);
+  } else if (library->rom_count == 0U) {
+    draw_centered_text(framebuffer, 330, "NO GB OR GBC FILES FOUND", 2);
+    draw_centered_text(framebuffer, 380, "ADD DMG COMPATIBLE ROM FILES", 1);
+  } else {
+    for (uint8_t row = 0; row < PAPERBOY_ROM_ROWS_VISIBLE; ++row) {
+      const uint16_t rom_index = static_cast<uint16_t>(library->first_visible + row);
+      const char *name = library->visible_names[row];
+      if (rom_index >= library->rom_count || name == nullptr) {
+        continue;
+      }
+
+      const Rect row_rect = {30, kRomListY + (row * kRomRowStep), 480, kRomRowHeight};
+      const bool selected = rom_index == library->selection;
+      mono_fill_rect(
+          framebuffer, kPitch, kWidth, kHeight,
+          row_rect.x, row_rect.y, row_rect.width, row_rect.height,
+          !selected);
+      mono_draw_frame(
+          framebuffer, kPitch, kWidth, kHeight,
+          row_rect.x, row_rect.y, row_rect.width, row_rect.height, 2,
+          selected);
+
+      snprintf(
+          line, sizeof(line), "%02u %s",
+          static_cast<unsigned>(rom_index + 1U), name);
+      line[37] = '\0';
+      mono_draw_text(
+          framebuffer, kPitch, kWidth, kHeight,
+          row_rect.x + 14, row_rect.y + 19, line, 2, selected);
+    }
+  }
+
+  draw_button_box(framebuffer, kRomPreviousRect, "PREV", false);
+  draw_button_box(framebuffer, kRomNextRect, "NEXT", false);
+  draw_button_box(framebuffer, kRomLaunchRect, "PLAY", false);
+  draw_button_box(framebuffer, kLoadLastRect, "LOAD LAST", false);
+  draw_button_box(framebuffer, kSdRescanRect, "RESCAN", false);
+
+  if (library != nullptr && library->status != nullptr && library->status[0] != '\0') {
+    draw_centered_text(framebuffer, 838, library->status, 1);
+  } else if (library != nullptr && library->has_last_snapshot) {
+    draw_centered_text(framebuffer, 838, "LOAD LAST RESTORES THE SAVED SNAPSHOT", 1);
+  } else {
+    draw_centered_text(framebuffer, 838, "SAVE CREATES SAV AND STATE BESIDE THE ROM", 1);
+  }
 }
 
 void draw_about_page(
@@ -418,7 +527,7 @@ void draw_about_page(
   draw_value_row(framebuffer, 180, "DEVICE", "LILYGO T5S3 PRO");
   draw_value_row(framebuffer, 240, "MCU", "ESP32-S3");
   draw_value_row(framebuffer, 300, "DISPLAY", "4.7 IN 960x540 EPD");
-  draw_value_row(framebuffer, 360, "EMULATOR", "PEANUT-GB / DMG");
+  draw_value_row(framebuffer, 360, "EMULATOR", "CRANKBOY / DMG");
   snprintf(value, sizeof(value), "%u MB", static_cast<unsigned>(ESP.getFlashChipSize() / (1024U * 1024U)));
   draw_value_row(framebuffer, 420, "FLASH", value);
   snprintf(value, sizeof(value), "%u MB", static_cast<unsigned>(ESP.getPsramSize() / (1024U * 1024U)));
@@ -436,10 +545,12 @@ void paperboy_ui_init() {
   g_last_action_mask = 0;
   memset(g_last_action_ms, 0, sizeof(g_last_action_ms));
   g_ignore_actions_until_release = false;
+  reset_rom_navigation_repeat();
 }
 
 void paperboy_ui_on_page_changed() {
   g_ignore_actions_until_release = true;
+  reset_rom_navigation_repeat();
 }
 
 uint8_t paperboy_ui_map_buttons(const touch_state_t *touch) {
@@ -484,7 +595,7 @@ uint8_t paperboy_ui_map_buttons(const touch_state_t *touch) {
 }
 
 uint32_t paperboy_ui_map_actions(const touch_state_t *touch, PaperboyPage page) {
-  static const uint32_t kActionBits[10] = {
+  static const uint32_t kActionBits[] = {
       PAPERBOY_ACTION_POWER,
       PAPERBOY_ACTION_SAVE,
       PAPERBOY_ACTION_LOAD,
@@ -495,21 +606,36 @@ uint32_t paperboy_ui_map_actions(const touch_state_t *touch, PaperboyPage page) 
       PAPERBOY_ACTION_SD_CARD,
       PAPERBOY_ACTION_ABOUT,
       PAPERBOY_ACTION_REFRESH,
+      PAPERBOY_ACTION_ROM_PREVIOUS,
+      PAPERBOY_ACTION_ROM_NEXT,
+      PAPERBOY_ACTION_ROM_LAUNCH,
+      PAPERBOY_ACTION_LOAD_LAST,
+      PAPERBOY_ACTION_AUDIO_ENGINE,
+      PAPERBOY_ACTION_SD_RESCAN,
   };
   const uint32_t now = millis();
-  const uint32_t current = current_action_mask(touch, page);
+  const uint32_t raw_current = current_action_mask(touch, page);
+  const uint32_t raw_navigation = raw_current & kRomNavigationActions;
+  const uint32_t held_navigation =
+      (raw_navigation == PAPERBOY_ACTION_ROM_PREVIOUS ||
+       raw_navigation == PAPERBOY_ACTION_ROM_NEXT)
+          ? raw_navigation
+          : 0U;
+  const uint32_t current =
+      (raw_current & ~kRomNavigationActions) | held_navigation;
   uint32_t fired = 0;
 
   if (g_ignore_actions_until_release) {
+    reset_rom_navigation_repeat();
     g_last_action_mask = current;
-    if (current == 0U) {
+    if (raw_current == 0U) {
       g_ignore_actions_until_release = false;
       g_last_action_mask = 0U;
     }
     return 0U;
   }
 
-  for (uint8_t i = 0; i < 10U; ++i) {
+  for (uint8_t i = 0; i < (sizeof(kActionBits) / sizeof(kActionBits[0])); ++i) {
     const uint32_t bit = kActionBits[i];
     if ((current & bit) != 0U && (g_last_action_mask & bit) == 0U &&
         (now - g_last_action_ms[i]) >= kActionDebounceMs) {
@@ -517,6 +643,18 @@ uint32_t paperboy_ui_map_actions(const touch_state_t *touch, PaperboyPage page) 
       g_last_action_ms[i] = now;
     }
   }
+
+  if (held_navigation != PAPERBOY_ACTION_ROM_PREVIOUS &&
+      held_navigation != PAPERBOY_ACTION_ROM_NEXT) {
+    reset_rom_navigation_repeat();
+  } else if (g_rom_navigation_repeat_action != held_navigation) {
+    g_rom_navigation_repeat_action = held_navigation;
+    g_rom_navigation_repeat_next_ms = now + kRomNavigationRepeatDelayMs;
+  } else if (deadline_reached(now, g_rom_navigation_repeat_next_ms)) {
+    fired |= held_navigation;
+    g_rom_navigation_repeat_next_ms = now + kRomNavigationRepeatRateMs;
+  }
+
   g_last_action_mask = current;
   return fired;
 }
@@ -544,7 +682,8 @@ void paperboy_ui_draw_dynamic(
     uint8_t buttons,
     bool power_on,
     bool save_available,
-    const PaperboyBatteryStatus *battery) {
+    const PaperboyBatteryStatus *battery,
+    const char *notice) {
   if (framebuffer == nullptr) {
     return;
   }
@@ -562,6 +701,21 @@ void paperboy_ui_draw_dynamic(
   draw_button_box(framebuffer, kStartRect, "", (buttons & GBEMU_INPUT_START) != 0U);
   draw_main_battery_indicator(framebuffer, battery);
   draw_button_box(framebuffer, kSettingsButtonRect, "SETTING", false);
+
+  const bool low_battery =
+      power_on && battery != nullptr && battery->low_battery;
+  if (low_battery) {
+    mono_fill_rect(
+        framebuffer, kPitch, kWidth, kHeight,
+        PAPERBOY_GAME_X, PAPERBOY_GAME_Y, GBEMU_FRAME_WIDTH, 38, false);
+    mono_draw_text(
+        framebuffer, kPitch, kWidth, kHeight,
+        168, PAPERBOY_GAME_Y + 11, "!! LOW BATTERY !!", 2, true);
+  } else if (notice != nullptr && notice[0] != '\0') {
+    mono_draw_text(
+        framebuffer, kPitch, kWidth, kHeight,
+        250, 548, notice, 1, true);
+  }
 }
 
 void paperboy_ui_draw_page(
@@ -570,7 +724,8 @@ void paperboy_ui_draw_page(
     const PaperboyBatteryStatus *battery,
     const char *firmware_version,
     const char *rom_title,
-    bool touch_available) {
+    bool touch_available,
+    const PaperboyRomLibraryView *rom_library) {
   if (framebuffer == nullptr || page == PaperboyPage::Game) {
     return;
   }
@@ -588,7 +743,7 @@ void paperboy_ui_draw_page(
       break;
     case PaperboyPage::SdCard:
       draw_settings_header(framebuffer, "SD CARD");
-      draw_sd_card_page(framebuffer);
+      draw_sd_card_page(framebuffer, rom_library);
       break;
     case PaperboyPage::About:
       draw_settings_header(framebuffer, "ABOUT SYSTEM");

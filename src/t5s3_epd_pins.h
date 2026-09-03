@@ -16,6 +16,10 @@ static constexpr uint16_t kActiveHeight = 540;
 
 static constexpr uint8_t kI2cSda = 39;
 static constexpr uint8_t kI2cScl = 40;
+static constexpr uint8_t kSdMiso = 21;
+static constexpr uint8_t kSdMosi = 13;
+static constexpr uint8_t kSdSck = 14;
+static constexpr uint8_t kSdCs = 12;
 static constexpr uint8_t kTouchInt = 3;
 static constexpr uint8_t kTouchRst = 9;
 static constexpr uint8_t kBootButton = 0;

@@ -8,7 +8,26 @@ namespace {
 
 const uint8_t *glyph_for(char ch) {
   static const uint8_t kBlank[5] = {0x00, 0x00, 0x00, 0x00, 0x00};
+  static const uint8_t kExclamation[5] = {0x00, 0x00, 0x5F, 0x00, 0x00};
+  static const uint8_t kPercent[5] = {0x23, 0x13, 0x08, 0x64, 0x62};
+  static const uint8_t kApostrophe[5] = {0x00, 0x05, 0x03, 0x00, 0x00};
+  static const uint8_t kLeftParen[5] = {0x00, 0x1C, 0x22, 0x41, 0x00};
+  static const uint8_t kRightParen[5] = {0x00, 0x41, 0x22, 0x1C, 0x00};
+  static const uint8_t kPlus[5] = {0x08, 0x08, 0x3E, 0x08, 0x08};
+  static const uint8_t kComma[5] = {0x00, 0x50, 0x30, 0x00, 0x00};
   static const uint8_t kDash[5] = {0x08, 0x08, 0x08, 0x08, 0x08};
+  static const uint8_t kDot[5] = {0x00, 0x60, 0x60, 0x00, 0x00};
+  static const uint8_t kSlash[5] = {0x20, 0x10, 0x08, 0x04, 0x02};
+  static const uint8_t kColon[5] = {0x00, 0x36, 0x36, 0x00, 0x00};
+  static const uint8_t kLess[5] = {0x08, 0x14, 0x22, 0x41, 0x00};
+  static const uint8_t kEqual[5] = {0x14, 0x14, 0x14, 0x14, 0x14};
+  static const uint8_t kGreater[5] = {0x00, 0x41, 0x22, 0x14, 0x08};
+  static const uint8_t kQuestion[5] = {0x02, 0x01, 0x51, 0x09, 0x06};
+  static const uint8_t kLeftBracket[5] = {0x00, 0x7F, 0x41, 0x41, 0x00};
+  static const uint8_t kBackslash[5] = {0x02, 0x04, 0x08, 0x10, 0x20};
+  static const uint8_t kRightBracket[5] = {0x00, 0x41, 0x41, 0x7F, 0x00};
+  static const uint8_t kUnderscore[5] = {0x40, 0x40, 0x40, 0x40, 0x40};
+  static const uint8_t kPipe[5] = {0x00, 0x00, 0x7F, 0x00, 0x00};
   static const uint8_t k0[5] = {0x3E, 0x51, 0x49, 0x45, 0x3E};
   static const uint8_t k1[5] = {0x00, 0x42, 0x7F, 0x40, 0x00};
   static const uint8_t k2[5] = {0x62, 0x51, 0x49, 0x49, 0x46};
@@ -47,8 +66,36 @@ const uint8_t *glyph_for(char ch) {
   static const uint8_t kZ[5] = {0x61, 0x51, 0x49, 0x45, 0x43};
 
   switch (toupper(static_cast<unsigned char>(ch))) {
+    case '!':
+      return kExclamation;
+    case '%':
+      return kPercent;
+    case '\'':
+      return kApostrophe;
+    case '(':
+      return kLeftParen;
+    case ')':
+      return kRightParen;
+    case '+':
+      return kPlus;
+    case ',':
+      return kComma;
     case '-':
       return kDash;
+    case '.':
+      return kDot;
+    case '/':
+      return kSlash;
+    case ':':
+      return kColon;
+    case '<':
+      return kLess;
+    case '=':
+      return kEqual;
+    case '>':
+      return kGreater;
+    case '?':
+      return kQuestion;
     case '0':
       return k0;
     case '1':
@@ -121,6 +168,16 @@ const uint8_t *glyph_for(char ch) {
       return kY;
     case 'Z':
       return kZ;
+    case '[':
+      return kLeftBracket;
+    case '\\':
+      return kBackslash;
+    case ']':
+      return kRightBracket;
+    case '_':
+      return kUnderscore;
+    case '|':
+      return kPipe;
     default:
       return kBlank;
   }

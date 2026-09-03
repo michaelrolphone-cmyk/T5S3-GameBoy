@@ -14,6 +14,10 @@ constexpr uint8_t kBq27220Address = 0x55;
 constexpr uint8_t kBq25896Address = 0x6B;
 constexpr uint32_t kI2cFrequencyHz = 400000U;
 constexpr uint32_t kChargerServicePeriodMs = 30000U;
+constexpr uint16_t kLowBatteryVoltageMv = 3500U;
+constexpr uint16_t kRecoveredBatteryVoltageMv = 3600U;
+constexpr uint16_t kLowBatterySocPercent = 10U;
+constexpr uint16_t kRecoveredBatterySocPercent = 12U;
 
 struct BatteryProfile {
   uint16_t input_limit_ma;
@@ -44,6 +48,7 @@ bool g_charger_found = false;
 bool g_gauge_found = false;
 bool g_charger_ready = false;
 bool g_gauge_ready = false;
+bool g_low_battery = false;
 uint32_t g_last_charger_service_ms = 0;
 bq25896_hal_esp_idf_ctx_t g_charger_hal = {};
 bq25896_t g_charger = {};
@@ -166,6 +171,38 @@ bool charger_config_matches_profile(const bq25896_charge_config_t &config) {
       config.termination_current_ma == kProfile.termination_current_ma &&
       config.charge_voltage_mv == kProfile.charge_voltage_mv &&
       config.sys_min_voltage_mv == kProfile.system_min_voltage_mv;
+}
+
+void update_low_battery_status(PaperboyBatteryStatus &status) {
+  if (status.usb_connected) {
+    g_low_battery = false;
+    status.low_battery = false;
+    return;
+  }
+
+  const bool voltage_available = status.voltage_mv > 0U;
+  const bool soc_available = status.gauge_read_ok;
+  if (!voltage_available && !soc_available) {
+    status.low_battery = false;
+    return;
+  }
+
+  const bool voltage_low =
+      voltage_available && status.voltage_mv < kLowBatteryVoltageMv;
+  const bool soc_low =
+      soc_available && status.soc_percent <= kLowBatterySocPercent;
+  if (!g_low_battery) {
+    g_low_battery = voltage_low || soc_low;
+  } else {
+    const bool voltage_recovered = !voltage_available ||
+        status.voltage_mv >= kRecoveredBatteryVoltageMv;
+    const bool soc_recovered = !soc_available ||
+        status.soc_percent > kRecoveredBatterySocPercent;
+    if (voltage_recovered && soc_recovered) {
+      g_low_battery = false;
+    }
+  }
+  status.low_battery = g_low_battery;
 }
 
 bool restore_charger_profile() {
@@ -354,6 +391,8 @@ bool battery_read_status(PaperboyBatteryStatus &status) {
       }
     }
   }
+
+  update_low_battery_status(status);
 
   return status.gauge_read_ok || status.charger_read_ok;
 }
