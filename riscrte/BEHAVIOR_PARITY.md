@@ -1,23 +1,23 @@
-# RiscRTE ELF conversion: behavior-preservation contract
+# RiscRTE GameBoy ELF: preserve the original application
 
-This conversion starts at `master`. The original `src/main.cpp`, `src/paperboy_storage.cpp`, `src/paperboy_ui.cpp`, `src/gbemu.c`, and their existing support modules are the implementation and behavioral reference. **Port their functionality; do not replace the application with a reduced demonstration.** PR #5 is superseded and none of its artifacts are approved for deployment. This file records acceptance criteria, not a declaration that the port is finished.
+This port starts from the intact standalone `master` implementation. `src/main.cpp`, `src/epd_video.cpp`, `src/paperboy_ui.cpp`, `src/paperboy_storage.cpp`, the original emulator and their support modules are the implementation reference, not examples to re-create with reduced functionality. Closed PR #5 and its binaries are superseded. This contract does not claim an ELF is ready.
 
-## Must preserve
+## Immediate compatibility approach
 
-- The existing home/game/library/settings pages, ROM browser visual presentation, list paging and selection, all original touch and button behavior, game launch, switching and exiting. Do not auto-launch the first ROM.
-- The existing ROM catalog semantics from `paperboy_storage_rescan()`: scan the SD root and one directory level, case-insensitive `.gb` and `.gbc` matching, sorted results, catalog capacity and file-size validation. `/Games` is one of the existing paths, not a new forced-only root. Preserve the built-in ROM fallback.
-- Game frame timing, monochrome/dithering and redraw behavior to the extent the host's display API permits; retain game layout and overlays.
-- The complete save semantics: cartridge RAM and RTC, existing canonical and legacy sidecar naming, memory quicksave, disk snapshots, save/restore actions, last-ROM preference and persistent configuration, including safe/atomic writes. Never silently discard a save or change its format.
-- Original audio controls and engine behavior through an explicitly supported host audio capability, if available. A muted build is not feature parity and must not be represented as complete.
-- Original battery, power, navigation and shutdown flows to the extent host-owned functionality can be delegated through public RiscRTE APIs. Identify and resolve any missing host capability rather than silently removing features.
+GameBoy is a privileged, board-specific ELF. It **may directly operate the T5S3 hardware** and use ESP-IDF, Arduino and board-specific APIs. Compliance with the future portable-app/provider architecture is not a prerequisite. Do not replace `epd_video.cpp` with `T5AppApi` rectangles, replace the original touch UI with a text menu, mute audio, drop persistence, or alter game pacing just because the native-app facade lacks a service. Do not build a thin firmware-hosted proxy for the GameBoy display driver. Compile and retain the original hardware implementation in the GameBoy ELF, making minimal, guarded ELF-specific changes only where required for linking, initialization and orderly teardown. Standalone firmware behavior must remain unchanged.
 
-## ELF/host requirements
+The short-term host exception is an **exclusive whole-display handoff**: after validating GameBoy's package and before `app_main`, RiscRTE stops rendering and releases its display backend, bus/DMA and shared panel ownership. GameBoy starts its own original display pipeline, independently drives the display for the duration of the app and stops its tasks/interrupts/DMA, frees panel handles and returns ownership before its ELF is unloaded. RiscRTE then reinitializes its backend and redraws the prior UI even if GameBoy initialization fails. Do not unload a module while tasks, callbacks or DMA still execute its code. A minimal compatibility change in the RiscRTE host is authorized for this temporary takeover; do not turn it into a full capability/driver-system migration or make it a general architectural prerequisite. Protect shared I2C/power peripherals from simultaneous ownership.
 
-- Inspect the actual headers and implementations for `T5AppApi`, `T5StorageApi`, and other needed public host APIs. Validate ABI version and struct size before calling optional members. Never guess at an ABI or copy an incomplete struct and assume it is complete.
-- Use host storage paths rooted at `/sd` and verify the directory enumeration-to-read path contract. ROM reads must support whole cartridge images through the host's stream API when the single-call read API imposes limits; check exact byte count and close streams on all paths.
-- Keep original source organization where possible, with ELF-only adapters for hardware access. Do not alter standalone firmware behavior. Any unavoidable capability gap is a documented blocker, not permission to delete the feature.
-- Keep Xtensa ELF sections and every relocation compatible with RiscRTE's section loader (including `.text` mapping of interpreter code), verify imports and avoid unbound hardware symbols. Build and validate in CI with explicit failures on unsupported sections and relocation targets.
+## Behavioral invariants
 
-## Acceptance before marking ready
+- Keep the original game, ROM browser, settings, battery, SD and about screens, layout, navigation, touch mapping, controls, overlays, audio and gaming frame timing. Never silently load the first ROM.
+- Keep the existing ROM scan (root plus first-level folders, including `/Games`), case-insensitive `.gb`/`.gbc`, sorted capped catalog, built-in fallback, error messages and ROM selection.
+- Preserve cartridge RAM and RTC, canonical and legacy save paths and formats, last-ROM preference, configuration, memory quicksave, disk states and atomic writes.
+- Preserve physical display performance by retaining the original `epd_video.cpp` raw scan, waveform, dirty-row, double-buffer and DMA implementation in the ELF.
+- Retain direct board interaction when essential, including touch, battery and audio. Avoid initializing shared SD or I2C hardware twice: use existing mounted VFS and shared-bus coordination where necessary, without changing the application's semantics.
+- Ensure ROM reads use the correct VFS path and exact byte count, with chunked streaming for large files; do not confuse directory display names with absolute read paths. All opened resources close on failure and success.
+- Build a valid Xtensa ET_DYN module, verify every imported symbol and relocation, and fail CI if a required ESP-IDF/Arduino symbol is unavailable. Allow practical host export additions for this compatibility app.
 
-Check original-vs-ELF parity feature by feature, exercise ROM catalog selection with multiple ROMs including `.gbc` and nested first-level folders, load multi-bank ROMs with exact-read checks, verify save/restore compatibility and persistence, and confirm UI/control/audio/power behavior on hardware. Compiler success alone is not functional verification. Keep the replacement PR in draft until these criteria pass; do not merge without explicit user permission. No changes to the RiscRTE repository are authorized as part of this PR.
+## Definition of ready
+
+Produce a real ELF, not just a plan or an independently compiling test library. CI must build the original application sources into the ELF and test loader symbols/relocations plus ROM and save behavior. On device, verify launch, browser and multiple ROMs, high-speed display, audio, controls, save/load, clean exit and successful return to RiscRTE. Compilation is not hardware validation. Keep PR #7 draft and unmerged until tested; the owner controls merging.
