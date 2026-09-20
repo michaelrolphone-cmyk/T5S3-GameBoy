@@ -251,7 +251,9 @@ bool paperboy_storage_load_rom(const char *path, PaperboyRomData &out) {
   info.size_bytes = static_cast<uint32_t>(size);
   const gameboy_rom_result_t result = gameboy_rom_read_exact(&kRomHost, &info, data, size);
   if (result != GAMEBOY_ROM_OK) { heap_caps_free(data); set_error(PaperboyStorageError::ReadFailed); return false; }
-  out = {data, size, psram};
+  out.data = data;
+  out.size = size;
+  out.in_psram = psram;
   set_error(PaperboyStorageError::None);
   return true;
 }
