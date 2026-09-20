@@ -141,17 +141,15 @@ extern "C" void paperboy_elf_console_task(void *unused) {
 extern "C" __attribute__((visibility("default"))) void app_main() {
   s_elf_exit_requested = false;
   s_elf_boot_interrupt_attached = false;
-  // Directory listing is only obtainable on the host session task. Attach
-  // the RiscRTE SD catalog here so setup() on the worker sees real ROMs.
-  if (!paperboy_storage_begin()) {
-    ESP_LOGW(kTag, "host storage attach failed; ROM list will use builtin demo");
-  }
+  // t5_app_get_api() is bound to this task. Do not scan ROMs here: the
+  // catalog object is ~25 KB and overflows loopTask.
+  paperboy_storage_bind_host();
   s_elf_owner_task = xTaskGetCurrentTaskHandle();
   TaskHandle_t console_task = nullptr;
   const BaseType_t task_result = xTaskCreatePinnedToCore(
       paperboy_elf_console_task,
       "gameboy_console",
-      20480,
+      32768,
       nullptr,
       2,
       &console_task,
