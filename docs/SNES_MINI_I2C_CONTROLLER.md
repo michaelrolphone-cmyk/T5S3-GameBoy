@@ -1,34 +1,34 @@
-# Nintendo SNES/NES Classic Mini controller over I2C
+# SNES/NES Classic Mini I2C controller
 
-This firmware supports the **SNES Classic Mini / NES Classic Mini I2C controller**, which uses the Wii-extension-style connector. A **1990s original SNES controller is not I2C** and cannot be connected directly. Use a suitable Wii-extension breakout or a correctly wired adapter; the controller's physical connector does not directly fit the T5S3 board header.
+The supported controller is the SNES/NES **Classic Mini** Wii-extension style I2C gamepad, address `0x52`, **not** an original 1990s SNES serial controller. A correctly labeled Wii-extension breakout/adapter is required.
 
-## Wiring
+## Wiring (board and controller powered off)
 
-Connect the controller breakout to the T5S3 Pro's bottom I2C header, checking the actual connector orientation/pin labels before powering either device:
-
-| SNES Mini breakout | T5S3 Pro header |
+| Controller breakout | T5S3 E-Paper Pro |
 | --- | --- |
 | SDA | GPIO39 / SDA |
 | SCL | GPIO40 / SCL |
-| VCC | **3.3 V only** |
+| VCC | **3.3 V, never 5 V** |
 | GND | GND |
 
-**Do not use 5 V.** Do not assume a cable's conductor order or connect the legacy SNES plug to this header. The onboard PCA9535 is at `0x20`; the controller is at `0x52`. They share SDA/SCL, but each has its own slave address. The firmware already initializes the board `Wire` bus at 400 kHz and the driver reuses it without a second `Wire.begin()` or a whole-bus scan.
+Check the *actual connector labels and orientation*, not conductor color or apparent pin order. Power off before changing wires. The controller and board share GPIO39/40 with the PCA9535 (`0x20`), touchscreen, RTC and battery devices. If the controller pulls SDA or SCL low, it can stop all those peripherals. Software cannot overcome a shorted, miswired or improperly powered shared bus.
 
-## Operation
+## Operation and freeze protection
 
-- Connect the controller, open/play a Game Boy ROM, and use the physical D-pad, A/B, Start and Select. SNES X is an additional Game Boy A button; SNES Y is an additional Game Boy B button. L/R are ignored because the original Game Boy has no shoulder buttons.
-- The touchscreen stays active: its buttons are ORed with the controller's button mask each emulated frame. The physical controller affects gameplay, not Settings navigation or power/shutdown.
-- The driver probes only `0x52` (once per second while absent). On detection it sends `F0 55` and `FB 00` initialization, requests register `00`, reads six bytes, and decodes the active-low buttons in bytes 4 and 5. It polls no faster than every 16 ms and uses a 2 ms report settling interval.
-- Short reads, invalid reports and unplugging release all buttons immediately and initiate a new probe after a second. Connection and disconnection are logged at 115200 baud with the `snes_mini` tag. No SD configuration or new library dependency is necessary.
+The controller is optional. It sends the `F0 55` and `FB 00` handshake to `0x52`, then selects register `00` and decodes six-byte reports, using the last two active-low bytes. SNES X/Y additionally map to Game Boy A/B; L/R have no Game Boy equivalent. Touchscreen and controller buttons are combined; menus and power remain touch-controlled.
 
-Protocol and mapping reference: Albert Gonzalez, [Connecting a (S)NES Mini controller to an Arduino](https://albertgonzalez.coffee/projects/snes_mini_arduino/) and his [published SNES/NES Mini controller driver](https://github.com/theisolinearchip/nesmini_usb_adapter/blob/main/nesminicontrollerdrv.c).
+Controller transactions now run in a low-priority FreeRTOS worker on the other core. The emulator reads only an atomic cached byte, without synchronously calling the controller's I2C or waiting through handshake delays. Failed reads immediately release buttons and retry after one second. Diagnostics are rate-limited and include transaction stage, return code, elapsed time and physical SDA39/SCL40 levels. The gamepad never scans the shared bus or reinitializes it. The driver uses `Wire.setTimeOut(15)` to bound shared I2C transactions; `Wire.setTimeout()` is an unrelated Stream timeout.
 
-## Hardware validation
+**The actual observed failure:** `Wire.cpp:499 i2cWriteReadNonStop returned Error 263` means `ESP_ERR_TIMEOUT` (`0x107`). The simultaneous touchscreen and BQ27220 errors show other devices on the *shared* bus also failing; on the SD-card page (`page=3`), the controller input path does not execute. Thus the failure is not established to be within the controller poller. A stuck/busy bus, incorrect wiring, inadequate pull-ups, power collapse or electrical contention must be ruled out before assuming software can fix it. EPD scan output can continue even when input and battery reads have timed out.
 
-1. With no controller connected, boot and verify touchscreen, RTC, battery status and display still work, with no continuous controller I2C traffic or log spam.
-2. Attach the controller using the labeled 3.3 V/GND/SDA/SCL signals. Start a ROM and verify all four D-pad directions and A/B/Start/Select. Hold multiple buttons simultaneously. Test X/Y aliases if using an SNES Mini pad.
-3. While holding a direction, unplug the controller. Confirm movement stops and touchscreen controls remain responsive; reattach and confirm automatic reconnection within about one second.
-4. Verify periodic battery polling, EPD refresh and the existing PCA9535 power button continue to function while the controller is connected.
+## Hardware fault isolation
 
-The PlatformIO build can validate compilation and artifact creation, but real controller communication and connector pinout require an on-device test.
+1. Disconnect the controller and restart. Confirm touch and battery readings return to normal.
+2. With power **off**, compare the physical I2C header pin labels to the controller breakout. Confirm 3.3 V/GND are not swapped, and SDA/SCL are not reversed; verify the controller's connector pins are indeed Wii-extension I2C, not a legacy SNES pad.
+3. If possible, measure idle SDA and SCL: both should sit near 3.3 V. A line held near zero while the controller is connected indicates a bus fault. Confirm the 3.3-V rail also remains stable.
+4. Only after wiring is verified, reconnect and review the rate-limited `snes_mini` serial diagnostics. `SDA39=0` or `SCL40=0` indicates the line is held low at the sample instant. If both are high but reads still time out, check the adapter pull-ups, connector, bus frequency and signal integrity.
+5. Test gameplay buttons, hot-unplug release and reconnection while verifying touchscreen, power button, display and battery continue to work. Do not switch individual wires under power.
+
+Protocol reference: Albert Gonzalez, [SNES Mini controller to Arduino](https://albertgonzalez.coffee/projects/snes_mini_arduino/) and his [driver](https://github.com/theisolinearchip/nesmini_usb_adapter/blob/main/nesminicontrollerdrv.c).
+
+PlatformIO compilation is not a substitute for physical bus validation.
