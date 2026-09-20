@@ -7,12 +7,18 @@
  * INSERT supplies explicit input patterns to the toolchain's normal shared
  * object linker script, retaining dynamic symbol and relocation metadata
  * and standard ET_DYN machinery rather than replacing the complete script.
+ * Use .dynamic as the insertion anchor: it is supplied by the shared-object
+ * default script and is not redefined here. Anchoring to our own .text
+ * definition makes Xtensa ld fail with ".text not found for insert".
  */
+ENTRY(app_main)
 SECTIONS
 {
-  .text :
+  .text : ALIGN(4)
   {
+    *(.literal .literal.* .gnu.linkonce.literal.*)
     *(.text .text.* .gnu.linkonce.t.*)
+    *(.plt .plt.*)
     *(.iram1 .iram1.*)
   }
   .rodata :
@@ -29,4 +35,4 @@ SECTIONS
     *(.got .got.*)
     *(.data .data.* .gnu.linkonce.d.*)
   }
-} INSERT AFTER .text;
+} INSERT BEFORE .dynamic;
