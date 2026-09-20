@@ -43,9 +43,7 @@ def stage(destination: Path) -> None:
                       '  (void)save_current_persist(true);\n  audio_deinit();\n}',
                       'console return')
     main = patch_once(main, '  Serial.begin(115200);\n  delay(1500);',
-                      '  // Serial belongs to RiscRTE and must not be reinitialized.\n'
-                      '  ESP_LOGI(kTag, "ELF worker watermark=%u", '
-                      '(unsigned)uxTaskGetStackHighWaterMark(nullptr));',
+                      '  // Serial belongs to RiscRTE and must not be reinitialized.',
                       'serial ownership')
     main = patch_once(main, '  (void)esp_register_shutdown_handler(on_shutdown);',
                       '  // An ELF must not register a shutdown callback pointing into unloadable code.',
@@ -117,7 +115,7 @@ extern "C" __attribute__((visibility("default"))) int app_module_init() {
 }
 
 extern "C" __attribute__((visibility("default"))) void app_module_fini() {
-  for (PaperboyInitFunction *fn = __app_dtors_start; fn != __app_dtors_end; ++fn) {
+  for (PaperboyInitFunction *fn = __app_dtors_start; fn != __app_fini_array_end; ++fn) {
     if (*fn != nullptr) (*fn)();
   }
   for (PaperboyInitFunction *fn = __app_fini_array_end; fn != __app_fini_array_start;) {
@@ -131,6 +129,7 @@ extern "C" __attribute__((visibility("default"))) void app_module_fini() {
 // run_console() on the host task trips the stack canary during night_light/UI init.
 extern "C" void paperboy_elf_console_task(void *unused) {
   (void)unused;
+  ESP_LOGI(kTag, "ELF worker watermark=%u", (unsigned)uxTaskGetStackHighWaterMark(nullptr));
   setup();
   TaskHandle_t owner = s_elf_owner_task;
   s_elf_owner_task = nullptr;
@@ -212,14 +211,12 @@ extern "C" __attribute__((visibility("default"))) void app_main() {
   // RiscRTE does: otherwise esp_lcd_new_i80_bus() fails during host resume.
   if (g_panel_io != nullptr) {
     const esp_err_t rc = esp_lcd_panel_io_del(g_panel_io);
-    if (rc != ESP_OK) { ESP_LOGE(kTag, "panel IO release: %s", esp_err_to_name(rc)); abort();
-    }
+    if (rc != ESP_OK) { ESP_LOGE(kTag, "panel IO release: %s", esp_err_to_name(rc)); abort(); }
     g_panel_io = nullptr;
   }
   if (g_i80_bus != nullptr) {
     const esp_err_t rc = esp_lcd_del_i80_bus(g_i80_bus);
-    if (rc != ESP_OK) { ESP_LOGE(kTag, "i80 bus release: %s", esp_err_to_name(rc)); abort();
-    }
+    if (rc != ESP_OK) { ESP_LOGE(kTag, "i80 bus release: %s", esp_err_to_name(rc)); abort(); }
     g_i80_bus = nullptr;
   }
   release_allocations();
