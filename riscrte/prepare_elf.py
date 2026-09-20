@@ -115,7 +115,7 @@ extern "C" __attribute__((visibility("default"))) int app_module_init() {
 }
 
 extern "C" __attribute__((visibility("default"))) void app_module_fini() {
-  for (PaperboyInitFunction *fn = __app_dtors_start; fn != __app_fini_array_end; ++fn) {
+  for (PaperboyInitFunction *fn = __app_dtors_start; fn != __app_dtors_end; ++fn) {
     if (*fn != nullptr) (*fn)();
   }
   for (PaperboyInitFunction *fn = __app_fini_array_end; fn != __app_fini_array_start;) {
@@ -129,7 +129,6 @@ extern "C" __attribute__((visibility("default"))) void app_module_fini() {
 // run_console() on the host task trips the stack canary during night_light/UI init.
 extern "C" void paperboy_elf_console_task(void *unused) {
   (void)unused;
-  ESP_LOGI(kTag, "ELF worker watermark=%u", (unsigned)uxTaskGetStackHighWaterMark(nullptr));
   setup();
   TaskHandle_t owner = s_elf_owner_task;
   s_elf_owner_task = nullptr;
