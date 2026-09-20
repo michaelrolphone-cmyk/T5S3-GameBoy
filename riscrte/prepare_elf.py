@@ -36,14 +36,17 @@ def stage(destination: Path) -> None:
     main = patch_once(main, '        enter_power_off();',
                       '        paperboy_elf_request_exit();\n        continue;',
                       'long-press exit')
-    # run_console executes synchronously in the native-launch owner task.
-    # Deleting that task would kill RiscRTE instead of returning to the launcher.
+    # run_console executes on a dedicated ELF worker. Deleting the host owner
+    # task would kill RiscRTE instead of returning to the launcher.
     main = patch_once(main,
                       '  (void)save_current_persist(true);\n  audio_deinit();\n  vTaskDelete(nullptr);\n}',
                       '  (void)save_current_persist(true);\n  audio_deinit();\n}',
                       'console return')
     main = patch_once(main, '  Serial.begin(115200);\n  delay(1500);',
-                      '  // Serial belongs to RiscRTE and must not be reinitialized.',
+                      '  // Serial belongs to RiscRTE and must not be reinitialized.\n'
+                      '  ESP_LOGI(kTag, "ELF worker watermark=%u",
+'
+                      '           (unsigned)uxTaskGetStackHighWaterMark(nullptr));',
                       'serial ownership')
     main = patch_once(main, '  (void)esp_register_shutdown_handler(on_shutdown);',
                       '  // An ELF must not register a shutdown callback pointing into unloadable code.',
@@ -74,7 +77,7 @@ def stage(destination: Path) -> None:
     enter_idle("console task creation failed", "TASK ERROR", "CHECK INTERNAL RAM");
   }'''
     main = patch_once(main, task_block,
-                      '  // The ELF launcher must regain control when the player exits.\n'
+                      '  // Console work stays on the dedicated ELF worker created by app_main.\n'
                       '  run_console(nullptr);', 'synchronous console')
     main += '''\n\n// ELF-only entry points. Original UI, emulator, audio, storage, touch and
 // display sources remain in the module rather than being replaced by facades.
@@ -82,6 +85,7 @@ def stage(destination: Path) -> None:
 namespace {
 volatile bool s_elf_exit_requested = false;
 bool s_elf_boot_interrupt_attached = false;
+TaskHandle_t s_elf_owner_task = nullptr;
 }
 void paperboy_elf_request_exit() { s_elf_exit_requested = true; }
 bool paperboy_elf_exit_requested() { return s_elf_exit_requested; }
@@ -123,10 +127,39 @@ extern "C" __attribute__((visibility("default"))) void app_module_fini() {
   }
 }
 
+// RiscRTE invokes app_main on loopTask (16 KB, already holding launcher frames).
+// Standalone firmware already needed a 14 KB console task; running setup() plus
+// run_console() on the host task trips the stack canary during night_light/UI init.
+extern "C" void paperboy_elf_console_task(void *unused) {
+  (void)unused;
+  setup();
+  TaskHandle_t owner = s_elf_owner_task;
+  s_elf_owner_task = nullptr;
+  if (owner != nullptr) {
+    xTaskNotifyGive(owner);
+  }
+  vTaskDelete(nullptr);
+}
+
 extern "C" __attribute__((visibility("default"))) void app_main() {
   s_elf_exit_requested = false;
   s_elf_boot_interrupt_attached = false;
-  setup();  // Includes the complete, synchronously executed original console.
+  s_elf_owner_task = xTaskGetCurrentTaskHandle();
+  TaskHandle_t console_task = nullptr;
+  const BaseType_t task_result = xTaskCreatePinnedToCore(
+      paperboy_elf_console_task,
+      "gameboy_console",
+      20480,
+      nullptr,
+      2,
+      &console_task,
+      0);
+  if (task_result != pdPASS) {
+    s_elf_owner_task = nullptr;
+    ESP_LOGE(kTag, "ELF console task creation failed");
+  } else {
+    (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+  }
   if (s_elf_boot_interrupt_attached) {
     detachInterrupt(digitalPinToInterrupt(t5s3_epd::kBootButton));
     s_elf_boot_interrupt_attached = false;
@@ -155,18 +188,7 @@ extern "C" __attribute__((visibility("default"))) void app_main() {
   }
 
   wait_for_dma();'''
-    replacement_wait = '''  // A returning ELF must not leave a scan task executing its unloaded text.
-  // If a scan is stuck, fail closed instead of returning stale DMA callbacks
-  // to the firmware's newly initialized display backend.
-  for (uint16_t i = 0; i < 200 && g_scan_task != nullptr; ++i) {
-    vTaskDelay(pdMS_TO_TICKS(10));
-  }
-  if (g_scan_task != nullptr) {
-    ESP_LOGE(kTag, "scan task did not stop; refusing unsafe ELF unload");
-    abort();
-  }
-  vTaskDelay(1);  // Allow scan_task's final vTaskDelete(nullptr) to complete.
-  wait_for_dma();'''
+    replacement_wait = '''  // A returning ELF must not leave a scan task executing its unloaded text.\n  // If a scan is stuck, fail closed instead of returning stale DMA callbacks\n  // to the firmware's newly initialized display backend.\n  for (uint16_t i = 0; i < 200 && g_scan_task != nullptr; ++i) {\n    vTaskDelay(pdMS_TO_TICKS(10));\n  }\n  if (g_scan_task != nullptr) {\n    ESP_LOGE(kTag, "scan task did not stop; refusing unsafe ELF unload");\n    abort();\n  }\n  vTaskDelay(1);  // Allow scan_task's final vTaskDelete(nullptr) to complete.\n  wait_for_dma();'''
     epd = patch_once(epd, original_wait, replacement_wait, 'scan-task join')
     original_tail = '''  if (g_expander != nullptr) {
     g_expander->safeShutdownOutputs();

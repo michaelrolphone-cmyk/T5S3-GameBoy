@@ -22,6 +22,10 @@ with tempfile.TemporaryDirectory() as tmp:
                    'refresh_current_page(', 'battery_read_status('):
         assert symbol in original and symbol in staged, symbol
     assert 'run_console(nullptr);' in staged
+    assert 'paperboy_elf_console_task' in staged
+    assert 'ulTaskNotifyTake(pdTRUE, portMAX_DELAY)' in staged
+    assert 'xTaskCreatePinnedToCore(' in staged
+    assert '20480' in staged
     assert 'while (!paperboy_elf_exit_requested()) {' in staged
     assert 'paperboy_elf_request_exit();' in staged
     assert 'app_hardware_takeover()' in staged
