@@ -1,7 +1,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -27,19 +26,27 @@ static bool ends_with_gb(const char *name) {
     return false;
 }
 
+static bool make_rom_path(char *path, size_t cap, const char *name) {
+    const size_t dir_len = sizeof(ROM_DIR) - 1u;
+    const size_t name_len = strlen(name);
+    if (dir_len + 1u + name_len + 1u > cap) return false;
+    memcpy(path, ROM_DIR, dir_len);
+    path[dir_len] = '/';
+    memcpy(path + dir_len + 1u, name, name_len + 1u);
+    return true;
+}
+
 static bool find_first_rom(char *path, size_t cap, size_t *size_out) {
     t5_app_dirent_t ent;
     if (!g_app->dir_open || !g_app->dir_next || !g_app->dir_close) return false;
     if (!g_app->dir_open(ROM_DIR)) return false;
     bool found = false;
     while (g_app->dir_next(&ent)) {
-        if (!ent.is_directory && ent.size >= 0x150u && ent.size <= MAX_ROM_BYTES && ends_with_gb(ent.name)) {
-            int written = snprintf(path, cap, ROM_DIR "/%s", ent.name);
-            if (written > 0 && (size_t)written < cap) {
-                *size_out = (size_t)ent.size;
-                found = true;
-                break;
-            }
+        if (!ent.is_directory && ent.size >= 0x150u && ent.size <= MAX_ROM_BYTES &&
+            ends_with_gb(ent.name) && make_rom_path(path, cap, ent.name)) {
+            *size_out = (size_t)ent.size;
+            found = true;
+            break;
         }
     }
     g_app->dir_close();
@@ -60,9 +67,6 @@ static uint8_t input_mask(const t5_app_input_t *in) {
     if (in->buttons & T5_APP_BUTTON_UP) mask |= GBEMU_INPUT_UP;
     if (in->buttons & T5_APP_BUTTON_DOWN) mask |= GBEMU_INPUT_DOWN;
     if (in->buttons & T5_APP_BUTTON_CONFIRM) mask |= GBEMU_INPUT_A;
-
-    /* Touch supplies buttons not represented by the compatibility navigation ABI.
-       Bottom-left=B, bottom-middle=Select, bottom-right=Start. */
     if (in->tapped) {
         int32_t w = g_app->screen_width();
         int32_t h = g_app->screen_height();
@@ -102,9 +106,7 @@ __attribute__((visibility("default"))) void app_main(void) {
     g_storage = t5_storage_get_api(T5_STORAGE_API_VERSION);
     if (!g_app || !g_storage || !g_app->poll || !g_app->clear || !g_app->present ||
         !g_app->draw_text || !g_app->fill_rect || !g_app->screen_width || !g_app->screen_height ||
-        !g_storage->read_file) {
-        return;
-    }
+        !g_storage->read_file) return;
 
     char rom_path[256];
     size_t rom_size = 0;
@@ -134,7 +136,7 @@ __attribute__((visibility("default"))) void app_main(void) {
     }
 
     g_app->clear();
-    g_app->draw_text(8, 8, "GameBoy ELF - Confirm=A, touch bottom B/Select/Start");
+    g_app->draw_text(8, 8, "GameBoy ELF - Confirm=A; bottom touch B/Select/Start");
     g_app->present(true);
 
     uint32_t last_present = 0;
