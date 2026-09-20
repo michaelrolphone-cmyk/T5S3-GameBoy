@@ -2,6 +2,7 @@
  * export list. The existing host exports snprintf, not vsnprintf/strncmp;
  * keep these adaptations in this application, not in RiscRTE firmware. */
 #include <limits.h>
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdarg.h>
