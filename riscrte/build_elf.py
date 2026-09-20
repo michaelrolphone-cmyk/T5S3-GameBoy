@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import os
 import pathlib
 import shutil
@@ -38,20 +39,24 @@ if not any("GLOBAL" in line and "FUNC" in line and "UND" not in line and line.sp
            for line in symbols.splitlines() if line.strip()):
     raise SystemExit("gameboy.elf does not export app_main")
 
-allowed = {
-    "t5_app_get_api", "t5_storage_get_api", "malloc", "calloc", "realloc", "free",
-    "memset", "memcpy", "strlen", "clock_gettime", "puts", "printf",
-}
 undefined = set()
 for line in symbols.splitlines():
     fields = line.split()
     if len(fields) >= 8 and fields[4] == "GLOBAL" and fields[6] == "UND":
         undefined.add(fields[7])
-missing = sorted(undefined - allowed)
-if missing:
-    raise SystemExit("ELF imports symbols not exported by current RiscRTE app loader: " + ", ".join(missing))
 
-manifest = ROOT / "riscrte/gameboy.json"
-shutil.copyfile(manifest, OUT / "gameboy.json")
+contract_path = ROOT / "riscrte/riscrte-symbols.json"
+contract = json.loads(contract_path.read_text(encoding="utf-8"))
+required = {item["name"] for item in contract["required_exports"]}
+undeclared = sorted(undefined - required)
+unused = sorted(required - undefined)
+if undeclared:
+    raise SystemExit("ELF has undeclared RiscRTE imports: " + ", ".join(undeclared))
+if unused:
+    raise SystemExit("Symbol manifest contains imports no longer required by ELF: " + ", ".join(unused))
+
+app_manifest = ROOT / "riscrte/gameboy.json"
+shutil.copyfile(app_manifest, OUT / "gameboy.json")
+shutil.copyfile(contract_path, OUT / "riscrte-symbols.json")
 print(symbols)
-print(f"Built {output} with imports: {', '.join(sorted(undefined))}")
+print(f"Built {output} with exact declared imports: {', '.join(sorted(undefined))}")
