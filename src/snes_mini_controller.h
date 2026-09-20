@@ -2,9 +2,10 @@
 
 #include <stdint.h>
 
-// Optional SNES/NES Classic Mini controller on the *existing* board I2C bus:
-// GPIO39 SDA, GPIO40 SCL, 3.3 V, common ground, slave address 0x52.
-// This module never initializes/reconfigures Wire or touches other I2C slaves.
-// Safe to call once per emulated frame. Returns zero when absent or on error;
-// retries after disconnection and supports simultaneous touchscreen input.
+// SNES/NES Classic Mini controller on the existing GPIO39/GPIO40 Wire bus,
+// 3.3 V and common GND, I2C slave address 0x52 (not an original SNES pad).
+// This getter starts a low-priority polling task once; subsequent calls only
+// read an atomic cached button mask. It never runs I2C on the emulator frame
+// or touches other devices' registers. Returns zero until a valid report and
+// immediately after a failed report. Touchscreen input remains independent.
 uint8_t snes_mini_controller_buttons();
