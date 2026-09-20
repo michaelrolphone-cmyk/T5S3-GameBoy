@@ -16,9 +16,12 @@ SECTIONS
 {
   .text : ALIGN(4)
   {
-    *(.literal .literal.* .gnu.linkonce.literal.*)
-    *(.text .text.* .gnu.linkonce.t.*)
-    *(.plt .plt.*)
+    /* Xtensa PLT uses backward L32R loads into its own literal table.
+     * Preserve the toolchain's paired input order; .got.plt is code-local,
+     * unlike the ordinary .got collected in .data below. */
+    *(.got.plt* .plt*)
+    *(.literal .text .stub .literal.* .text.*
+      .gnu.linkonce.literal.* .gnu.linkonce.t.*.literal .gnu.linkonce.t.*)
     *(.iram1 .iram1.*)
   }
   .rodata :

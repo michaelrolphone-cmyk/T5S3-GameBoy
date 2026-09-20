@@ -77,6 +77,15 @@ jobs:
         env:
           RISCRTE_EXPORT_LIST: build/riscrte/host_exports.txt
         run: python riscrte/build_elf.py
+      - name: Validate ELF with the actual RiscRTE firmware validator
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror \
+            -I_riscrte/test/native_apps/stubs \
+            -I_riscrte/lib/elf_loader/include \
+            _riscrte/lib/elf_loader/src/esp_elf_validate.c \
+            _riscrte/test/native_apps/validate_test.c \
+            -o build/riscrte/validate-elf
+          build/riscrte/validate-elf dist/riscrte/gameboy.elf
       - name: Inspect real module
         run: |
           READELF="$HOME/.platformio/packages/toolchain-xtensa-esp32s3/bin/xtensa-esp32s3-elf-readelf"
