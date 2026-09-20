@@ -11,5 +11,8 @@
 void paperboy_elf_request_exit();
 bool paperboy_elf_exit_requested();
 void paperboy_elf_note_boot_interrupt_attached();
-// Captures t5_app_get_api()/t5_storage_get_api() on the host session task.
 void paperboy_storage_bind_host();
+// Run host dir/stream calls on the session owner (loopTask). Blocks until
+// the console worker requests exit.
+void paperboy_storage_owner_wait();
+void paperboy_storage_owner_note_console_done();

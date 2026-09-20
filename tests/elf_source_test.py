@@ -23,11 +23,12 @@ with tempfile.TemporaryDirectory() as tmp:
         assert symbol in original and symbol in staged, symbol
     assert 'run_console(nullptr);' in staged
     assert 'paperboy_elf_console_task' in staged
-    assert 'ulTaskNotifyTake(pdTRUE, portMAX_DELAY)' in staged
     assert 'xTaskCreatePinnedToCore(' in staged
     assert '32768' in staged
     assert 'paperboy_storage_bind_host();' in staged
     assert '(void)paperboy_storage_begin();' in staged
+    assert 'paperboy_storage_owner_wait();' in staged
+    assert 'paperboy_storage_owner_note_console_done();' in staged
     assert staged.find('paperboy_storage_bind_host();') < staged.find('(void)paperboy_storage_begin();') < staged.find('xTaskCreatePinnedToCore(')
     assert 'while (!paperboy_elf_exit_requested()) {' in staged
     assert 'paperboy_elf_request_exit();' in staged
