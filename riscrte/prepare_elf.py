@@ -77,6 +77,38 @@ extern "C" __attribute__((visibility("default"))) uint32_t app_hardware_takeover
   return T5_HARDWARE_TAKEOVER_DISPLAY;
 }
 
+using PaperboyInitFunction = void (*)();
+extern "C" PaperboyInitFunction __app_init_array_start[];
+extern "C" PaperboyInitFunction __app_init_array_end[];
+extern "C" PaperboyInitFunction __app_ctors_start[];
+extern "C" PaperboyInitFunction __app_ctors_end[];
+extern "C" PaperboyInitFunction __app_fini_array_start[];
+extern "C" PaperboyInitFunction __app_fini_array_end[];
+extern "C" PaperboyInitFunction __app_dtors_start[];
+extern "C" PaperboyInitFunction __app_dtors_end[];
+
+extern "C" __attribute__((visibility("default"))) int app_module_init() {
+  for (PaperboyInitFunction *fn = __app_init_array_start; fn != __app_init_array_end; ++fn) {
+    if (*fn != nullptr) (*fn)();
+  }
+  // GCC's legacy .ctors ABI executes entries in reverse link order.
+  for (PaperboyInitFunction *fn = __app_ctors_end; fn != __app_ctors_start;) {
+    --fn;
+    if (*fn != nullptr) (*fn)();
+  }
+  return 0;
+}
+
+extern "C" __attribute__((visibility("default"))) void app_module_fini() {
+  for (PaperboyInitFunction *fn = __app_dtors_start; fn != __app_dtors_end; ++fn) {
+    if (*fn != nullptr) (*fn)();
+  }
+  for (PaperboyInitFunction *fn = __app_fini_array_end; fn != __app_fini_array_start;) {
+    --fn;
+    if (*fn != nullptr) (*fn)();
+  }
+}
+
 extern "C" __attribute__((visibility("default"))) void app_main() {
   s_elf_exit_requested = false;
   setup();  // Includes the complete, synchronously executed original console.

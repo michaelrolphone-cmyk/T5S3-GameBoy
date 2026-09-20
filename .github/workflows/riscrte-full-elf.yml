@@ -76,6 +76,7 @@ jobs:
       - name: Compile and link all original GameBoy subsystems into a real ELF
         env:
           RISCRTE_EXPORT_LIST: build/riscrte/host_exports.txt
+          RISCRTE_HOST_ROOT: _riscrte
         run: python riscrte/build_elf.py
       - name: Validate ELF with the actual RiscRTE firmware validator
         run: |

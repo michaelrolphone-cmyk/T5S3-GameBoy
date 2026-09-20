@@ -26,6 +26,10 @@ OUT.mkdir(parents=True, exist_ok=True)
 SRC.mkdir(parents=True, exist_ok=True)
 stage(SRC)
 stage_core(SRC)
+HOST_ROOT = Path(os.environ.get('RISCRTE_HOST_ROOT', ROOT / '_riscrte')).resolve()
+HOST_INCLUDE = HOST_ROOT / 'lib/NativeApps/include'
+if not HOST_INCLUDE.joinpath('T5StorageApi.h').exists():
+    raise SystemExit(f'RiscRTE native API headers not found under {HOST_INCLUDE}')
 
 
 def run(cmd):
@@ -62,6 +66,11 @@ for required in ('src/main.cpp', 'src/epd_video.cpp', 'src/gbemu.c',
     if ROOT.joinpath(required).resolve() not in commands:
         raise SystemExit(f'Compilation database lacks original {required}')
 
+# Build the already regression-tested host catalog/stream adapter with the
+# exact C flags used by the original emulator core.
+commands[ROOT.joinpath('riscrte/rom_port.c').resolve()] = commands[
+    ROOT.joinpath('src/gbemu.c').resolve()]
+
 objects = []
 for source, entry in sorted(commands.items()):
     original_tokens = shlex.split(entry.get('command', '')) if entry.get('command') else list(entry['arguments'])
@@ -72,6 +81,7 @@ for source, entry in sorted(commands.items()):
         'src/main.cpp': SRC / 'main.cpp',
         'src/epd_video.cpp': SRC / 'epd_video.cpp',
         'src/gbemu.c': SRC / 'gbemu.c',
+        'src/paperboy_storage.cpp': ROOT / 'riscrte/paperboy_storage_host.cpp',
     }.get(relative.as_posix(), source)
     obj = BUILD / 'objects' / relative.with_suffix(relative.suffix + '.o')
     obj.parent.mkdir(parents=True, exist_ok=True)
@@ -88,18 +98,19 @@ for source, entry in sorted(commands.items()):
             continue
         if token in ('-MMD', '-MD', '-MP', '-c'):
             continue
-        if token in (entry['file'], str(source)) or (
+        entry_source = source_path(entry)
+        if token in (entry['file'], str(source), str(entry_source)) or (
             (token.endswith('.cpp') or token.endswith('.c'))
-            and Path(token).name == source.name
-            and (Path(token).is_absolute() and Path(token).resolve() == source
-                 or not Path(token).is_absolute() and (Path(entry['directory']) / token).resolve() == source)):
+            and (Path(token).is_absolute() and Path(token).resolve() == entry_source
+                 or not Path(token).is_absolute() and
+                    (Path(entry['directory']) / token).resolve() == entry_source)):
             continue
         tokens.append(token)
     tokens.extend([
         '-fPIC', '-mlongcalls', '-mtext-section-literals',
         '-fvisibility=hidden', '-ffunction-sections', '-fdata-sections',
         '-DPAPERBOY_RISCRTE_ELF=1', '-I' + str(ROOT / 'riscrte'),
-        '-I' + str(SRC), '-I' + str(ROOT / 'src'),
+        '-I' + str(SRC), '-I' + str(ROOT / 'src'), '-I' + str(HOST_INCLUDE),
         '-c', str(staged), '-o', str(obj),
     ])
     run(tokens)
@@ -128,7 +139,7 @@ if 'DYN (Shared object file)' not in header:
 # to map before publishing a manifest, package, or GitHub artifact.
 run([sys.executable, ROOT / 'riscrte/audit_elf_layout.py', output])
 symbols = subprocess.check_output([readelf, '--dyn-syms', '--wide', str(output)], text=True)
-for symbol in ('app_main', 'app_hardware_takeover'):
+for symbol in ('app_main', 'app_hardware_takeover', 'app_module_init', 'app_module_fini'):
     if not any(re.search(r'\bGLOBAL\s+DEFAULT\s+\d+\s+' + symbol + r'\s*$', line)
                for line in symbols.splitlines()):
         raise SystemExit(f'Missing default-visible exported {symbol}')

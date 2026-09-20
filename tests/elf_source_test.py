@@ -26,6 +26,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'paperboy_elf_request_exit();' in staged
     assert 'app_hardware_takeover()' in staged
     assert 'void app_main()' in staged
+    assert 'int app_module_init()' in staged
+    assert 'void app_module_fini()' in staged
     assert 'esp_deep_sleep_start();' in original
     assert '#ifndef PAPERBOY_RISCRTE_ELF' in staged
     assert 'esp_lcd_panel_io_tx_color' in epd_staged
