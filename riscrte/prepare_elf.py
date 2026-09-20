@@ -48,6 +48,18 @@ def stage(destination: Path) -> None:
     main = patch_once(main, '  (void)esp_register_shutdown_handler(on_shutdown);',
                       '  // An ELF must not register a shutdown callback pointing into unloadable code.',
                       'shutdown callback')
+    main = patch_once(
+        main,
+        '''  attachInterrupt(
+      digitalPinToInterrupt(t5s3_epd::kBootButton),
+      on_boot_button_falling,
+      FALLING);''',
+        '''  attachInterrupt(
+      digitalPinToInterrupt(t5s3_epd::kBootButton),
+      on_boot_button_falling,
+      FALLING);
+  paperboy_elf_note_boot_interrupt_attached();''',
+        'boot interrupt ownership')
     task_block = '''  const BaseType_t task_result = xTaskCreatePinnedToCore(
       run_console,
       "gameboy_console",
@@ -69,9 +81,11 @@ def stage(destination: Path) -> None:
 #ifdef PAPERBOY_RISCRTE_ELF
 namespace {
 volatile bool s_elf_exit_requested = false;
+bool s_elf_boot_interrupt_attached = false;
 }
 void paperboy_elf_request_exit() { s_elf_exit_requested = true; }
 bool paperboy_elf_exit_requested() { return s_elf_exit_requested; }
+void paperboy_elf_note_boot_interrupt_attached() { s_elf_boot_interrupt_attached = true; }
 
 extern "C" __attribute__((visibility("default"))) uint32_t app_hardware_takeover() {
   return T5_HARDWARE_TAKEOVER_DISPLAY;
@@ -111,8 +125,12 @@ extern "C" __attribute__((visibility("default"))) void app_module_fini() {
 
 extern "C" __attribute__((visibility("default"))) void app_main() {
   s_elf_exit_requested = false;
+  s_elf_boot_interrupt_attached = false;
   setup();  // Includes the complete, synchronously executed original console.
-  detachInterrupt(digitalPinToInterrupt(t5s3_epd::kBootButton));
+  if (s_elf_boot_interrupt_attached) {
+    detachInterrupt(digitalPinToInterrupt(t5s3_epd::kBootButton));
+    s_elf_boot_interrupt_attached = false;
+  }
   audio_deinit();
   paperboy_storage_end();
   epd_video_shutdown();  // Joins scan task and deletes LCD DMA/bus handles.

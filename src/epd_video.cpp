@@ -192,11 +192,27 @@ bool alloc_video_buffers() {
 }
 
 bool write_i2c_bytes(uint8_t address, const uint8_t *data, size_t size) {
-  Wire.beginTransmission(address);
-  if (Wire.write(data, size) != size) {
-    return false;
+  constexpr uint8_t kMaxAttempts = 50;
+  uint8_t last_error = 0xFFU;
+  for (uint8_t attempt = 1; attempt <= kMaxAttempts; ++attempt) {
+    Wire.beginTransmission(address);
+    if (Wire.write(data, size) == size) {
+      last_error = Wire.endTransmission();
+      if (last_error == 0U) {
+        if (attempt > 1U) {
+          ESP_LOGI(kTag, "I2C address 0x%02X became ready after %u attempts", address, attempt);
+        }
+        return true;
+      }
+    } else {
+      (void)Wire.endTransmission(true);
+      last_error = 0xFEU;
+    }
+    delay(2);
   }
-  return Wire.endTransmission() == 0;
+  ESP_LOGE(kTag, "I2C write address=0x%02X failed after %u attempts error=%u",
+           address, kMaxAttempts, last_error);
+  return false;
 }
 
 bool read_i2c_register(uint8_t address, uint8_t reg, uint8_t *data, size_t size) {

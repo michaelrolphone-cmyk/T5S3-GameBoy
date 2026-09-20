@@ -28,6 +28,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'void app_main()' in staged
     assert 'int app_module_init()' in staged
     assert 'void app_module_fini()' in staged
+    assert 'if (s_elf_boot_interrupt_attached)' in staged
+    assert 'paperboy_elf_note_boot_interrupt_attached();' in staged
     assert 'esp_deep_sleep_start();' in original
     assert '#ifndef PAPERBOY_RISCRTE_ELF' in staged
     assert 'esp_lcd_panel_io_tx_color' in epd_staged

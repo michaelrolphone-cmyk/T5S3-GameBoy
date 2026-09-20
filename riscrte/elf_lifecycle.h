@@ -10,3 +10,4 @@
 
 void paperboy_elf_request_exit();
 bool paperboy_elf_exit_requested();
+void paperboy_elf_note_boot_interrupt_attached();
