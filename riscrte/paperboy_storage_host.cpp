@@ -24,6 +24,50 @@ PaperboyStorageStatus g_status;
 bool g_scan_ok = false;
 gameboy_rom_catalog_t g_scan_catalog;
 
+// Requests retain the caller's buffers until the owner has completed the call.
+// Only the owner executes host APIs; cached API pointers do not grant a worker
+// the host session's task-owned authorization.
+struct OwnerRequest {
+  void (*execute)(void *);
+  void *context;
+  bool done;
+};
+TaskHandle_t g_owner_task = nullptr;
+OwnerRequest *g_owner_request = nullptr;
+bool g_console_done = false;
+
+template <typename Function>
+void on_owner(Function function) {
+  if (xTaskGetCurrentTaskHandle() == g_owner_task) {
+    function();
+    return;
+  }
+  OwnerRequest request{[](void *context) {
+    (*static_cast<Function *>(context))();
+  }, &function, false};
+  OwnerRequest *empty = nullptr;
+  while (!__atomic_compare_exchange_n(&g_owner_request, &empty, &request,
+                                      false, __ATOMIC_RELEASE, __ATOMIC_RELAXED)) {
+    empty = nullptr;
+    vTaskDelay(1);
+  }
+  xTaskNotifyGive(g_owner_task);
+  // Never time out with a live stack request or caller-owned buffer in flight.
+  while (!__atomic_load_n(&request.done, __ATOMIC_ACQUIRE)) vTaskDelay(1);
+}
+
+bool host_exists(const char *path) {
+  bool result = false;
+  on_owner([&] { result = g_storage->exists(path); });
+  return result;
+}
+
+bool host_write_atomic(const char *path, const void *data, size_t size) {
+  bool result = false;
+  on_owner([&] { result = g_storage->write_file_atomic(path, data, size); });
+  return result;
+}
+
 void set_error(PaperboyStorageError error) { g_status.error = error; }
 
 size_t bounded_length(const char *value, size_t limit) {
@@ -124,29 +168,39 @@ bool valid_config(const PaperboyStorageConfig &config) {
 }
 
 bool dir_open(const char *path) {
-  if (g_app->dir_open(path)) return true;
+  bool opened = false;
+  on_owner([&] { opened = g_app->dir_open(path); });
+  if (opened) return true;
   ESP_LOGE(kTag, "dir_open failed path=%s", path ? path : "?");
   return false;
 }
 
 bool dir_next(gameboy_dirent_t *entry) {
   t5_app_dirent_t native{};
-  if (!g_app->dir_next(&native)) return false;
+  bool found = false;
+  on_owner([&] { found = g_app->dir_next(&native); });
+  if (!found) return false;
   if (!copy_string(entry->name, sizeof(entry->name), native.name)) entry->name[0] = '\0';
   entry->size = native.size;
   entry->is_directory = native.is_directory;
   return true;
 }
 
-void dir_close() { g_app->dir_close(); }
+void dir_close() { on_owner([] { g_app->dir_close(); }); }
 
 gameboy_stream_t stream_open(const char *path, size_t *size) {
-  return g_storage->stream_open(path, size);
+  gameboy_stream_t result = GAMEBOY_INVALID_STREAM;
+  on_owner([&] { result = g_storage->stream_open(path, size); });
+  return result;
 }
 size_t stream_read(gameboy_stream_t stream, void *buffer, size_t capacity) {
-  return g_storage->stream_read(stream, buffer, capacity);
+  size_t result = 0U;
+  on_owner([&] { result = g_storage->stream_read(stream, buffer, capacity); });
+  return result;
 }
-void stream_close(gameboy_stream_t stream) { g_storage->stream_close(stream); }
+void stream_close(gameboy_stream_t stream) {
+  on_owner([&] { g_storage->stream_close(stream); });
+}
 
 const gameboy_rom_host_t kRomHost = {
     dir_open, dir_next, dir_close, stream_open, stream_read, stream_close, nullptr};
@@ -155,28 +209,47 @@ bool read_host_file(const char *path, void *buffer, size_t capacity, size_t &siz
   size_out = 0U;
   char translated[PAPERBOY_STORAGE_PATH_MAX + 4U];
   if (!host_path(path, translated, sizeof(translated))) return false;
-  const t5_storage_stream_t stream = g_storage->stream_open(translated, &size_out);
+  const t5_storage_stream_t stream = stream_open(translated, &size_out);
   if (stream == T5_STORAGE_STREAM_INVALID) return false;
   if (size_out > capacity || (size_out && !buffer)) {
-    g_storage->stream_close(stream);
+    stream_close(stream);
     return false;
   }
   size_t offset = 0U;
   while (offset < size_out) {
     const size_t remaining = size_out - offset;
     const size_t chunk = remaining < GAMEBOY_ROM_READ_CHUNK ? remaining : GAMEBOY_ROM_READ_CHUNK;
-    const size_t count = g_storage->stream_read(
+    const size_t count = stream_read(
         stream, static_cast<uint8_t *>(buffer) + offset, chunk);
-    if (!count || count > chunk) { g_storage->stream_close(stream); return false; }
+    if (!count || count > chunk) { stream_close(stream); return false; }
     offset += count;
     yield();
   }
-  g_storage->stream_close(stream);
+  stream_close(stream);
   return true;
 }
 }  // namespace
 
+void paperboy_storage_owner_note_console_done() {
+  __atomic_store_n(&g_console_done, true, __ATOMIC_RELEASE);
+}
+
+void paperboy_storage_owner_wait() {
+  while (!__atomic_load_n(&g_console_done, __ATOMIC_ACQUIRE)) {
+    OwnerRequest *request = __atomic_exchange_n(&g_owner_request, nullptr, __ATOMIC_ACQUIRE);
+    if (request) {
+      request->execute(request->context);
+      __atomic_store_n(&request->done, true, __ATOMIC_RELEASE);
+    } else {
+      (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));
+    }
+  }
+}
+
 void paperboy_storage_bind_host() {
+  if (g_owner_task) return;
+  g_owner_task = xTaskGetCurrentTaskHandle();
+  __atomic_store_n(&g_console_done, false, __ATOMIC_RELEASE);
   if (!g_app) g_app = t5_app_get_api(T5_APP_ABI_VERSION);
   if (!g_storage) g_storage = t5_storage_get_api(T5_STORAGE_API_VERSION);
 }
@@ -188,7 +261,7 @@ bool paperboy_storage_begin() {
     return g_scan_ok;
   }
   g_status = {};
-  memset(g_roms, 0, sizeof(g_roms));
+  for (auto &rom : g_roms) rom = {};
   g_scan_ok = false;
   if (!g_app || g_app->struct_size < sizeof(t5_app_api_v1) ||
       !g_app->dir_open || !g_app->dir_next || !g_app->dir_close ||
@@ -206,9 +279,9 @@ bool paperboy_storage_begin() {
 }
 
 void paperboy_storage_end() {
-  if (g_app && g_app->dir_close) g_app->dir_close();
+  if (g_app && g_app->dir_close) dir_close();
   g_status = {};
-  memset(g_roms, 0, sizeof(g_roms));
+  for (auto &rom : g_roms) rom = {};
   g_scan_ok = false;
 }
 
@@ -256,9 +329,9 @@ bool paperboy_storage_load_rom(const char *path, PaperboyRomData &out) {
   char translated[PAPERBOY_STORAGE_PATH_MAX + 4U];
   if (!host_path(path, translated, sizeof(translated))) { set_error(PaperboyStorageError::PathTooLong); return false; }
   size_t size = 0U;
-  const gameboy_stream_t stream = g_storage->stream_open(translated, &size);
+  const gameboy_stream_t stream = stream_open(translated, &size);
   if (stream == GAMEBOY_INVALID_STREAM) { set_error(PaperboyStorageError::OpenFailed); return false; }
-  g_storage->stream_close(stream);
+  stream_close(stream);
   if (!size || size > PAPERBOY_STORAGE_MAX_ROM_BYTES) {
     set_error(size ? PaperboyStorageError::FileTooLarge : PaperboyStorageError::InvalidFileSize); return false;
   }
@@ -294,7 +367,7 @@ void paperboy_storage_default_config(PaperboyStorageConfig &config) { config = {
 bool paperboy_storage_read_config(PaperboyStorageConfig &config) {
   paperboy_storage_default_config(config);
   if (!require_mounted()) return false;
-  if (!g_storage->exists(kConfigPath)) { set_error(PaperboyStorageError::None); return true; }
+  if (!host_exists(kConfigPath)) { set_error(PaperboyStorageError::None); return true; }
   char content[kConfigMaxBytes + 1U];
   size_t size = 0U;
   if (!read_host_file(kConfigPath, content, kConfigMaxBytes, size) || size > kConfigMaxBytes) {
@@ -347,7 +420,7 @@ bool paperboy_storage_file_exists(const char *path) {
   char translated[PAPERBOY_STORAGE_PATH_MAX + 4U];
   if (!host_path(path, translated, sizeof(translated))) { set_error(PaperboyStorageError::InvalidArgument); return false; }
   set_error(PaperboyStorageError::None);
-  return g_storage->exists(translated);
+  return host_exists(translated);
 }
 
 bool paperboy_storage_file_size(const char *path, size_t &size) {
@@ -355,9 +428,9 @@ bool paperboy_storage_file_size(const char *path, size_t &size) {
   if (!require_mounted()) return false;
   char translated[PAPERBOY_STORAGE_PATH_MAX + 4U];
   if (!host_path(path, translated, sizeof(translated))) { set_error(PaperboyStorageError::InvalidArgument); return false; }
-  const t5_storage_stream_t stream = g_storage->stream_open(translated, &size);
+  const t5_storage_stream_t stream = stream_open(translated, &size);
   if (stream == T5_STORAGE_STREAM_INVALID) { set_error(PaperboyStorageError::FileNotFound); return false; }
-  g_storage->stream_close(stream);
+  stream_close(stream);
   set_error(PaperboyStorageError::None);
   return true;
 }
@@ -378,7 +451,7 @@ bool paperboy_storage_write_blob_atomic(const char *path, const void *data, size
   if (size > PAPERBOY_STORAGE_MAX_BLOB_BYTES) { set_error(PaperboyStorageError::FileTooLarge); return false; }
   char translated[PAPERBOY_STORAGE_PATH_MAX + 4U];
   if (!host_path(path, translated, sizeof(translated))) { set_error(PaperboyStorageError::PathTooLong); return false; }
-  if (!g_storage->write_file_atomic(translated, data, size)) { set_error(PaperboyStorageError::WriteFailed); return false; }
+  if (!host_write_atomic(translated, data, size)) { set_error(PaperboyStorageError::WriteFailed); return false; }
   set_error(PaperboyStorageError::None);
   return true;
 }

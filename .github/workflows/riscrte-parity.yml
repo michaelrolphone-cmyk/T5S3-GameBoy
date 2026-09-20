@@ -28,3 +28,11 @@ jobs:
         run: /tmp/gameboy-rom-port-test
       - name: Verify original app and raw EPD driver are staged for ELF without feature loss
         run: python3 tests/elf_source_test.py
+      - name: Verify worker storage calls execute on the host owner task
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -c riscrte/rom_port.c -o /tmp/rom-port.o
+          c++ -std=c++11 -Wall -Wextra -Werror -pthread \
+            -Itests/storage_stubs -Isrc -Iriscrte \
+            riscrte/paperboy_storage_host.cpp tests/storage_owner_test.cpp /tmp/rom-port.o \
+            -o /tmp/storage-owner-test
+          timeout 30 /tmp/storage-owner-test
