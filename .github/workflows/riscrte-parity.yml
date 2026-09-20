@@ -7,7 +7,8 @@ on:
   pull_request:
     paths:
       - 'riscrte/**'
-      - 'tests/rom_port_test.c'
+      - 'src/**'
+      - 'tests/**'
       - '.github/workflows/riscrte-parity.yml'
   workflow_dispatch:
 
@@ -25,3 +26,5 @@ jobs:
             -fno-omit-frame-pointer riscrte/rom_port.c tests/rom_port_test.c -o /tmp/gameboy-rom-port-test
       - name: Verify original catalog and exact-read behavior
         run: /tmp/gameboy-rom-port-test
+      - name: Verify original app and raw EPD driver are staged for ELF without feature loss
+        run: python3 tests/elf_source_test.py
