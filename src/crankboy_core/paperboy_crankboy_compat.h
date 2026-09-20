@@ -13,7 +13,14 @@
 #define FORCE_INLINE __attribute__((always_inline)) inline
 
 #define __section__(x)
+/* RiscRTE's section-based ELF loader maps .text but does not map the
+ * standalone firmware's custom .iram1.pgb interpreter section. Keep the
+ * dedicated IRAM placement for firmware builds only. */
+#ifdef RISCRTE_ELF_APP
+#define CB_IRAM_CODE
+#else
 #define CB_IRAM_CODE __attribute__((section(".iram1.pgb")))
+#endif
 #define __shell CB_IRAM_CODE
 #define CB_FAST_CODE CB_IRAM_CODE
 
