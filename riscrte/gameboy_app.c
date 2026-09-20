@@ -7,7 +7,7 @@
 #include "T5CompatApi.h"
 #include "gbemu.h"
 
-#define ROM_DIR "/sd/ROMs"
+#define ROM_DIR "/sd/Games"
 #define MAX_ROM_BYTES GBEMU_MAX_ROM_BYTES
 #define FRAME_INTERVAL_MS 120u
 
@@ -111,7 +111,7 @@ __attribute__((visibility("default"))) void app_main(void) {
     char rom_path[256];
     size_t rom_size = 0;
     if (!find_first_rom(rom_path, sizeof(rom_path), &rom_size)) {
-        message("GameBoy ELF", "Put a .gb ROM in /ROMs on SD");
+        message("GameBoy ELF", "Put a .gb ROM in /Games on SD");
         t5_app_input_t in;
         while (g_app->poll(&in, 50) && !in.exit_requested) {}
         return;
