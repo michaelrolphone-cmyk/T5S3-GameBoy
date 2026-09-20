@@ -5,6 +5,7 @@ Run after `pio run -e T5S3-GameBoy` so the exact Arduino/ESP-IDF compiler
 flags and dependency discovery are available. No reduced/emulator-only source
 list and no audio, display or storage stubs are permitted.
 """
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -126,8 +127,20 @@ for symbol in ('app_main', 'app_hardware_takeover'):
 undefined = sorted({f[7] for line in symbols.splitlines()
                     if len(f := line.split()) >= 8 and f[4] == 'GLOBAL' and f[6] == 'UND'})
 (OUT / 'imports.json').write_text(json.dumps({'undefined': undefined}, indent=2) + '\n')
-(OUT / 'gameboy.json').write_bytes((ROOT / 'riscrte/gameboy.json').read_bytes())
-print(f'Built full-source ELF: {output}, objects={len(objects)}, imports={len(undefined)}')
+
+# The source manifest is a template, not an installable release sidecar. Bind
+# the actual output ELF's length and digest after linking, never a stale
+# firmware image, prior artifact, or manually maintained checksum.
+payload = output.read_bytes()
+if not 52 <= len(payload) <= 8 * 1024 * 1024:
+    raise SystemExit(f'GameBoy ELF is outside the RiscRTE 8 MiB app limit: {len(payload)} bytes')
+metadata = json.loads((ROOT / 'riscrte/gameboy.json').read_text())
+if metadata.get('file_name') != output.name:
+    raise SystemExit('GameBoy manifest filename does not match the built ELF')
+metadata['size_bytes'] = len(payload)
+metadata['sha256'] = hashlib.sha256(payload).hexdigest()
+(OUT / 'gameboy.json').write_text(json.dumps(metadata, indent=2) + '\n')
+print(f'Built full-source ELF: {output}, objects={len(objects)}, imports={len(undefined)}, size={len(payload)}')
 if undefined:
     print('REQUIRES HOST EXPORT VERIFICATION:', ', '.join(undefined))
     if os.environ.get('RISCRTE_EXPORT_LIST'):
