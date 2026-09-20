@@ -33,11 +33,12 @@ jobs:
           READELF="$HOME/.platformio/packages/toolchain-xtensa-esp32s3/bin/xtensa-esp32s3-elf-readelf"
           "$READELF" -h dist/riscrte/gameboy.elf
           "$READELF" -d dist/riscrte/gameboy.elf
-      - name: Upload ELF and manifest
+      - name: Upload ELF and manifests
         uses: actions/upload-artifact@v4
         with:
           name: riscrte-gameboy-elf
           path: |
             dist/riscrte/gameboy.elf
             dist/riscrte/gameboy.json
+            dist/riscrte/riscrte-symbols.json
           if-no-files-found: error
