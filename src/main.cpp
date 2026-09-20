@@ -19,6 +19,7 @@
 #include "paperboy_config.h"
 #include "paperboy_storage.h"
 #include "paperboy_ui.h"
+#include "paperboy_landscape.h"
 #include "pca9535_min.h"
 #include "t5s3_epd_pins.h"
 #include "touch_gt911.h"
@@ -51,8 +52,6 @@ constexpr size_t kScreenBytes =
     static_cast<size_t>(kPanelPitch) * t5s3_epd::kActiveHeight;
 constexpr size_t kPortraitBytes =
     static_cast<size_t>(PAPERBOY_LOGICAL_PITCH) * PAPERBOY_LOGICAL_HEIGHT;
-constexpr uint16_t kDynamicDirtyY = 20;
-constexpr uint16_t kDynamicDirtyHeight = 500;
 constexpr uint16_t kGameDirtyY =
     PAPERBOY_LOGICAL_WIDTH - PAPERBOY_GAME_X - GBEMU_FRAME_WIDTH;
 constexpr uint16_t kGameDirtyHeight = GBEMU_FRAME_WIDTH;
@@ -460,6 +459,7 @@ void rotate_game_to_panel(const uint8_t *game, uint8_t *panel) {
     return;
   }
 
+  if (paperboy_is_landscape()) { paperboy_landscape_game(game, panel); return; }
   const size_t dest_byte_x = PAPERBOY_GAME_Y / 8U;
   for (uint16_t panel_y = kGameDirtyY;
        panel_y < (kGameDirtyY + kGameDirtyHeight);
@@ -530,6 +530,11 @@ void compose_scene(
     return;
   }
 
+  if (page == PaperboyPage::Game && paperboy_is_landscape()) {
+    paperboy_landscape_draw(g_scene, framebuffer, g_game_frame, buttons, power_on,
+        g_memory_quicksave_valid || g_current_disk_snapshot_available, battery, visible_notice());
+    return;
+  }
   if (page == PaperboyPage::Game) {
     memcpy(g_scene, g_background, kPortraitBytes);
     if (power_on) {
@@ -1534,6 +1539,18 @@ void run_console(void *unused) {
           (touch_ok && touch.points > 0U) ? touch.y[0] : 0U);
     }
 
+    if ((actions & PAPERBOY_ACTION_ROTATE) != 0U) {
+      paperboy_orientation_cycle();
+      paperboy_ui_on_page_changed();
+      full_scene_syncs = kPanelBufferCount;
+      skipped_since_render = 0U;
+      reset_game_frame_pacer(game_frame_pacer);
+      ESP_LOGI(kTag, "screen orientation=%u", static_cast<unsigned>(paperboy_orientation()));
+      // Discard input collected against the old layout on this frame.
+      last_buttons = 0;
+      continue;
+    }
+
     if ((actions & PAPERBOY_ACTION_POWER) != 0U) {
       if (emu_faulted) {
         if (gbemu_get_status(g_emu) != GBEMU_STATUS_OK) {
@@ -1773,8 +1790,8 @@ void run_console(void *unused) {
         add_sample(draw_timing, frame_stats.draw_us);
         const int64_t flip_started = esp_timer_get_time();
         const bool submitted = epd_video_submit(
-            full_scene ? kDynamicDirtyY : kGameDirtyY,
-            full_scene ? kDynamicDirtyHeight : kGameDirtyHeight);
+            full_scene ? 0 : (paperboy_is_landscape() ? PAPERBOY_LANDSCAPE_GAME_Y : kGameDirtyY),
+            full_scene ? t5s3_epd::kActiveHeight : (paperboy_is_landscape() ? GBEMU_FRAME_HEIGHT : kGameDirtyHeight));
         add_sample(flip_timing, static_cast<uint32_t>(esp_timer_get_time() - flip_started));
         if (submitted) {
           ++rendered_frames;
@@ -1793,7 +1810,7 @@ void run_console(void *unused) {
     } else if (page == PaperboyPage::Game && full_scene_syncs > 0U && epd_video_can_submit()) {
       uint8_t *backbuffer = epd_video_get_backbuffer();
       compose_scene(backbuffer, buttons, power_on, page, &battery);
-      if (epd_video_submit(kDynamicDirtyY, kDynamicDirtyHeight)) {
+      if (epd_video_submit(0, t5s3_epd::kActiveHeight)) {
         --full_scene_syncs;
       }
     } else if (page != PaperboyPage::Game &&

@@ -1,4 +1,5 @@
 #include "paperboy_ui.h"
+#include "paperboy_landscape.h"
 
 #include <Arduino.h>
 #include <stdlib.h>
@@ -79,8 +80,9 @@ constexpr int kButtonBY = 720;
 constexpr int kButtonRadius = 40;
 
 uint32_t g_last_action_mask = 0;
-uint32_t g_last_action_ms[19] = {0};
+uint32_t g_last_action_ms[20] = {0};
 bool g_ignore_actions_until_release = false;
+bool g_ignore_buttons_until_release = false;
 uint32_t g_rom_navigation_repeat_action = 0;
 uint32_t g_rom_navigation_repeat_next_ms = 0;
 
@@ -105,6 +107,7 @@ bool point_in_circle(uint16_t x, uint16_t y, int center_x, int center_y, int rad
 }
 
 uint32_t current_action_mask(const touch_state_t *touch, PaperboyPage page) {
+  if (page == PaperboyPage::Game && paperboy_is_landscape()) return paperboy_landscape_actions(touch);
   uint32_t mask = 0;
   if (touch == nullptr) {
     return mask;
@@ -121,6 +124,7 @@ uint32_t current_action_mask(const touch_state_t *touch, PaperboyPage page) {
     const uint16_t x = touch->x[i];
     const uint16_t y = touch->y[i];
     if (page == PaperboyPage::Game) {
+      if (point_in_rect(x, y, Rect{24, 534, 250, 40})) mask |= PAPERBOY_ACTION_ROTATE;
       if (point_in_rect(x, y, kPowerRect)) {
         mask |= PAPERBOY_ACTION_POWER;
       }
@@ -573,10 +577,16 @@ void paperboy_ui_init() {
 
 void paperboy_ui_on_page_changed() {
   g_ignore_actions_until_release = true;
+  g_ignore_buttons_until_release = true;
   reset_rom_navigation_repeat();
 }
 
 uint8_t paperboy_ui_map_buttons(const touch_state_t *touch) {
+  if (g_ignore_buttons_until_release) {
+    if (touch && !touch->touched) g_ignore_buttons_until_release = false;
+    return 0;
+  }
+  if (paperboy_is_landscape()) return paperboy_landscape_buttons(touch);
   uint8_t buttons = 0;
   if (touch == nullptr || !touch->touched) {
     return buttons;
@@ -638,6 +648,7 @@ uint32_t paperboy_ui_map_actions(const touch_state_t *touch, PaperboyPage page) 
       kLightOffAction,
       kLightDownAction,
       kLightUpAction,
+      PAPERBOY_ACTION_ROTATE,
   };
   static_assert(sizeof(kActionBits) / sizeof(kActionBits[0]) ==
                     sizeof(g_last_action_ms) / sizeof(g_last_action_ms[0]),
@@ -657,7 +668,7 @@ uint32_t paperboy_ui_map_actions(const touch_state_t *touch, PaperboyPage page) 
   if (g_ignore_actions_until_release) {
     reset_rom_navigation_repeat();
     g_last_action_mask = current;
-    if (raw_current == 0U) {
+    if (!touch || !touch->touched) {
       g_ignore_actions_until_release = false;
       g_last_action_mask = 0U;
     }
@@ -719,7 +730,7 @@ void paperboy_ui_draw_static(
   mono_draw_line(framebuffer, kPitch, kWidth, kHeight, 16, 72, 524, 72, false);
   mono_draw_frame(framebuffer, kPitch, kWidth, kHeight, 24, 80, 496, 448, 4, false);
   mono_fill_rect(framebuffer, kPitch, kWidth, kHeight, 24, 536, 496, 34, false);
-  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 36, 546, "T5S3 GAMEBOY", 2, true);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 36, 546, "ROTATE SCREEN", 2, true);
   mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 286, 547, "LIGHT", 1, true);
   mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 361, 546, "-", 2, true);
   mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 466, 546, "+", 2, true);
