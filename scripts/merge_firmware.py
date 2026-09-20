@@ -22,20 +22,29 @@ def merge_firmware(source, target, env):
     if not extra_images:
         raise RuntimeError("PlatformIO did not provide bootloader/partition flash images")
 
+    # The private __get_board_f_image helper expands to an empty string with
+    # espressif32@6.5.0. Read the declared board settings instead.
+    flash_hz = int(str(board.get("build.f_flash", "80000000L")).rstrip("Ll"))
+    if flash_hz % 1000000:
+        raise RuntimeError(f"Unsupported board flash frequency: {flash_hz} Hz")
+    flash_frequency = f"{flash_hz // 1000000}m"
+    flash_mode = board.get("build.flash_mode", "qio")
+
     command = [
         '"$PYTHONEXE"',
         '"$OBJCOPY"',
         "--chip", board.get("build.mcu", "esp32s3"),
         "merge_bin",
         "-o", '"' + merged + '"',
-        "--flash_mode", "${__get_board_flash_mode(__env__)}",
-        "--flash_freq", "${__get_board_f_image(__env__)}",
+        "--flash_mode", flash_mode,
+        "--flash_freq", flash_frequency,
         "--flash_size", board.get("upload.flash_size", "16MB"),
     ]
     for offset, image in extra_images:
-        command.extend((offset, '"' + env.subst(image) + '"'))
+        command.extend((str(offset), '"' + env.subst(image) + '"'))
     command.extend(("$ESP32_APP_OFFSET", '"$BUILD_DIR/${PROGNAME}.bin"'))
 
+    print(f"GameBoy flash layout: mode={flash_mode}, freq={flash_frequency}, extra_images={extra_images}")
     result = env.Execute(env.VerboseAction(" ".join(command), "Merge GameBoy firmware -> " + merged))
     if result:
         raise RuntimeError("Failed to create merged GameBoy firmware")
