@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "app": "gameboy.elf",
+  "notes": "required_exports are undefined ELF imports that RiscRTE must resolve. preferred_exports are currently provided by local compatibility shims and are not required to launch; exporting them from RiscRTE would allow the shims to be removed.",
+  "required_exports": [
+    {
+      "name": "t5_app_get_api",
+      "reason": "Obtain the RiscRTE application UI/input ABI table."
+    },
+    {
+      "name": "t5_storage_get_api",
+      "reason": "Obtain the RiscRTE storage ABI table for ROM reads."
+    },
+    {
+      "name": "malloc",
+      "reason": "Allocate ROM image and emulator buffers."
+    },
+    {
+      "name": "calloc",
+      "reason": "Allocate zero-initialized emulator core memory."
+    },
+    {
+      "name": "free",
+      "reason": "Release emulator allocations."
+    },
+    {
+      "name": "memset",
+      "reason": "Emulator core initialization and reset paths."
+    },
+    {
+      "name": "memcpy",
+      "reason": "Framebuffer, cartridge RAM, and state copies."
+    },
+    {
+      "name": "strlen",
+      "reason": "ROM filename/path handling."
+    },
+    {
+      "name": "clock_gettime",
+      "reason": "ELF-local esp_timer_get_time compatibility used by emulator timing and RTC synchronization."
+    }
+  ],
+  "preferred_exports": [
+    {
+      "name": "memcmp",
+      "reason": "Used by save-state and battery-persist validation; currently implemented locally."
+    },
+    {
+      "name": "strncmp",
+      "reason": "Used by the CrankBoy core; currently implemented locally."
+    },
+    {
+      "name": "vsnprintf",
+      "reason": "Used by CrankBoy diagnostic formatting; currently implemented locally with a reduced formatter."
+    },
+    {
+      "name": "__udivdi3",
+      "reason": "Xtensa compiler helper for unsigned 64-bit division; currently source-owned in the ELF."
+    },
+    {
+      "name": "__umoddi3",
+      "reason": "Xtensa compiler helper for unsigned 64-bit remainder; currently source-owned in the ELF."
+    },
+    {
+      "name": "__divdi3",
+      "reason": "Xtensa compiler helper for signed 64-bit division; currently source-owned in the ELF."
+    },
+    {
+      "name": "__moddi3",
+      "reason": "Xtensa compiler helper for signed 64-bit remainder; currently source-owned in the ELF."
+    }
+  ]
+}
