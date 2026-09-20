@@ -29,6 +29,13 @@ jobs:
       - name: Test release-tag validation
         run: python -m unittest discover -s tests -p 'test_release_request.py' -v
 
+      - name: Test landscape rendering and touch mapping
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc \
+            src/paperboy_orientation.cpp src/paperboy_landscape.cpp src/mono_canvas.cpp \
+            tests/landscape_test.cpp -o /tmp/landscape-test
+          /tmp/landscape-test
+
       - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:

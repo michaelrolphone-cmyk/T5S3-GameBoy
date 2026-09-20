@@ -24,6 +24,7 @@ enum {
   PAPERBOY_ACTION_LOAD_LAST = 1U << 13,
   PAPERBOY_ACTION_AUDIO_ENGINE = 1U << 14,
   PAPERBOY_ACTION_SD_RESCAN = 1U << 15,
+  PAPERBOY_ACTION_ROTATE = 1U << 19,
 };
 
 enum class PaperboyPage : uint8_t {
