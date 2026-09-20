@@ -19,6 +19,7 @@ sources = [
     ROOT / "src/gbemu.c",
     ROOT / "riscrte/audio_stub.c",
     ROOT / "riscrte/div64.c",
+    ROOT / "riscrte/libc_compat.c",
 ]
 output = OUT / "gameboy.elf"
 cmd = [
