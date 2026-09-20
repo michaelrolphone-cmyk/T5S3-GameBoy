@@ -44,9 +44,8 @@ def stage(destination: Path) -> None:
                       'console return')
     main = patch_once(main, '  Serial.begin(115200);\n  delay(1500);',
                       '  // Serial belongs to RiscRTE and must not be reinitialized.\n'
-                      '  ESP_LOGI(kTag, "ELF worker watermark=%u",
-'
-                      '           (unsigned)uxTaskGetStackHighWaterMark(nullptr));',
+                      '  ESP_LOGI(kTag, "ELF worker watermark=%u", '
+                      '(unsigned)uxTaskGetStackHighWaterMark(nullptr));',
                       'serial ownership')
     main = patch_once(main, '  (void)esp_register_shutdown_handler(on_shutdown);',
                       '  // An ELF must not register a shutdown callback pointing into unloadable code.',
@@ -188,7 +187,18 @@ extern "C" __attribute__((visibility("default"))) void app_main() {
   }
 
   wait_for_dma();'''
-    replacement_wait = '''  // A returning ELF must not leave a scan task executing its unloaded text.\n  // If a scan is stuck, fail closed instead of returning stale DMA callbacks\n  // to the firmware's newly initialized display backend.\n  for (uint16_t i = 0; i < 200 && g_scan_task != nullptr; ++i) {\n    vTaskDelay(pdMS_TO_TICKS(10));\n  }\n  if (g_scan_task != nullptr) {\n    ESP_LOGE(kTag, "scan task did not stop; refusing unsafe ELF unload");\n    abort();\n  }\n  vTaskDelay(1);  // Allow scan_task's final vTaskDelete(nullptr) to complete.\n  wait_for_dma();'''
+    replacement_wait = '''  // A returning ELF must not leave a scan task executing its unloaded text.
+  // If a scan is stuck, fail closed instead of returning stale DMA callbacks
+  // to the firmware's newly initialized display backend.
+  for (uint16_t i = 0; i < 200 && g_scan_task != nullptr; ++i) {
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+  if (g_scan_task != nullptr) {
+    ESP_LOGE(kTag, "scan task did not stop; refusing unsafe ELF unload");
+    abort();
+  }
+  vTaskDelay(1);  // Allow scan_task's final vTaskDelete(nullptr) to complete.
+  wait_for_dma();'''
     epd = patch_once(epd, original_wait, replacement_wait, 'scan-task join')
     original_tail = '''  if (g_expander != nullptr) {
     g_expander->safeShutdownOutputs();
@@ -202,12 +212,14 @@ extern "C" __attribute__((visibility("default"))) void app_main() {
   // RiscRTE does: otherwise esp_lcd_new_i80_bus() fails during host resume.
   if (g_panel_io != nullptr) {
     const esp_err_t rc = esp_lcd_panel_io_del(g_panel_io);
-    if (rc != ESP_OK) { ESP_LOGE(kTag, "panel IO release: %s", esp_err_to_name(rc)); abort(); }
+    if (rc != ESP_OK) { ESP_LOGE(kTag, "panel IO release: %s", esp_err_to_name(rc)); abort();
+    }
     g_panel_io = nullptr;
   }
   if (g_i80_bus != nullptr) {
     const esp_err_t rc = esp_lcd_del_i80_bus(g_i80_bus);
-    if (rc != ESP_OK) { ESP_LOGE(kTag, "i80 bus release: %s", esp_err_to_name(rc)); abort(); }
+    if (rc != ESP_OK) { ESP_LOGE(kTag, "i80 bus release: %s", esp_err_to_name(rc)); abort();
+    }
     g_i80_bus = nullptr;
   }
   release_allocations();
