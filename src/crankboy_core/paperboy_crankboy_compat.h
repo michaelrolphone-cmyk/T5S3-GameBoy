@@ -13,7 +13,12 @@
 #define FORCE_INLINE __attribute__((always_inline)) inline
 
 #define __section__(x)
+/* The ELF loader maps normal .text, not the standalone firmware's IRAM section. */
+#ifdef PAPERBOY_RISCRTE
+#define CB_IRAM_CODE
+#else
 #define CB_IRAM_CODE __attribute__((section(".iram1.pgb")))
+#endif
 #define __shell CB_IRAM_CODE
 #define CB_FAST_CODE CB_IRAM_CODE
 
@@ -31,7 +36,6 @@
 #ifndef MAX
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #endif
-
 #ifndef MIN
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 #endif
