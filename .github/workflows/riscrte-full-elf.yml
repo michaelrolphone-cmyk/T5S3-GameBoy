@@ -20,11 +20,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout RiscRTE exact native ABI candidate
+      - name: Checkout merged RiscRTE native ABI
         uses: actions/checkout@v4
         with:
           repository: michaelrolphone-cmyk/T5S3-Reader
-          ref: feature/native-elf-display-compat-exports
+          ref: master
           path: _riscrte
           persist-credentials: false
       - uses: actions/setup-python@v5
