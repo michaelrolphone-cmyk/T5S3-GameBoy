@@ -20,6 +20,10 @@
       "reason": "Allocate zero-initialized emulator core memory."
     },
     {
+      "name": "realloc",
+      "reason": "Resize emulator core buffers; already exported by RiscRTE's libc symbol table."
+    },
+    {
       "name": "free",
       "reason": "Release emulator allocations."
     },
