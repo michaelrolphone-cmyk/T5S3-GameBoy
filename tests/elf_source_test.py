@@ -27,6 +27,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'xTaskCreatePinnedToCore(' in staged
     assert '32768' in staged
     assert 'paperboy_storage_bind_host();' in staged
+    assert '(void)paperboy_storage_begin();' in staged
+    assert staged.find('paperboy_storage_bind_host();') < staged.find('(void)paperboy_storage_begin();') < staged.find('xTaskCreatePinnedToCore(')
     assert 'while (!paperboy_elf_exit_requested()) {' in staged
     assert 'paperboy_elf_request_exit();' in staged
     assert 'app_hardware_takeover()' in staged

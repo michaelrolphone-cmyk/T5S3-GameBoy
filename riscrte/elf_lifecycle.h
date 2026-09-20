@@ -12,5 +12,4 @@ void paperboy_elf_request_exit();
 bool paperboy_elf_exit_requested();
 void paperboy_elf_note_boot_interrupt_attached();
 // Captures t5_app_get_api()/t5_storage_get_api() on the host session task.
-// Do not scan here: the ROM catalog is too large for loopTask.
 void paperboy_storage_bind_host();
