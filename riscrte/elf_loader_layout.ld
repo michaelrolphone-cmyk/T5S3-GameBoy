@@ -5,8 +5,8 @@
  * sections without changing the original source or its hardware behavior.
  *
  * INSERT supplies explicit input patterns to the toolchain's normal shared
- * object linker script, retaining .dynsym/.dynstr/.rela*/.dynamic and its
- * standard ET_DYN machinery rather than replacing the complete script.
+ * object linker script, retaining dynamic symbol and relocation metadata
+ * and standard ET_DYN machinery rather than replacing the complete script.
  */
 SECTIONS
 {
