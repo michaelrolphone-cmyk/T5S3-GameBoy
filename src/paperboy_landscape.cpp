@@ -9,7 +9,7 @@ constexpr int game_x = 240, game_y = PAPERBOY_LANDSCAPE_GAME_Y;
 struct Rect { int x, y, w, h; };
 constexpr Rect power{16, 10, 192, 36}, save{240, 10, 100, 36}, load{620, 10, 100, 36};
 constexpr Rect rotate{752, 10, 192, 36}, settings{404, 494, 152, 36};
-constexpr Rect select{40, 432, 144, 46}, start{776, 432, 144, 46};
+constexpr Rect selectBtn{40, 432, 144, 46}, start{776, 432, 144, 46};
 constexpr Rect light_down{24, 72, 80, 40}, light_up{124, 72, 80, 40};
 bool inside(int x, int y, Rect r) { return x >= r.x && y >= r.y && x < r.x+r.w && y < r.y+r.h; }
 bool circle(int x, int y, int cx, int cy, int radius) { return (x-cx)*(x-cx)+(y-cy)*(y-cy) <= radius*radius; }
@@ -43,7 +43,7 @@ uint8_t paperboy_landscape_buttons(const touch_state_t *touch) {
     }
     if (circle(x,y,864,230,48)) buttons |= GBEMU_INPUT_A;
     if (circle(x,y,788,326,48)) buttons |= GBEMU_INPUT_B;
-    if (inside(x,y,select)) buttons |= GBEMU_INPUT_SELECT;
+    if (inside(x,y,selectBtn)) buttons |= GBEMU_INPUT_SELECT;
     if (inside(x,y,start)) buttons |= GBEMU_INPUT_START;
   }
   return buttons;
@@ -76,7 +76,7 @@ void paperboy_landscape_draw(uint8_t *canvas, uint8_t *panel, const uint8_t *gam
   box(canvas,power,power_on?"ON/OFF":"POWER OFF"); box(canvas,save,"SAVE");
   box(canvas,load,save_available?"LOAD":"NO SAVE"); box(canvas,rotate,"ROTATE");
   box(canvas,settings,"SETTINGS");
-  box(canvas,select,"SELECT",buttons & GBEMU_INPUT_SELECT);
+  box(canvas,selectBtn,"SELECT",buttons & GBEMU_INPUT_SELECT);
   box(canvas,start,"START",buttons & GBEMU_INPUT_START);
   box(canvas,light_down,"-"); box(canvas,light_up,"+");
   text(canvas,52,126,"LIGHT",1);
