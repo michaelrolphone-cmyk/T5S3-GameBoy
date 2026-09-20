@@ -30,6 +30,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'paperboy_elf_request_exit();' in staged
     assert 'app_hardware_takeover()' in staged
     assert 'void app_main()' in staged
+    assert 'paperboy_storage_begin()' in staged
+    assert 'host storage attach failed' in staged
     assert 'int app_module_init()' in staged
     assert 'void app_module_fini()' in staged
     assert 'if (s_elf_boot_interrupt_attached)' in staged
