@@ -88,12 +88,15 @@ jobs:
           sparse-checkout: |
             lib/NativeApps/include
             lib/NativeApps/src
+            lib/elf_loader/include
             lib/elf_loader/src
             scripts
+            test/native_apps
 
       - name: Build and validate independently loadable RiscRTE app
         run: |
           python riscrte/build_elf.py --sdk .pio/riscrte-sdk --output dist/gameboy.elf
+          bash riscrte/check_loader.sh .pio/riscrte-sdk dist/gameboy.elf
           (cd dist && sha256sum -c SHA256SUMS)
 
       # GitHub Release assets below remain independent downloadable files, not
