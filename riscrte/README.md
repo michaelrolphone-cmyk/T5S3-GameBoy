@@ -15,12 +15,13 @@ Outputs:
 
 - `dist/riscrte/gameboy.elf`
 - `dist/riscrte/gameboy.json`
+- `dist/riscrte/riscrte-symbols.json`
 
-Copy both into RiscRTE's Apps installation area (or install them through the current package/app workflow if supported by the firmware build).
+Copy the ELF and app manifest into RiscRTE's Apps installation area (or install them through the current package/app workflow if supported by the firmware build).
 
 ## ROMs
 
-The ELF scans `/sd/ROMs` and loads the first regular file ending in `.gb` up to 4 MiB. ROM data is not bundled in the ELF. Only use ROM images you are authorized to use.
+The ELF scans `/sd/Games` (the SD card's existing `/Games` directory) and loads the first regular file ending in `.gb` up to 4 MiB. ROM data is not bundled in the ELF. Only use ROM images you are authorized to use.
 
 ## Controls
 
