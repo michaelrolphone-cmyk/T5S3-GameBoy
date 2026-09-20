@@ -20,7 +20,7 @@ The staging script rejects missing/empty files, invalid ESP32 headers, a missing
 ## Release individual files when tagging
 
 1. Update `[version]` in `platformio.ini` (for example, to `1.2.1`) and merge the change into `master`.
-2. Create and push the corresponding tag on the `master` commit (`v1.2.1`). A tag made through GitHub's UI works as well.
+2. Tag that commit and push the tag, for example `git checkout master && git pull && git tag v1.2.1 && git push origin v1.2.1`. Push a Git tag rather than publishing an empty GitHub Release yourself; the workflow creates the Release with its assets.
 3. **Cut GameBoy release** starts automatically. It verifies that the tag matches the embedded version and points to a commit on `master`, builds and checks the images, and creates the GitHub Release.
 4. Open **Releases → v1.2.1 → Assets**. Download the desired `.bin` directly. The application binary, merged binary, ELF, and `SHA256SUMS` appear as **four independent release assets, not a ZIP**.
 
