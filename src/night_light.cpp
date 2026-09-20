@@ -20,11 +20,13 @@ constexpr ledc_timer_t kTimer = LEDC_TIMER_2;
 constexpr ledc_channel_t kChannel = LEDC_CHANNEL_2;
 constexpr uint32_t kPwmHz = 1000U;  // PT4103B23F EN: <= approximately 1 kHz.
 constexpr uint32_t kDutyMax = 1023U;
+constexpr uint8_t kMaxBrightnessPercent = 10U;
 
 bool g_ready = false;
 uint8_t g_brightness = 0U;
 
 bool apply_brightness(uint8_t brightness) {
+  // 0..10 represents actual PWM percentage, not a remapped 0..100 scale.
   const uint32_t duty =
       (static_cast<uint32_t>(brightness) * kDutyMax + 50U) / 100U;
   const esp_err_t set_result = ledc_set_duty(kMode, kChannel, duty);
@@ -59,8 +61,10 @@ void night_light_init() {
   } else {
     ESP_LOGW(kTag, "NVS unavailable; starting with light off");
   }
-  if (saved > 100U) {
-    saved = 0U;
+  // Old firmware allowed 0..100: cap a previously saved brighter setting
+  // rather than switching off or briefly driving the LEDs too brightly.
+  if (saved > kMaxBrightnessPercent) {
+    saved = kMaxBrightnessPercent;
   }
 
   ledc_timer_config_t timer = {};
@@ -94,7 +98,7 @@ void night_light_init() {
   if (apply_brightness(saved)) {
     g_brightness = saved;
   }
-  ESP_LOGI(kTag, "ready gpio=%u PWM=%luHz brightness=%u%%",
+  ESP_LOGI(kTag, "ready gpio=%u PWM=%luHz brightness=%u%% (max 10%%)",
            t5s3_epd::kBacklightEnable,
            static_cast<unsigned long>(kPwmHz),
            static_cast<unsigned>(g_brightness));
@@ -108,8 +112,8 @@ bool night_light_set_brightness(uint8_t percent) {
   if (!g_ready) {
     return false;
   }
-  if (percent > 100U) {
-    percent = 100U;
+  if (percent > kMaxBrightnessPercent) {
+    percent = kMaxBrightnessPercent;
   }
   if (percent == g_brightness) {
     return true;
