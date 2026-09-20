@@ -30,6 +30,22 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Match RiscRTE toolchain for the ELF build only
+        run: |
+          python - <<'PY'
+          import pathlib, re
+          host = pathlib.Path('_riscrte/platformio.ini').read_text()
+          target = pathlib.Path('platformio.ini')
+          original = target.read_text()
+          pattern = r'(?m)^platform\s*=\s*(espressif32@[^\s;]+)\s*$'
+          host_matches = re.findall(pattern, host)
+          target_matches = re.findall(pattern, original)
+          if len(host_matches) != 1 or len(target_matches) != 1:
+              raise SystemExit('Cannot identify exactly one PlatformIO platform in host and GameBoy configs')
+          host_platform = host_matches[0]
+          target.write_text(re.sub(pattern, f'platform = {host_platform}', original, count=1))
+          print(f'ELF toolchain: {target_matches[0]} -> {host_platform}; standalone config in git unchanged')
+          PY
       - name: Cache PlatformIO toolchains
         uses: actions/cache@v4
         with:
