@@ -41,7 +41,7 @@ jobs:
   release:
     needs: request
     if: ${{ needs.request.outputs.publish == 'true' }}
-    name: Build and publish individual GameBoy binaries
+    name: Build and publish individual GameBoy binaries and ELF app
     runs-on: ubuntu-latest
     steps:
       - name: Check out source and tags
@@ -77,8 +77,27 @@ jobs:
           python scripts/stage_firmware.py
           (cd dist && sha256sum -c SHA256SUMS)
 
-      # Actions upload-artifact always downloads as a ZIP. A tagged build instead
-      # publishes the four ORIGINAL files individually as GitHub Release assets.
+      # Read-only, pinned SDK checkout: nothing is written to RiscRTE.
+      - name: Check out RiscRTE native app SDK (read only)
+        uses: actions/checkout@v4
+        with:
+          repository: michaelrolphone-cmyk/T5S3-Reader
+          ref: fc1cb9210687a91cfde8a9e889b94e99b2c50d50
+          path: .pio/riscrte-sdk
+          persist-credentials: false
+          sparse-checkout: |
+            lib/NativeApps/include
+            lib/NativeApps/src
+            lib/elf_loader/src
+            scripts
+
+      - name: Build and validate independently loadable RiscRTE app
+        run: |
+          python riscrte/build_elf.py --sdk .pio/riscrte-sdk --output dist/gameboy.elf
+          (cd dist && sha256sum -c SHA256SUMS)
+
+      # GitHub Release assets below remain independent downloadable files, not
+      # the auto-ZIP archives from actions/upload-artifact.
       - name: Create tag if needed and publish individual release files
         shell: bash
         env:
@@ -115,6 +134,8 @@ jobs:
             "dist/T5S3-GameBoy-${TAG}-app.bin"
             "dist/T5S3-GameBoy-${TAG}-merged.bin"
             "dist/T5S3-GameBoy-${TAG}.elf"
+            "dist/gameboy.elf"
+            "dist/gameboy.json"
             "dist/SHA256SUMS"
           )
           for asset in "${assets[@]}"; do
@@ -127,4 +148,4 @@ jobs:
           gh release create "$TAG" "${assets[@]}" \
             --verify-tag \
             --title "T5S3-GameBoy $VERSION" \
-            --notes "Four separate download files (not an artifact ZIP) for LilyGO T5S3-4.7 E-Paper Pro. T5S3-GameBoy-${TAG}-app.bin is the application-only image (flash at 0x10000); T5S3-GameBoy-${TAG}-merged.bin is the complete USB image (flash at 0x0). The .elf is for debugging, not flashing. SHA256SUMS contains integrity hashes. Do not flash the application-only image at 0x0 or use the merged image for app-only updates."
+            --notes "Individual downloads for LilyGO T5S3-4.7 E-Paper Pro. Flash T5S3-GameBoy-${TAG}-merged.bin at 0x0 for standalone firmware, or T5S3-GameBoy-${TAG}-app.bin at 0x10000 on a compatible existing bootloader/partition table. The versioned .elf is for standalone debugging only. To run under unchanged RiscRTE (firmware >=1.2.42), copy gameboy.elf AND gameboy.json to SD /Apps/; do not flash gameboy.elf. Audio is muted in the ELF port and e-paper rendering uses the existing RiscRTE host drawing API. SHA256SUMS contains integrity hashes."
