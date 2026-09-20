@@ -4,11 +4,13 @@
 #include <Arduino.h>
 #include <T5AppApi.h>
 #include <T5StorageApi.h>
+#include <dirent.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "rom_port.h"
 
@@ -23,6 +25,9 @@ PaperboyRomInfo g_roms[PAPERBOY_STORAGE_MAX_ROMS];
 PaperboyStorageStatus g_status;
 bool g_scan_ok = false;
 gameboy_rom_catalog_t g_scan_catalog;
+DIR *g_vfs_dir = nullptr;
+char g_vfs_path[GAMEBOY_ROM_PATH_MAX];
+bool g_using_vfs = false;
 
 void set_error(PaperboyStorageError error) { g_status.error = error; }
 
@@ -123,8 +128,63 @@ bool valid_config(const PaperboyStorageConfig &config) {
        (valid_file_path(config.last_rom) && has_rom_extension(config.last_rom)));
 }
 
-bool dir_open(const char *path) { return g_app->dir_open(path); }
+void vfs_dir_close() {
+  if (g_vfs_dir) {
+    closedir(g_vfs_dir);
+    g_vfs_dir = nullptr;
+  }
+  g_vfs_path[0] = '\0';
+  g_using_vfs = false;
+}
+
+bool vfs_dir_open(const char *path) {
+  vfs_dir_close();
+  const char *candidates[3] = {path, nullptr, nullptr};
+  if (path && strcmp(path, "/sd") == 0) candidates[1] = "/sdcard";
+  for (size_t i = 0; i < 3 && candidates[i]; ++i) {
+    DIR *dir = opendir(candidates[i]);
+    if (!dir) continue;
+    g_vfs_dir = dir;
+    copy_string(g_vfs_path, sizeof(g_vfs_path), candidates[i]);
+    g_using_vfs = true;
+    ESP_LOGW(kTag, "host dir_open rejected; using VFS %s", g_vfs_path);
+    return true;
+  }
+  ESP_LOGE(kTag, "dir_open failed path=%s (host task gate and no VFS)", path ? path : "?");
+  return false;
+}
+
+bool dir_open(const char *path) {
+  vfs_dir_close();
+  if (g_app->dir_open(path)) return true;
+  return vfs_dir_open(path);
+}
+
 bool dir_next(gameboy_dirent_t *entry) {
+  if (g_using_vfs) {
+    if (!g_vfs_dir || !entry) return false;
+    struct dirent *dent = readdir(g_vfs_dir);
+    if (!dent) return false;
+    if (!copy_string(entry->name, sizeof(entry->name), dent->d_name)) entry->name[0] = '\0';
+    entry->size = 0;
+    entry->is_directory = 0;
+    char full[GAMEBOY_ROM_PATH_MAX];
+    const size_t dir_len = strlen(g_vfs_path);
+    const size_t name_len = strlen(dent->d_name);
+    if (dir_len + 1U + name_len < sizeof(full)) {
+      memcpy(full, g_vfs_path, dir_len);
+      full[dir_len] = '/';
+      memcpy(full + dir_len + 1U, dent->d_name, name_len + 1U);
+      struct stat st{};
+      if (stat(full, &st) == 0) {
+        entry->is_directory = S_ISDIR(st.st_mode) ? 1 : 0;
+        entry->size = entry->is_directory ? 0 : static_cast<uint64_t>(st.st_size);
+      } else if (dent->d_type == DT_DIR) {
+        entry->is_directory = 1;
+      }
+    }
+    return true;
+  }
   t5_app_dirent_t native{};
   if (!g_app->dir_next(&native)) return false;
   if (!copy_string(entry->name, sizeof(entry->name), native.name)) entry->name[0] = '\0';
@@ -132,7 +192,15 @@ bool dir_next(gameboy_dirent_t *entry) {
   entry->is_directory = native.is_directory;
   return true;
 }
-void dir_close() { g_app->dir_close(); }
+
+void dir_close() {
+  if (g_using_vfs) {
+    vfs_dir_close();
+    return;
+  }
+  g_app->dir_close();
+}
+
 gameboy_stream_t stream_open(const char *path, size_t *size) {
   return g_storage->stream_open(path, size);
 }
@@ -199,6 +267,7 @@ bool paperboy_storage_begin() {
 }
 
 void paperboy_storage_end() {
+  vfs_dir_close();
   if (g_app && g_app->dir_close) g_app->dir_close();
   g_status = {};
   memset(g_roms, 0, sizeof(g_roms));
@@ -217,7 +286,8 @@ bool paperboy_storage_rescan() {
   g_status.rom_count = g_scan_catalog.count;
   g_status.roms_truncated = g_scan_catalog.truncated;
   set_error(result == GAMEBOY_ROM_OK ? PaperboyStorageError::None : PaperboyStorageError::ScanFailed);
-  ESP_LOGI(kTag, "using RiscRTE SD mount ROMs=%u%s", (unsigned)g_scan_catalog.count,
+  ESP_LOGI(kTag, "using RiscRTE SD mount ROMs=%u result=%d%s",
+           (unsigned)g_scan_catalog.count, static_cast<int>(result),
            g_scan_catalog.truncated ? "+" : "");
   return result == GAMEBOY_ROM_OK;
 }
