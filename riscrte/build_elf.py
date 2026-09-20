@@ -113,12 +113,20 @@ linker = compiler.replace('-gcc', '-g++')
 if not linker.endswith('g++'):
     linker = str(Path(compiler).parent / 'xtensa-esp32s3-elf-g++')
 output = OUT / 'gameboy.elf'
+# The firmware loader maps only canonical sections by name. Pack IRAM_ATTR
+# routines, constructors and linker-created tables there at ELF link time;
+# don't require a special firmware loader just to run this application.
+layout = ROOT / 'riscrte/elf_loader_layout.ld'
 run([linker, '-shared', '-nostdlib', '-nostartfiles', '-fPIC', '-mlongcalls',
-     '-Wl,--hash-style=sysv', '-Wl,--gc-sections', *objects, '-o', output])
+     '-Wl,--hash-style=sysv', '-Wl,--gc-sections', '-Wl,-T,' + str(layout),
+     *objects, '-o', output])
 readelf = str(Path(linker).parent / 'xtensa-esp32s3-elf-readelf')
 header = subprocess.check_output([readelf, '-h', str(output)], text=True)
 if 'DYN (Shared object file)' not in header:
     raise SystemExit('Expected ET_DYN ELF module, not standalone firmware')
+# Symbols alone are insufficient: reject any output the firmware would fail
+# to map before publishing a manifest, package, or GitHub artifact.
+run([sys.executable, ROOT / 'riscrte/audit_elf_layout.py', output])
 symbols = subprocess.check_output([readelf, '--dyn-syms', '--wide', str(output)], text=True)
 for symbol in ('app_main', 'app_hardware_takeover'):
     if not any(re.search(r'\bGLOBAL\s+DEFAULT\s+\d+\s+' + symbol + r'\s*$', line)
