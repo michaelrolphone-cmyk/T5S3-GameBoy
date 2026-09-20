@@ -25,6 +25,16 @@ void *memmove(void *destination, const void *source, size_t count) {
     return destination;
 }
 
+char *strstr(const char *haystack, const char *needle) {
+    if (!*needle) return (char *)haystack;
+    for (const char *start = haystack; *start; ++start) {
+        const char *a = start, *b = needle;
+        while (*a && *b && *a == *b) { ++a; ++b; }
+        if (!*b) return (char *)start;
+    }
+    return NULL;
+}
+
 /* Source-owned restoring division: linking libgcc directly brings unsupported
  * ELF relocation/section constructs into the constrained native loader. */
 static uint64_t divmod64(uint64_t n, uint64_t d, uint64_t *rem) {
