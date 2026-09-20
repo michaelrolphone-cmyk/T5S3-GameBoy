@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 
@@ -52,17 +51,15 @@ if not compiledb.exists():
 entries = json.loads(compiledb.read_text())
 project = original_sources()
 commands = {source_path(e): e for e in entries if source_path(e) in project}
-missing = sorted(project - commands)
+missing = sorted(project - set(commands))
 if missing:
     # Some sources may be deliberately unused by the standalone build; their
     # inclusion would introduce duplicate audio backends or peripheral code.
     print('Unused by standalone build:', *(str(p.relative_to(ROOT)) for p in missing))
-if ROOT.joinpath('src/main.cpp').resolve() not in commands:
-    raise SystemExit('Compilation database lacks original src/main.cpp')
-if ROOT.joinpath('src/epd_video.cpp').resolve() not in commands:
-    raise SystemExit('Compilation database lacks original src/epd_video.cpp')
-if ROOT.joinpath('src/gbemu.c').resolve() not in commands:
-    raise SystemExit('Compilation database lacks original src/gbemu.c')
+for required in ('src/main.cpp', 'src/epd_video.cpp', 'src/gbemu.c',
+                 'src/paperboy_storage.cpp', 'src/paperboy_ui.cpp', 'src/audio.c'):
+    if ROOT.joinpath(required).resolve() not in commands:
+        raise SystemExit(f'Compilation database lacks original {required}')
 
 objects = []
 for source, entry in sorted(commands.items()):
@@ -79,7 +76,7 @@ for source, entry in sorted(commands.items()):
     obj.parent.mkdir(parents=True, exist_ok=True)
     tokens = []
     skip_next = False
-    for index, token in enumerate(original_tokens):
+    for token in original_tokens:
         if skip_next:
             skip_next = False
             continue
@@ -109,9 +106,9 @@ for source, entry in sorted(commands.items()):
 
 if not objects:
     raise SystemExit('No application objects were compiled')
-compiler = next(shlex.split(e.get('command', ''))[0] for e in entries
-                if source_path(e) == ROOT.joinpath('src/main.cpp').resolve())
-linker = compiler.replace('g++', 'g++').replace('-gcc', '-g++')
+compiler = next((shlex.split(e['command'])[0] if e.get('command') else e['arguments'][0])
+                for e in entries if source_path(e) == ROOT.joinpath('src/main.cpp').resolve())
+linker = compiler.replace('-gcc', '-g++')
 if not linker.endswith('g++'):
     linker = str(Path(compiler).parent / 'xtensa-esp32s3-elf-g++')
 output = OUT / 'gameboy.elf'
@@ -133,8 +130,6 @@ undefined = sorted({f[7] for line in symbols.splitlines()
 print(f'Built full-source ELF: {output}, objects={len(objects)}, imports={len(undefined)}')
 if undefined:
     print('REQUIRES HOST EXPORT VERIFICATION:', ', '.join(undefined))
-    # Do not mark the ELF installable until every import resolves in the merged
-    # RiscRTE firmware. This intentional failure prevents a green but dead ELF.
     if os.environ.get('RISCRTE_EXPORT_LIST'):
         exports = set(Path(os.environ['RISCRTE_EXPORT_LIST']).read_text().splitlines())
         unresolved = sorted(set(undefined) - exports)
