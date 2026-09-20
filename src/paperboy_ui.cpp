@@ -24,7 +24,8 @@ constexpr uint32_t kLightDownAction = 1UL << 17;
 constexpr uint32_t kLightUpAction = 1UL << 18;
 constexpr uint32_t kLightActions =
     kLightOffAction | kLightDownAction | kLightUpAction;
-constexpr uint8_t kLightStepPercent = 10U;
+constexpr uint8_t kLightStepPercent = 1U;
+constexpr uint8_t kLightMaxPercent = 10U;
 
 struct Rect {
   int x;
@@ -391,7 +392,7 @@ void draw_value_row(uint8_t *framebuffer, int y, const char *label, const char *
 void draw_light_controls(uint8_t *framebuffer) {
   const uint8_t level = night_light_brightness();
   char title[40];
-  snprintf(title, sizeof(title), "NIGHT LIGHT %u%%", static_cast<unsigned>(level));
+  snprintf(title, sizeof(title), "NIGHT LIGHT %u%% (MAX 10%%)", static_cast<unsigned>(level));
   draw_centered_text(framebuffer, 736, title, 2);
   draw_button_box(framebuffer, kLightOffRect, "OFF", level == 0U);
   draw_button_box(framebuffer, kLightDownRect, "DIM -", false);
@@ -691,8 +692,8 @@ uint32_t paperboy_ui_map_actions(const touch_state_t *touch, PaperboyPage page) 
     if ((light_action & kLightOffAction) != 0U) {
       next = 0U;
     } else if ((light_action & kLightUpAction) != 0U) {
-      next = previous > (100U - kLightStepPercent)
-          ? 100U : static_cast<uint8_t>(previous + kLightStepPercent);
+      next = previous >= (kLightMaxPercent - kLightStepPercent)
+          ? kLightMaxPercent : static_cast<uint8_t>(previous + kLightStepPercent);
     } else if ((light_action & kLightDownAction) != 0U) {
       next = previous < kLightStepPercent
           ? 0U : static_cast<uint8_t>(previous - kLightStepPercent);
