@@ -3,6 +3,9 @@ name: Cut GameBoy release
 on:
   push:
     branches: [master]
+    tags:
+      - 'v[0-9]*'
+    # Paths only filter master pushes; GitHub does not apply path filters to tags.
     paths: ['.github/release-request.json']
   workflow_dispatch:
     inputs:
@@ -27,16 +30,18 @@ jobs:
       tag: ${{ steps.request.outputs.tag }}
       version: ${{ steps.request.outputs.version }}
     steps:
-      - name: Check out repository
+      - name: Check out repository and tags
         uses: actions/checkout@v4
-      - name: Validate requested version
+        with:
+          fetch-depth: 0
+      - name: Validate requested version and master ancestry
         id: request
         run: python3 scripts/resolve_release_request.py
 
   release:
     needs: request
     if: ${{ needs.request.outputs.publish == 'true' }}
-    name: Build and publish GameBoy firmware
+    name: Build and publish individual GameBoy binaries
     runs-on: ubuntu-latest
     steps:
       - name: Check out source and tags
@@ -66,22 +71,15 @@ jobs:
       - name: Build GameBoy firmware
         run: pio run -e T5S3-GameBoy
 
-      # Stage immediately after building: other builders must never invalidate
-      # the firmware.bin we publish (an issue encountered in RiscRTE releases).
+      # Preserve the exact built binaries before any later build can mutate .pio.
       - name: Validate and preserve release binaries
         run: |
           python scripts/stage_firmware.py
           (cd dist && sha256sum -c SHA256SUMS)
 
-      - name: Upload release-build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: gameboy-release-${{ needs.request.outputs.tag }}
-          path: dist/*
-          if-no-files-found: error
-          retention-days: 30
-
-      - name: Create tag and publish GitHub Release
+      # Actions upload-artifact always downloads as a ZIP. A tagged build instead
+      # publishes the four ORIGINAL files individually as GitHub Release assets.
+      - name: Create tag if needed and publish individual release files
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -93,21 +91,40 @@ jobs:
             echo "::error::Release $TAG already exists; refusing to replace its binaries"
             exit 1
           fi
+
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             TARGET="$(git rev-list -n 1 "$TAG")"
-            if [[ "$TARGET" != "$GITHUB_SHA" ]]; then
+            HEAD_SHA="$(git rev-parse HEAD)"
+            if [[ "$TARGET" != "$HEAD_SHA" ]]; then
               echo "::error::Tag $TAG belongs to a different commit ($TARGET)"
               exit 1
             fi
-            echo "Reusing tag $TAG from a previous publication attempt"
+            echo "Publishing from existing tag $TAG"
           else
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              echo "::error::Triggered tag $TAG was not found in checked-out refs"
+              exit 1
+            fi
             git config user.name 'github-actions[bot]'
             git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
             git tag -a "$TAG" -m "T5S3-GameBoy $TAG"
             git push origin "refs/tags/$TAG"
           fi
 
-          gh release create "$TAG" dist/* \
+          assets=(
+            "dist/T5S3-GameBoy-${TAG}-app.bin"
+            "dist/T5S3-GameBoy-${TAG}-merged.bin"
+            "dist/T5S3-GameBoy-${TAG}.elf"
+            "dist/SHA256SUMS"
+          )
+          for asset in "${assets[@]}"; do
+            if [[ ! -s "$asset" ]]; then
+              echo "::error::Required release asset missing or empty: $asset"
+              exit 1
+            fi
+          done
+
+          gh release create "$TAG" "${assets[@]}" \
             --verify-tag \
             --title "T5S3-GameBoy $VERSION" \
-            --notes "Firmware for LilyGO T5S3-4.7 E-Paper Pro. T5S3-GameBoy-${TAG}-app.bin is the application-only image (flash at 0x10000); T5S3-GameBoy-${TAG}-merged.bin is the complete USB image (flash at 0x0). The .elf is for debugging, not flashing. SHA256SUMS contains integrity hashes. Do not flash the application-only image at 0x0 or use the merged image for app-only updates."
+            --notes "Four separate download files (not an artifact ZIP) for LilyGO T5S3-4.7 E-Paper Pro. T5S3-GameBoy-${TAG}-app.bin is the application-only image (flash at 0x10000); T5S3-GameBoy-${TAG}-merged.bin is the complete USB image (flash at 0x0). The .elf is for debugging, not flashing. SHA256SUMS contains integrity hashes. Do not flash the application-only image at 0x0 or use the merged image for app-only updates."
