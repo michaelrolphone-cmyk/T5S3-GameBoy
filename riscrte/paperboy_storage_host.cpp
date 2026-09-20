@@ -1,4 +1,5 @@
 #include "paperboy_storage.h"
+#include "elf_lifecycle.h"
 
 #include <Arduino.h>
 #include <T5AppApi.h>
@@ -21,6 +22,7 @@ const t5_storage_api_v1 *g_storage = nullptr;
 PaperboyRomInfo g_roms[PAPERBOY_STORAGE_MAX_ROMS];
 PaperboyStorageStatus g_status;
 bool g_scan_ok = false;
+gameboy_rom_catalog_t g_scan_catalog;
 
 void set_error(PaperboyStorageError error) { g_status.error = error; }
 
@@ -167,9 +169,13 @@ bool read_host_file(const char *path, void *buffer, size_t capacity, size_t &siz
 }
 }  // namespace
 
-bool paperboy_storage_begin() {
+void paperboy_storage_bind_host() {
   if (!g_app) g_app = t5_app_get_api(T5_APP_ABI_VERSION);
   if (!g_storage) g_storage = t5_storage_get_api(T5_STORAGE_API_VERSION);
+}
+
+bool paperboy_storage_begin() {
+  paperboy_storage_bind_host();
   if (g_status.mounted && g_app && g_storage) {
     ESP_LOGI(kTag, "reusing host SD mount ROMs=%u", (unsigned)g_status.rom_count);
     return g_scan_ok;
@@ -201,18 +207,18 @@ void paperboy_storage_end() {
 
 bool paperboy_storage_rescan() {
   if (!require_mounted()) return false;
-  gameboy_rom_catalog_t catalog{};
-  const gameboy_rom_result_t result = gameboy_rom_scan(&kRomHost, &catalog);
-  for (size_t i = 0; i < catalog.count; ++i) {
-    copy_string(g_roms[i].name, sizeof(g_roms[i].name), catalog.roms[i].name);
-    copy_string(g_roms[i].path, sizeof(g_roms[i].path), catalog.roms[i].path);
-    g_roms[i].size_bytes = catalog.roms[i].size_bytes;
+  memset(&g_scan_catalog, 0, sizeof(g_scan_catalog));
+  const gameboy_rom_result_t result = gameboy_rom_scan(&kRomHost, &g_scan_catalog);
+  for (size_t i = 0; i < g_scan_catalog.count; ++i) {
+    copy_string(g_roms[i].name, sizeof(g_roms[i].name), g_scan_catalog.roms[i].name);
+    copy_string(g_roms[i].path, sizeof(g_roms[i].path), g_scan_catalog.roms[i].path);
+    g_roms[i].size_bytes = g_scan_catalog.roms[i].size_bytes;
   }
-  g_status.rom_count = catalog.count;
-  g_status.roms_truncated = catalog.truncated;
+  g_status.rom_count = g_scan_catalog.count;
+  g_status.roms_truncated = g_scan_catalog.truncated;
   set_error(result == GAMEBOY_ROM_OK ? PaperboyStorageError::None : PaperboyStorageError::ScanFailed);
-  ESP_LOGI(kTag, "using RiscRTE SD mount ROMs=%u%s", (unsigned)catalog.count,
-           catalog.truncated ? "+" : "");
+  ESP_LOGI(kTag, "using RiscRTE SD mount ROMs=%u%s", (unsigned)g_scan_catalog.count,
+           g_scan_catalog.truncated ? "+" : "");
   return result == GAMEBOY_ROM_OK;
 }
 
