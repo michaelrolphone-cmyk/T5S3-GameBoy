@@ -20,6 +20,7 @@ const t5_app_api_v1 *g_app = nullptr;
 const t5_storage_api_v1 *g_storage = nullptr;
 PaperboyRomInfo g_roms[PAPERBOY_STORAGE_MAX_ROMS];
 PaperboyStorageStatus g_status;
+bool g_scan_ok = false;
 
 void set_error(PaperboyStorageError error) { g_status.error = error; }
 
@@ -167,10 +168,15 @@ bool read_host_file(const char *path, void *buffer, size_t capacity, size_t &siz
 }  // namespace
 
 bool paperboy_storage_begin() {
-  g_app = t5_app_get_api(T5_APP_ABI_VERSION);
-  g_storage = t5_storage_get_api(T5_STORAGE_API_VERSION);
+  if (!g_app) g_app = t5_app_get_api(T5_APP_ABI_VERSION);
+  if (!g_storage) g_storage = t5_storage_get_api(T5_STORAGE_API_VERSION);
+  if (g_status.mounted && g_app && g_storage) {
+    ESP_LOGI(kTag, "reusing host SD mount ROMs=%u", (unsigned)g_status.rom_count);
+    return g_scan_ok;
+  }
   g_status = {};
   memset(g_roms, 0, sizeof(g_roms));
+  g_scan_ok = false;
   if (!g_app || g_app->struct_size < sizeof(t5_app_api_v1) ||
       !g_app->dir_open || !g_app->dir_next || !g_app->dir_close ||
       !g_storage || g_storage->struct_size < sizeof(t5_storage_api_v1) ||
@@ -182,15 +188,15 @@ bool paperboy_storage_begin() {
     return false;
   }
   g_status.mounted = true;
-  return paperboy_storage_rescan();
+  g_scan_ok = paperboy_storage_rescan();
+  return g_scan_ok;
 }
 
 void paperboy_storage_end() {
   if (g_app && g_app->dir_close) g_app->dir_close();
   g_status = {};
   memset(g_roms, 0, sizeof(g_roms));
-  g_app = nullptr;
-  g_storage = nullptr;
+  g_scan_ok = false;
 }
 
 bool paperboy_storage_rescan() {
