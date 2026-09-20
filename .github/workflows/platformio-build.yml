@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   firmware:
-    name: Build T5S3 E-Paper Pro firmware
+    name: Build T5S3 E-Paper Pro firmware and RiscRTE ELF
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
@@ -49,6 +49,26 @@ jobs:
       - name: Validate and stage binaries
         run: |
           python scripts/stage_firmware.py
+          (cd dist && sha256sum -c SHA256SUMS)
+
+      # Use RiscRTE only as a read-only version-pinned native SDK. Nothing is
+      # built into or written back to the firmware repository.
+      - name: Check out RiscRTE native app SDK (read only)
+        uses: actions/checkout@v4
+        with:
+          repository: michaelrolphone-cmyk/T5S3-Reader
+          ref: fc1cb9210687a91cfde8a9e889b94e99b2c50d50
+          path: .pio/riscrte-sdk
+          persist-credentials: false
+          sparse-checkout: |
+            lib/NativeApps/include
+            lib/NativeApps/src
+            lib/elf_loader/src
+            scripts
+
+      - name: Build and validate RiscRTE GameBoy ELF
+        run: |
+          python riscrte/build_elf.py --sdk .pio/riscrte-sdk --output dist/gameboy.elf
           (cd dist && sha256sum -c SHA256SUMS)
 
       - name: Upload downloadable binaries
