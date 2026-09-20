@@ -364,9 +364,13 @@ bool init_panel_bus() {
   panel_config.user_ctx = nullptr;
   panel_config.lcd_cmd_bits = 8;
   panel_config.lcd_param_bits = 8;
-  panel_config.dc_levels.dc_idle_level = 0;
-  panel_config.dc_levels.dc_cmd_level = 0;
-  panel_config.dc_levels.dc_dummy_level = 0;
+  // The panel has no D/C wire. The required dummy output is GPIO46,
+  // which is also the active-low LoRa CS on the shared SD SPI bus.
+  // Keep it HIGH in every LCD phase, including idle, so the radio cannot
+  // drive MISO during SD reads or saves while display scanning is active.
+  panel_config.dc_levels.dc_idle_level = 1;
+  panel_config.dc_levels.dc_cmd_level = 1;
+  panel_config.dc_levels.dc_dummy_level = 1;
   panel_config.dc_levels.dc_data_level = 1;
   panel_config.flags.cs_active_high = 0;
   panel_config.flags.reverse_color_bits = 0;

@@ -40,6 +40,11 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'paperboy_elf_note_boot_interrupt_attached();' in staged
     assert 'esp_deep_sleep_start();' in original
     assert '#ifndef PAPERBOY_RISCRTE_ELF' in staged
+    # GPIO46 is active-low LoRa CS, not an unconnected dummy LCD pin.
+    # Both standalone and staged ELF must keep it inactive throughout scan.
+    for phase in ('idle', 'cmd', 'dummy', 'data'):
+        setting = f'panel_config.dc_levels.dc_{phase}_level = 1;'
+        assert setting in epd_original and setting in epd_staged, phase
     assert 'esp_lcd_panel_io_tx_color' in epd_staged
     assert 'esp_lcd_panel_io_del(g_panel_io)' in epd_staged
     assert 'esp_lcd_del_i80_bus(g_i80_bus)' in epd_staged
