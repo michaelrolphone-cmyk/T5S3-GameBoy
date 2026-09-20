@@ -1,14 +1,29 @@
-/* Self-contained routines required by the existing emulator which are not
- * exported by RiscRTE's ordinary native-app libc table. No libgcc archive or
- * firmware-private symbols are linked into the application. */
+/* Emulator-only libc compatibility routines for RiscRTE's constrained ELF
+ * export list. The existing host exports snprintf, not vsnprintf/strncmp;
+ * keep these adaptations in this application, not in RiscRTE firmware. */
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+#include <inttypes.h>
 
 int memcmp(const void *left, const void *right, size_t count) {
     const unsigned char *a = (const unsigned char *)left;
     const unsigned char *b = (const unsigned char *)right;
     for (size_t i = 0; i < count; ++i) {
         if (a[i] != b[i]) return (int)a[i] - (int)b[i];
+    }
+    return 0;
+}
+
+int strncmp(const char *left, const char *right, size_t count) {
+    const unsigned char *a = (const unsigned char *)left;
+    const unsigned char *b = (const unsigned char *)right;
+    for (size_t i = 0; i < count; ++i) {
+        if (a[i] != b[i]) return (int)a[i] - (int)b[i];
+        if (!a[i]) return 0;
     }
     return 0;
 }
@@ -34,6 +49,110 @@ char *strstr(const char *haystack, const char *needle) {
     }
     return NULL;
 }
+
+/* Forward individual type-correct format arguments to the firmware-exported
+ * snprintf. This preserves va_list formatting for the original CrankBoy core
+ * without importing firmware-private vsnprintf. All writes stay within size.
+ * %n is deliberately unsupported: it has no legitimate emulator use. */
+#define FORMAT_ARG(value) do { \
+    if (width_star && precision_star) \
+        written = snprintf(slot, room, spec, star_width, star_precision, (value)); \
+    else if (width_star) \
+        written = snprintf(slot, room, spec, star_width, (value)); \
+    else if (precision_star) \
+        written = snprintf(slot, room, spec, star_precision, (value)); \
+    else \
+        written = snprintf(slot, room, spec, (value)); \
+} while (0)
+
+int vsnprintf(char *out, size_t capacity, const char *format, va_list args) {
+    if (!format || (!out && capacity)) return -1;
+    size_t total = 0;
+    const char *cursor = format;
+    while (*cursor) {
+        if (*cursor != '%') {
+            if (out && total + 1 < capacity) out[total] = *cursor;
+            if (total >= (size_t)INT_MAX) return -1;
+            ++total;
+            ++cursor;
+            continue;
+        }
+        ++cursor;
+        if (*cursor == '%') {
+            if (out && total + 1 < capacity) out[total] = '%';
+            if (total >= (size_t)INT_MAX) return -1;
+            ++total;
+            ++cursor;
+            continue;
+        }
+        char spec[64];
+        size_t length = 0;
+        spec[length++] = '%';
+        bool width_star = false, precision_star = false, dotted = false;
+        int star_width = 0, star_precision = 0, length_l = 0;
+        bool length_z = false, length_t = false, length_j = false;
+        char conversion = 0;
+        while (*cursor && length + 2 < sizeof(spec)) {
+            char ch = *cursor++;
+            spec[length++] = ch;
+            if (ch == '.') dotted = true;
+            if (ch == '*') {
+                if (dotted) {
+                    if (precision_star) return -1;
+                    precision_star = true;
+                    star_precision = va_arg(args, int);
+                } else {
+                    if (width_star) return -1;
+                    width_star = true;
+                    star_width = va_arg(args, int);
+                }
+            }
+            if (ch == 'l') ++length_l;
+            if (ch == 'z') length_z = true;
+            if (ch == 't') length_t = true;
+            if (ch == 'j') length_j = true;
+            if (strchr("diuoxXcspfeEgGaA", ch)) {
+                conversion = ch;
+                break;
+            }
+            if (ch == 'n') return -1;
+        }
+        if (!conversion) return -1;
+        spec[length] = 0;
+        char *slot = out && total < capacity ? out + total : NULL;
+        size_t room = out && total < capacity ? capacity - total : 0;
+        int written = -1;
+        switch (conversion) {
+            case 'd': case 'i':
+                if (length_j) { intmax_t value = va_arg(args, intmax_t); FORMAT_ARG(value); }
+                else if (length_l >= 2) { long long value = va_arg(args, long long); FORMAT_ARG(value); }
+                else if (length_l) { long value = va_arg(args, long); FORMAT_ARG(value); }
+                else if (length_z || length_t) { ptrdiff_t value = va_arg(args, ptrdiff_t); FORMAT_ARG(value); }
+                else { int value = va_arg(args, int); FORMAT_ARG(value); }
+                break;
+            case 'u': case 'o': case 'x': case 'X':
+                if (length_j) { uintmax_t value = va_arg(args, uintmax_t); FORMAT_ARG(value); }
+                else if (length_l >= 2) { unsigned long long value = va_arg(args, unsigned long long); FORMAT_ARG(value); }
+                else if (length_l) { unsigned long value = va_arg(args, unsigned long); FORMAT_ARG(value); }
+                else if (length_z || length_t) { size_t value = va_arg(args, size_t); FORMAT_ARG(value); }
+                else { unsigned value = va_arg(args, unsigned); FORMAT_ARG(value); }
+                break;
+            case 's': { const char *value = va_arg(args, const char *); FORMAT_ARG(value ? value : "(null)"); break; }
+            case 'c': { int value = va_arg(args, int); FORMAT_ARG(value); break; }
+            case 'p': { void *value = va_arg(args, void *); FORMAT_ARG(value); break; }
+            case 'f': case 'e': case 'E': case 'g': case 'G': case 'a': case 'A': {
+                double value = va_arg(args, double); FORMAT_ARG(value); break;
+            }
+            default: return -1;
+        }
+        if (written < 0 || total > (size_t)INT_MAX - (size_t)written)
+            return -1;
+        total += (size_t)written;
+    }
+    if (out && capacity) out[total < capacity ? total : capacity - 1u] = 0;
+    return (int)total;
+}
+#undef FORMAT_ARG
 
 /* Source-owned restoring division: linking libgcc directly brings unsupported
  * ELF relocation/section constructs into the constrained native loader. */
