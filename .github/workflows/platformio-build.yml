@@ -42,6 +42,12 @@ jobs:
             src/usb_hid_report.cpp tests/usb_hid_report_test.cpp -o /tmp/usb-hid-test
           /tmp/usb-hid-test
 
+      - name: Test USB HID keyboard and logical mappings
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc \
+            src/usb_hid_keyboard.cpp tests/usb_hid_keyboard_test.cpp -o /tmp/usb-keyboard-test
+          /tmp/usb-keyboard-test
+
       - name: Test controller shortcuts and menu navigation
         run: |
           c++ -std=c++11 -Wall -Wextra -Werror -Wno-unused-parameter -fsanitize=address,undefined \
