@@ -8,3 +8,12 @@
 // Safe to call once per emulated frame. Returns zero when absent or on error;
 // retries after disconnection and supports simultaneous touchscreen input.
 uint8_t snes_mini_controller_buttons();
+
+// Poll buttons first, then consume these one-shot actions on the same task.
+enum SnesControllerAction : uint8_t {
+  SNES_ACTION_SAVE = 1U << 0,
+  SNES_ACTION_LOAD = 1U << 1,
+  SNES_ACTION_DIM = 1U << 2,
+  SNES_ACTION_BRIGHTEN = 1U << 3,
+};
+uint8_t snes_mini_controller_take_actions();

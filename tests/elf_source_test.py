@@ -18,7 +18,9 @@ with tempfile.TemporaryDirectory() as tmp:
     for symbol in ('paperboy_storage_begin()', 'paperboy_storage_read_config(',
                    'paperboy_storage_load_rom(', 'launch_sd_rom(', 'save_current_persist(',
                    'gbemu_run_frame(', 'audio_init()', 'audio_service_frame()',
-                   'touch_read(', 'compose_scene(', 'rotate_game_to_panel(',
+                   'touch_read(', 'snes_mini_controller_buttons()',
+                   'snes_mini_controller_take_actions()', 'night_light_init()',
+                   'night_light_set_brightness(', 'compose_scene(', 'rotate_game_to_panel(',
                    'refresh_current_page(', 'battery_read_status('):
         assert symbol in original and symbol in staged, symbol
     assert 'run_console(nullptr);' in staged
@@ -34,6 +36,8 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'paperboy_elf_request_exit();' in staged
     assert 'app_hardware_takeover()' in staged
     assert 'void app_main()' in staged
+    app_main = staged.split('void app_main()', 1)[1]
+    assert app_main.index('paperboy_storage_owner_wait();') < app_main.index('night_light_shutdown();') < app_main.index('epd_video_shutdown();')
     assert 'int app_module_init()' in staged
     assert 'void app_module_fini()' in staged
     assert 'if (s_elf_boot_interrupt_attached)' in staged
