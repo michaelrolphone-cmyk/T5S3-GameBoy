@@ -23,10 +23,10 @@ constexpr uint16_t kBoostStopBatteryMv = 3500U;
 constexpr uint16_t kBoostMinSocPercent = 15U;
 constexpr uint16_t kBoostStopSocPercent = 10U;
 
-// Source: RiscRTE v1.2.16 and board_power_t5s3_v2 (PRs #101/#102).
-// REG0A BOOSTV=1001 => 5.126 V; BOOST_LIM=010 => 1.2 A PMIC
-// peak/overcurrent threshold. The separate 500 mA USB admission budget is
-// NOT the BQ25896 peak limit. The 500 mA BOOST_LIM setting failed on board.
+// Board-qualified RiscRTE v1.2.16 and board_power_t5s3_v2 PRs #101/#102.
+// REG0A BOOSTV=1001 -> 5.126 V; BOOST_LIM=010 -> 1.2 A PMIC
+// peak/overcurrent threshold. The logical 500 mA USB admission budget is
+// separate: configuring 500 mA in this physical register failed on the board.
 constexpr uint8_t kRegAdcControl = 0x02U;
 constexpr uint8_t kRegPower = 0x03U;
 constexpr uint8_t kRegBoost = 0x0AU;
@@ -95,8 +95,8 @@ bool write_reg(uint8_t reg, uint8_t value) {
   return g_charger_ready && charger_call_ok(bq25896_hal_write(
       &g_charger.hal, g_charger.i2c_addr_7bit, reg, &value, 1));
 }
-// REG0C first read is the latched history; a second separate I2C read
-// identifies the live fault. Never treat one historical inrush as a live fault.
+// TI REG0C: first read contains fault history, second consecutive read
+// contains the live state. Historical inrush is not a persistent fault.
 bool read_fault_pair(uint8_t &latched, uint8_t &live) {
   return read_reg(kRegFault, latched) && read_reg(kRegFault, live);
 }
@@ -137,7 +137,6 @@ bool configure_charger() {
     g_charger = {};
     return false;
   }
-  // These functions read the register only after the charger is initialized.
   g_charger_ready = true;
   if (!restore_charger_profile()) {
     g_charger_ready = false;
@@ -156,7 +155,7 @@ bool configure_gauge() {
   if (!g_gauge.setDefaultCapacity(kProfile.capacity_mah) ||
       !g_gauge.setChargeParameters(kProfile.charge_current_ma,
           kProfile.charge_voltage_mv, kProfile.termination_current_ma,
-          kProfile.charge_termination_voltage_mv) || !g_gauge.init()) {
+          kProfile.charge_termination_voltage_delta_mv) || !g_gauge.init()) {
     g_gauge.end();
     return false;
   }
@@ -212,13 +211,13 @@ void report_boost_failure(const char *reason, uint32_t begun) {
            static_cast<unsigned long>(millis() - begun));
 }
 
-// Never restore charge while sourcing cannot be proven off. A failed write or
-// readback leaves the source marked active and latched, blocking BATFET cutoff.
+// Never restore charging while sourcing cannot be proven off. A failed write
+// or readback retains the active source marker and blocks BATFET shutdown.
 bool stop_host_boost(const char *reason, bool latch_fault) {
   if (latch_fault) g_host_boost_fault_latched = true;
   if (!g_host_boost_active) return true;
   if (!g_charger_ready || !g_host_snapshot_valid ||
-      !write_reg(kRegPower, static_cast<uint8_t>(g_saved_power & ~kOtgEnable))) {
+      !write_reg(kRegPower, static_cast<uint8_t>(g_saved_power & ~(kOtgEnable | kChargeEnable)))) {
     ESP_LOGE(kTag, "USB VBUS unsafe rollback: OTG disable failed (%s)", reason);
     g_host_boost_fault_latched = true;
     return false;
@@ -310,8 +309,8 @@ bool verify_host_boost(uint32_t begun) {
       report_boost_failure("boost-unstable", begun);
       return false;
     }
-    // REG11 ADC takes up to ~1 s to refresh. REG11 VBUS_GD is input status,
-    // not proof against OTG: require OTG status and raw ADC >=18 (~4.4 V).
+    // REG11 ADC may take ~1 second to refresh. REG11 VBUS_GD is an input
+    // indicator, not proof against OTG: verify OTG and ADC >=18 (~4.4 V).
     if ((status & kVbusStatusMask) == kVbusOtg && (adc & 0x7FU) >= 18U &&
         (!startup_transient || millis() - clean_since >= kBoostRecoveryStableMs)) {
       ESP_LOGI(kTag, "USB VBUS source verified cfg=0x%02x output_adc=%02x inrush=%u ms=%lu",
@@ -341,7 +340,7 @@ bool start_host_boost() {
     return false;
   }
   g_host_snapshot_valid = true;
-  // Mark active before writes: failed I2C writes may have partially applied.
+  // Mark active before writes: a failed I2C write may have partially applied.
   g_host_boost_active = true;
   const uint8_t boost = static_cast<uint8_t>((g_saved_boost & 0x08U) | kBoostConfig5126Mv1200Ma);
   const bool wrote = write_reg(kRegBoost, boost) &&
@@ -434,8 +433,6 @@ void battery_service() {
     }
     return; // Never restore charging while USB host owns VBUS.
   }
-  // A failed rollback retains the source ownership even if a register no
-  // longer reports OTG. Do not restore charge or retry on an uncertain rail.
   if (g_host_boost_fault_latched && g_host_snapshot_valid) return;
   if (!g_host_boost_fault_latched && !external_vbus(status)) {
     (void)start_host_boost();
@@ -545,7 +542,6 @@ bool battery_read_status(PaperboyBatteryStatus &status) {
 BatteryShutdownResult battery_request_shutdown() {
   (void)battery_begin();
   if (!g_charger_ready) return BatteryShutdownResult::ChargerUnavailable;
-  // Never cut BATFET while the OTG source state is uncertain.
   if (g_host_boost_active && !stop_host_boost("power-off", false))
     return BatteryShutdownResult::IoError;
   bq25896_status_t status = {};
