@@ -5,6 +5,7 @@
 #include <esp_log.h>
 
 #include "gbemu.h"
+#include "usb_hid_gamepad.h"
 
 namespace {
 
@@ -163,9 +164,7 @@ uint8_t decode_buttons(const uint8_t data[6], uint32_t now) {
   return input;
 }
 
-}  // namespace
-
-uint8_t snes_mini_controller_buttons() {
+uint8_t snes_i2c_buttons() {
   g_actions = 0U;  // Actions belong only to this poll, never its cached report.
   const uint32_t now = millis();
   if (!g_initialized) {
@@ -216,12 +215,21 @@ uint8_t snes_mini_controller_buttons() {
   return g_buttons;
 }
 
+}  // namespace
+
+uint8_t snes_mini_controller_buttons() {
+  // Always poll USB, even when the optional I2C controller is disconnected.
+  // Inputs from USB, I2C and the touchscreen remain additive.
+  const uint8_t usb_buttons = usb_hid_gamepad_buttons();
+  return usb_buttons | snes_i2c_buttons();
+}
+
 uint8_t snes_mini_controller_take_actions() {
-  const uint8_t actions = g_actions;
+  const uint8_t actions = g_actions | usb_hid_gamepad_take_actions();
   g_actions = 0U;
   return actions;
 }
 
 uint8_t snes_mini_controller_navigation_buttons() {
-  return g_navigation_buttons;
+  return g_navigation_buttons | usb_hid_gamepad_navigation_buttons();
 }

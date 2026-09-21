@@ -1,0 +1,6 @@
+#include "usb_hid_gamepad.h"
+
+void usb_hid_gamepad_begin() {}
+uint8_t usb_hid_gamepad_buttons() { return 0; }
+uint8_t usb_hid_gamepad_navigation_buttons() { return 0; }
+uint8_t usb_hid_gamepad_take_actions() { return 0; }
