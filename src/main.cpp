@@ -1502,6 +1502,7 @@ void run_console(void *unused) {
       actions = PAPERBOY_ACTION_SETTINGS;
     }
     if (page == PaperboyPage::Game) {
+      if (controller_actions & SNES_ACTION_ROTATE) actions = PAPERBOY_ACTION_ROTATE;
       if (controller_actions & SNES_ACTION_SAVE) actions |= PAPERBOY_ACTION_SAVE;
       if (controller_actions & SNES_ACTION_LOAD) actions |= PAPERBOY_ACTION_LOAD;
     }

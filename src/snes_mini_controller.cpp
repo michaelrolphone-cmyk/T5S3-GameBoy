@@ -36,6 +36,7 @@ uint8_t g_buttons = 0U;
 uint8_t g_actions = 0U;
 uint8_t g_navigation_buttons = 0U;
 bool g_settings_chord_active = false;
+bool g_rotate_chord_active = false;
 uint16_t g_previous_pressed = 0U;
 uint32_t g_turbo_a_started_ms = 0U;
 uint32_t g_turbo_b_started_ms = 0U;
@@ -60,6 +61,7 @@ void disconnect(uint32_t now, const char *reason) {
   g_actions = 0U;
   g_navigation_buttons = 0U;
   g_settings_chord_active = false;
+  g_rotate_chord_active = false;
   g_previous_pressed = 0U;
   g_select_consumed = false;
   g_next_probe_ms = now + kReconnectIntervalMs;
@@ -107,6 +109,19 @@ uint8_t decode_buttons(const uint8_t data[6], uint32_t now) {
     g_previous_pressed = pressed;
     g_select_consumed = true;
     if (!(pressed & settings_chord)) g_settings_chord_active = false;
+    return 0U;
+  }
+  constexpr uint16_t rotate_chord = kL | kR | kRight;
+  const bool rotate_held = (pressed & rotate_chord) == rotate_chord;
+  if (rotate_held && (!g_rotate_chord_active || (rising & kRight))) {
+    g_rotate_chord_active = true;
+    g_actions = SNES_ACTION_ROTATE;
+  }
+  if (g_rotate_chord_active) {
+    // Consume Right and the shoulders through release; tapping Right again
+    // while holding both shoulders cycles once more, with no hold repeat.
+    g_previous_pressed = pressed;
+    if (!(pressed & rotate_chord)) g_rotate_chord_active = false;
     return 0U;
   }
   if (rising & kX) g_turbo_a_started_ms = now;

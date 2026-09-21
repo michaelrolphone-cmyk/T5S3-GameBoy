@@ -12,6 +12,22 @@ uint8_t poll(uint16_t pressed, uint32_t dt = 16) {
   return snes_mini_controller_buttons();
 }
 int main() {
+  // L+R+Right rotates once, consumes gameplay input, and permits Right re-taps.
+  assert(poll(0xA200) == 0);
+  assert(snes_mini_controller_take_actions() == SNES_ACTION_ROTATE);
+  assert(snes_mini_controller_navigation_buttons() == 0);
+  assert(poll(0xA200, 600) == 0); assert(snes_mini_controller_take_actions() == 0);
+  poll(0x2200); assert(snes_mini_controller_take_actions() == 0);
+  poll(0xA200); assert(snes_mini_controller_take_actions() == SNES_ACTION_ROTATE);
+  assert(poll(0x8200) == 0); assert(snes_mini_controller_take_actions() == 0);
+  assert(poll(0x8000) == 0); assert(snes_mini_controller_take_actions() == 0);
+  poll(0);
+  assert(poll(0x8000) == GBEMU_INPUT_RIGHT);
+  poll(0);
+  // Settings wins if both complete shortcuts are pressed together.
+  poll(0xB600); assert(snes_mini_controller_take_actions() == SNES_ACTION_SETTINGS);
+  poll(0);
+
   // Settings chord wins over save/load/brightness, including staggered release.
   poll(0x3600); assert(snes_mini_controller_take_actions() == SNES_ACTION_SETTINGS);
   assert(snes_mini_controller_navigation_buttons() == 0);
