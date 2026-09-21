@@ -1490,11 +1490,19 @@ void run_console(void *unused) {
     // Poll on every page so held shoulders cannot become a new press on return.
     const uint8_t controller_buttons = snes_mini_controller_buttons();
     const uint8_t controller_actions = snes_mini_controller_take_actions();
-    const uint8_t buttons = page == PaperboyPage::Game
-        ? ((touch_ok ? paperboy_ui_map_buttons(&touch) : 0U) | controller_buttons)
+    const uint32_t menu_actions = paperboy_ui_map_controller(
+        snes_mini_controller_navigation_buttons(), page, now_ms);
+    uint8_t buttons = page == PaperboyPage::Game
+        ? ((touch_ok ? paperboy_ui_map_buttons(&touch) : 0U) | (paperboy_ui_controller_ready() ? controller_buttons : 0U))
         : 0U;
     uint32_t actions = touch_ok ? paperboy_ui_map_actions(&touch, page) : 0U;
+    actions |= menu_actions;
+    if (menu_actions != 0U) full_scene_syncs = kPanelBufferCount;
+    if (controller_actions & SNES_ACTION_SETTINGS) {
+      actions = PAPERBOY_ACTION_SETTINGS;
+    }
     if (page == PaperboyPage::Game) {
+      if (controller_actions & SNES_ACTION_ROTATE) actions = PAPERBOY_ACTION_ROTATE;
       if (controller_actions & SNES_ACTION_SAVE) actions |= PAPERBOY_ACTION_SAVE;
       if (controller_actions & SNES_ACTION_LOAD) actions |= PAPERBOY_ACTION_LOAD;
     }
@@ -1686,7 +1694,7 @@ void run_console(void *unused) {
       }
       full_scene_syncs = kPanelBufferCount;
     }
-    if ((actions & PAPERBOY_ACTION_SETTINGS) != 0U && page == PaperboyPage::Game) {
+    if ((actions & PAPERBOY_ACTION_SETTINGS) != 0U) {
       next_page = PaperboyPage::Settings;
     }
     if ((actions & PAPERBOY_ACTION_BACK) != 0U) {
@@ -1718,6 +1726,7 @@ void run_console(void *unused) {
       }
       ESP_LOGI(kTag, "page %u -> %u", static_cast<unsigned>(page), static_cast<unsigned>(next_page));
       page = next_page;
+      buttons = 0U;  // Do not inject the menu activation/back key into gameplay.
       audio_set_paused(page != PaperboyPage::Game || !power_on);
       paperboy_ui_on_page_changed();
       full_scene_syncs = kPanelBufferCount;

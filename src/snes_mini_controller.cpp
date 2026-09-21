@@ -34,6 +34,9 @@ bool g_initialized = false;
 bool g_connected = false;
 uint8_t g_buttons = 0U;
 uint8_t g_actions = 0U;
+uint8_t g_navigation_buttons = 0U;
+bool g_settings_chord_active = false;
+bool g_rotate_chord_active = false;
 uint16_t g_previous_pressed = 0U;
 uint32_t g_turbo_a_started_ms = 0U;
 uint32_t g_turbo_b_started_ms = 0U;
@@ -56,6 +59,9 @@ void disconnect(uint32_t now, const char *reason) {
   g_initialized = false;
   g_buttons = 0U;  // Release all keys; never leave a button stuck after unplug.
   g_actions = 0U;
+  g_navigation_buttons = 0U;
+  g_settings_chord_active = false;
+  g_rotate_chord_active = false;
   g_previous_pressed = 0U;
   g_select_consumed = false;
   g_next_probe_ms = now + kReconnectIntervalMs;
@@ -91,6 +97,33 @@ uint8_t decode_buttons(const uint8_t data[6], uint32_t now) {
       (static_cast<uint16_t>(data[4] ^ 0xFFU) << 8U) |
       static_cast<uint16_t>(data[5] ^ 0xFFU));
   const uint16_t rising = pressed & ~g_previous_pressed;
+  constexpr uint16_t settings_chord = kL | kR | kStart | kSelect;
+  g_navigation_buttons = 0U;
+  if ((pressed & settings_chord) == settings_chord && !g_settings_chord_active) {
+    g_settings_chord_active = true;
+    g_actions = SNES_ACTION_SETTINGS;
+  }
+  if (g_settings_chord_active) {
+    // Consume the whole chord until all four keys are released, regardless
+    // of release order. Never turn its tail into save/load or brightness.
+    g_previous_pressed = pressed;
+    g_select_consumed = true;
+    if (!(pressed & settings_chord)) g_settings_chord_active = false;
+    return 0U;
+  }
+  constexpr uint16_t rotate_chord = kL | kR | kRight;
+  const bool rotate_held = (pressed & rotate_chord) == rotate_chord;
+  if (rotate_held && (!g_rotate_chord_active || (rising & kRight))) {
+    g_rotate_chord_active = true;
+    g_actions = SNES_ACTION_ROTATE;
+  }
+  if (g_rotate_chord_active) {
+    // Consume Right and the shoulders through release; tapping Right again
+    // while holding both shoulders cycles once more, with no hold repeat.
+    g_previous_pressed = pressed;
+    if (!(pressed & rotate_chord)) g_rotate_chord_active = false;
+    return 0U;
+  }
   if (rising & kX) g_turbo_a_started_ms = now;
   if (rising & kY) g_turbo_b_started_ms = now;
   const bool turbo_a = (pressed & kX) &&
@@ -99,7 +132,9 @@ uint8_t decode_buttons(const uint8_t data[6], uint32_t now) {
       (((now - g_turbo_b_started_ms) / kTurboHalfPeriodMs) % 2U == 0U);
 
   if (!(pressed & kSelect)) g_select_consumed = false;
-  if ((pressed & kSelect) && (pressed & (kL | kR))) {
+  if ((pressed & (kStart | kSelect)) == (kStart | kSelect)) {
+    // Reserve shoulders while the Settings chord is being assembled.
+  } else if ((pressed & kSelect) && (pressed & (kL | kR))) {
     g_select_consumed = true;
     // Both shoulders together are a no-op. Require a fresh shoulder press.
     if ((pressed & (kL | kR)) == kL && (rising & kL))
@@ -118,6 +153,9 @@ uint8_t decode_buttons(const uint8_t data[6], uint32_t now) {
   if (pressed & kDown) input |= GBEMU_INPUT_DOWN;
   if (pressed & kLeft) input |= GBEMU_INPUT_LEFT;
   if (pressed & kRight) input |= GBEMU_INPUT_RIGHT;
+  g_navigation_buttons = input;
+  if (pressed & kA) g_navigation_buttons |= GBEMU_INPUT_A;
+  if (pressed & kB) g_navigation_buttons |= GBEMU_INPUT_B;
   if ((pressed & kA) || turbo_a) input |= GBEMU_INPUT_A;
   if ((pressed & kB) || turbo_b) input |= GBEMU_INPUT_B;
   if (pressed & kStart) input |= GBEMU_INPUT_START;
@@ -182,4 +220,8 @@ uint8_t snes_mini_controller_take_actions() {
   const uint8_t actions = g_actions;
   g_actions = 0U;
   return actions;
+}
+
+uint8_t snes_mini_controller_navigation_buttons() {
+  return g_navigation_buttons;
 }
