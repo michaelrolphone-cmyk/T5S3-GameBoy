@@ -78,21 +78,8 @@ void paperboy_ui_draw_page(
     bool touch_available,
     const PaperboyRomLibraryView *rom_library);
 
-// Frame input adapter: OR the optional hardware controller's current buttons
-// into the touchscreen mask without changing emulator or touchscreen code.
-// The macro below redirects the existing frame call in main.cpp only after
-// gbemu.h has declared the underlying function; gbemu.c does not include this
-// UI header and therefore retains the original gbemu_run_frame definition.
-inline bool paperboy_run_frame_with_controller(
-    gbemu_t *emu,
-    uint8_t *framebuffer,
-    size_t framebuffer_size,
-    uint8_t touch_buttons,
-    bool skip_render,
-    gbemu_frame_stats_t *out_stats) {
-  return gbemu_run_frame(
-      emu, framebuffer, framebuffer_size,
-      static_cast<uint8_t>(touch_buttons | snes_mini_controller_buttons()),
-      skip_render, out_stats);
-}
-#define gbemu_run_frame paperboy_run_frame_with_controller
+// Controller navigation uses physical keys, independently of touch and turbo.
+uint32_t paperboy_ui_map_controller(uint8_t buttons, PaperboyPage page, uint32_t now);
+void paperboy_ui_controller_page_changed();
+bool paperboy_ui_controller_ready();
+uint8_t paperboy_ui_controller_selection();

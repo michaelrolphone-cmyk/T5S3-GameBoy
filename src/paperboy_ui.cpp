@@ -308,7 +308,11 @@ void draw_settings_menu(uint8_t *framebuffer) {
   draw_menu_item(framebuffer, kBatteryRect, "BATTERY + LIGHT", "POWER AND BRIGHTNESS CONTROLS");
   draw_menu_item(framebuffer, kSdCardRect, "SD CARD", "ROM LIBRARY AND SAVE FILES");
   draw_menu_item(framebuffer, kAboutRect, "ABOUT SYSTEM", "DEVICE AND SOFTWARE INFO");
-  draw_centered_text(framebuffer, 650, "SELECT AN ITEM TO OPEN", 1);
+  const Rect options[] = {kBatteryRect, kSdCardRect, kAboutRect};
+  const Rect &focus = options[paperboy_ui_controller_selection()];
+  mono_draw_frame(framebuffer, kPitch, kWidth, kHeight,
+                  focus.x - 7, focus.y - 7, focus.width + 14, focus.height + 14, 3, false);
+  draw_centered_text(framebuffer, 650, "UP/DOWN: SELECT   A: OPEN   B: BACK", 1);
 }
 
 const char *battery_state_text(const PaperboyBatteryStatus &battery) {
@@ -576,6 +580,7 @@ void paperboy_ui_init() {
 }
 
 void paperboy_ui_on_page_changed() {
+  paperboy_ui_controller_page_changed();
   g_ignore_actions_until_release = true;
   g_ignore_buttons_until_release = true;
   reset_rom_navigation_repeat();

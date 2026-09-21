@@ -15,5 +15,9 @@ enum SnesControllerAction : uint8_t {
   SNES_ACTION_LOAD = 1U << 1,
   SNES_ACTION_DIM = 1U << 2,
   SNES_ACTION_BRIGHTEN = 1U << 3,
+  SNES_ACTION_SETTINGS = 1U << 4,
 };
 uint8_t snes_mini_controller_take_actions();
+
+// Physical D-pad/A/B only, without X/Y turbo; read after polling buttons.
+uint8_t snes_mini_controller_navigation_buttons();
