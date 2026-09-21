@@ -36,11 +36,24 @@ jobs:
             tests/landscape_test.cpp -o /tmp/landscape-test
           /tmp/landscape-test
 
+      - name: Test USB HID report decoding
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc \
+            src/usb_hid_report.cpp tests/usb_hid_report_test.cpp -o /tmp/usb-hid-test
+          /tmp/usb-hid-test
+
+      - name: Test USB HID keyboard and logical mappings
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc \
+            src/usb_hid_keyboard.cpp tests/usb_hid_keyboard_test.cpp -o /tmp/usb-keyboard-test
+          /tmp/usb-keyboard-test
+
       - name: Test controller shortcuts and menu navigation
         run: |
           c++ -std=c++11 -Wall -Wextra -Werror -Wno-unused-parameter -fsanitize=address,undefined \
             -Itests/controller_stubs -Isrc src/snes_mini_controller.cpp \
-            src/paperboy_controller_navigation.cpp tests/controller_test.cpp -o /tmp/controller-test
+            src/paperboy_controller_navigation.cpp tests/usb_gamepad_stub.cpp \
+            tests/controller_test.cpp -o /tmp/controller-test
           /tmp/controller-test
 
       - name: Cache PlatformIO packages
