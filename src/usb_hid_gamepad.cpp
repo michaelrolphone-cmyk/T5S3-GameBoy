@@ -9,14 +9,14 @@
 
 #include "gbemu.h"
 #include "snes_mini_controller.h"
+#include "usb_hid_keyboard.h"
 #include "usb_hid_report.h"
 
 namespace {
-constexpr char kTag[] = "usb_gamepad";
+constexpr char kTag[] = "usb_input";
 constexpr uint8_t kMaxInterfaces = 8;
 constexpr uint16_t kMaxDescriptor = 512;
 constexpr uint32_t kTurboHalfMs = 50;
-constexpr uint32_t kRetryMs = 1500;
 
 struct Candidate {
   uint8_t interface_number = 0;
@@ -24,22 +24,29 @@ struct Candidate {
   uint8_t endpoint = 0;
   uint16_t packet_size = 0;
   uint16_t descriptor_length = 0;
+  bool boot_keyboard = false;
 };
+
+enum class ControlStage : uint8_t { Descriptor, BootProtocol };
 
 portMUX_TYPE g_input_lock = portMUX_INITIALIZER_UNLOCKED;
 UsbHidGamepadState g_raw;
+UsbHidKeyboardKeys g_previous_keyboard;
+uint8_t g_pending_keyboard_actions = 0;
 usb_host_client_handle_t g_client = nullptr;
 usb_device_handle_t g_device = nullptr;
 usb_transfer_t *g_control = nullptr;
 usb_transfer_t *g_interrupt = nullptr;
 UsbHidGamepadReport g_layout;
+UsbHidKeyboardReport g_keyboard_layout;
 Candidate g_candidates[kMaxInterfaces];
+ControlStage g_control_stage = ControlStage::Descriptor;
 uint8_t g_candidates_count = 0;
 uint8_t g_candidate = 0;
-uint8_t g_device_address = 0;
 uint8_t g_pending_address = 0;
 uint8_t g_active_interface = 0;
 uint8_t g_endpoint = 0;
+bool g_keyboard_active = false;
 bool g_interface_claimed = false;
 bool g_control_inflight = false;
 bool g_control_done = false;
@@ -47,7 +54,6 @@ bool g_interrupt_inflight = false;
 bool g_disconnect = false;
 bool g_started = false;
 uint8_t g_transfer_errors = 0;
-uint32_t g_retry_after_ms = 0;
 
 uint8_t g_buttons = 0;
 uint8_t g_navigation = 0;
@@ -59,9 +65,18 @@ bool g_settings_chord = false;
 bool g_rotate_chord = false;
 bool g_select_consumed = false;
 
+void clear_live_keys() {
+  portENTER_CRITICAL(&g_input_lock);
+  g_raw = {};
+  g_previous_keyboard = {};
+  portEXIT_CRITICAL(&g_input_lock);
+}
+
 void clear_input() {
   portENTER_CRITICAL(&g_input_lock);
   g_raw = {};
+  g_previous_keyboard = {};
+  g_pending_keyboard_actions = 0;
   portEXIT_CRITICAL(&g_input_lock);
 }
 
@@ -78,19 +93,18 @@ void library_task(void *) {
 
 void on_client_event(const usb_host_client_event_msg_t *event, void *) {
   if (event->event == USB_HOST_CLIENT_EVENT_NEW_DEV) {
-    ESP_LOGI(kTag, "receiver enumerated address=%u", event->new_dev.address);
+    ESP_LOGI(kTag, "HID device enumerated address=%u", event->new_dev.address);
     if (!g_device && !g_pending_address) g_pending_address = event->new_dev.address;
-  } else if (event->event == USB_HOST_CLIENT_EVENT_DEV_GONE) {
-    if (event->dev_gone.dev_hdl == g_device) {
-      ESP_LOGW(kTag, "receiver removed; releasing all buttons");
-      g_disconnect = true;
-      clear_input();
-    }
+  } else if (event->event == USB_HOST_CLIENT_EVENT_DEV_GONE &&
+             event->dev_gone.dev_hdl == g_device) {
+    ESP_LOGW(kTag, "HID device removed; releasing all buttons and keys");
+    g_disconnect = true;
+    clear_input();
   }
 }
 
-// Walk configuration descriptors rather than binding to an unverified VID/PID.
-// A USB receiver may expose a keyboard interface before its gamepad interface.
+// Keep boot-keyboard interfaces behind other HID candidates so a composite
+// gamepad receiver with an auxiliary keyboard interface still uses its pad.
 void inspect_interfaces(const usb_config_desc_t *config) {
   g_candidates_count = 0;
   if (!config || config->wTotalLength < 9) return;
@@ -100,8 +114,9 @@ void inspect_interfaces(const usb_config_desc_t *config) {
   bool hid_interface = false;
   bool have_endpoint = false;
   auto finish = [&]() {
-    if (hid_interface && have_endpoint && current.descriptor_length &&
-        current.descriptor_length <= kMaxDescriptor &&
+    if (hid_interface && have_endpoint &&
+        (current.boot_keyboard || (current.descriptor_length &&
+         current.descriptor_length <= kMaxDescriptor)) &&
         g_candidates_count < kMaxInterfaces) {
       g_candidates[g_candidates_count++] = current;
     }
@@ -117,8 +132,8 @@ void inspect_interfaces(const usb_config_desc_t *config) {
       have_endpoint = false;
       current.interface_number = bytes[at + 2];
       current.alternate = bytes[at + 3];
+      current.boot_keyboard = bytes[at + 6] == 1 && bytes[at + 7] == 1;
     } else if (hid_interface && type == 0x21 && size >= 9) {
-      // HID descriptor: bNumDescriptors at offset 5, entries start at 6.
       for (uint8_t i = 0; i < bytes[at + 5]; ++i) {
         const size_t off = at + 6U + size_t(i) * 3U;
         if (off + 3 > at + size) break;
@@ -139,11 +154,19 @@ void inspect_interfaces(const usb_config_desc_t *config) {
     at += size;
   }
   finish();
+  for (uint8_t i = 0; i < g_candidates_count; ++i) {
+    for (uint8_t j = uint8_t(i + 1); j < g_candidates_count; ++j) {
+      if (g_candidates[i].boot_keyboard && !g_candidates[j].boot_keyboard) {
+        const Candidate tmp = g_candidates[i];
+        g_candidates[i] = g_candidates[j];
+        g_candidates[j] = tmp;
+      }
+    }
+  }
   ESP_LOGI(kTag, "HID candidate interfaces=%u", g_candidates_count);
 }
 
-void on_descriptor(usb_transfer_t *transfer) {
-  (void)transfer;
+void on_control(usb_transfer_t *) {
   g_control_inflight = false;
   g_control_done = true;
 }
@@ -151,19 +174,21 @@ void on_descriptor(usb_transfer_t *transfer) {
 bool request_descriptor() {
   if (!g_device || g_candidate >= g_candidates_count) return false;
   const Candidate &candidate = g_candidates[g_candidate];
+  if (!candidate.descriptor_length || candidate.descriptor_length > kMaxDescriptor) return false;
   const size_t size = 8U + candidate.descriptor_length;
   if (usb_host_transfer_alloc(size, 0, &g_control) != ESP_OK) return false;
   uint8_t *setup = g_control->data_buffer;
-  setup[0] = 0x81; // Device-to-host, standard request, interface recipient.
-  setup[1] = 0x06; // GET_DESCRIPTOR.
-  setup[2] = 0; setup[3] = 0x22; // HID report descriptor.
+  setup[0] = 0x81; // Standard interface GET_DESCRIPTOR (report).
+  setup[1] = 0x06;
+  setup[2] = 0; setup[3] = 0x22;
   setup[4] = candidate.interface_number; setup[5] = 0;
-  setup[6] = candidate.descriptor_length & 0xFFU;
+  setup[6] = candidate.descriptor_length & 0xffU;
   setup[7] = candidate.descriptor_length >> 8U;
   g_control->device_handle = g_device;
   g_control->bEndpointAddress = 0;
   g_control->num_bytes = static_cast<int>(size);
-  g_control->callback = on_descriptor;
+  g_control->callback = on_control;
+  g_control_stage = ControlStage::Descriptor;
   g_control_done = false;
   if (usb_host_transfer_submit_control(g_client, g_control) != ESP_OK) {
     usb_host_transfer_free(g_control);
@@ -174,6 +199,38 @@ bool request_descriptor() {
   return true;
 }
 
+bool request_boot_protocol() {
+  if (!g_device || g_candidate >= g_candidates_count ||
+      !g_candidates[g_candidate].boot_keyboard) return false;
+  if (usb_host_transfer_alloc(8, 0, &g_control) != ESP_OK) return false;
+  uint8_t *setup = g_control->data_buffer;
+  setup[0] = 0x21; // Host-to-device, HID class, interface recipient.
+  setup[1] = 0x0b; // SET_PROTOCOL(BOOT), mandatory for boot keyboards.
+  setup[2] = 0; setup[3] = 0;
+  setup[4] = g_candidates[g_candidate].interface_number; setup[5] = 0;
+  setup[6] = 0; setup[7] = 0;
+  g_control->device_handle = g_device;
+  g_control->bEndpointAddress = 0;
+  g_control->num_bytes = 8;
+  g_control->callback = on_control;
+  g_control_stage = ControlStage::BootProtocol;
+  g_control_done = false;
+  if (usb_host_transfer_submit_control(g_client, g_control) != ESP_OK) {
+    usb_host_transfer_free(g_control);
+    g_control = nullptr;
+    return false;
+  }
+  g_control_inflight = true;
+  return true;
+}
+
+bool start_candidate() {
+  g_keyboard_active = false;
+  if (g_candidate >= g_candidates_count) return false;
+  if (g_candidates[g_candidate].boot_keyboard && request_boot_protocol()) return true;
+  return request_descriptor();
+}
+
 void on_report(usb_transfer_t *transfer) {
   g_interrupt_inflight = false;
   if (g_disconnect || transfer->status == USB_TRANSFER_STATUS_NO_DEVICE) {
@@ -182,16 +239,39 @@ void on_report(usb_transfer_t *transfer) {
     return;
   }
   if (transfer->status == USB_TRANSFER_STATUS_COMPLETED) {
-    UsbHidGamepadState decoded;
-    if (usb_hid_decode_gamepad(g_layout, transfer->data_buffer,
-                               static_cast<size_t>(transfer->actual_num_bytes), decoded)) {
-      portENTER_CRITICAL(&g_input_lock);
-      g_raw = decoded;
-      portEXIT_CRITICAL(&g_input_lock);
-      g_transfer_errors = 0;
+    const size_t size = static_cast<size_t>(transfer->actual_num_bytes);
+    if (g_keyboard_active) {
+      // A report-ID keyboard may also send consumer-control reports. Ignore
+      // their IDs rather than interpreting them as an empty keyboard.
+      if (!g_keyboard_layout.report_id ||
+          (size && transfer->data_buffer[0] == g_keyboard_layout.report_id)) {
+        UsbHidKeyboardKeys keys = {};
+        if (usb_hid_decode_keyboard(g_keyboard_layout, transfer->data_buffer,
+                                    size, keys)) {
+          const UsbHidKeyboardMapping mapped =
+              usb_hid_map_keyboard(keys, g_previous_keyboard);
+          portENTER_CRITICAL(&g_input_lock);
+          g_previous_keyboard = keys;
+          g_raw = mapped.gamepad;
+          g_pending_keyboard_actions |= mapped.actions;
+          portEXIT_CRITICAL(&g_input_lock);
+          g_transfer_errors = 0;
+        } else {
+          // Short/rollover reports must not leave a movement or key latched.
+          clear_live_keys();
+        }
+      }
+    } else {
+      UsbHidGamepadState decoded;
+      if (usb_hid_decode_gamepad(g_layout, transfer->data_buffer, size, decoded)) {
+        portENTER_CRITICAL(&g_input_lock);
+        g_raw = decoded;
+        portEXIT_CRITICAL(&g_input_lock);
+        g_transfer_errors = 0;
+      }
     }
   } else {
-    ESP_LOGW(kTag, "interrupt IN status=%d", int(transfer->status));
+    ESP_LOGW(kTag, "HID interrupt IN status=%d", int(transfer->status));
     if (++g_transfer_errors >= 3) {
       g_disconnect = true;
       clear_input();
@@ -216,8 +296,9 @@ bool activate_candidate() {
   g_interface_claimed = true;
   g_active_interface = candidate.interface_number;
   g_endpoint = candidate.endpoint;
-  const uint32_t required = (g_layout.report_bits + 7U) / 8U +
-      (g_layout.report_id ? 1U : 0U);
+  const uint32_t bits = g_keyboard_active ? g_keyboard_layout.report_bits : g_layout.report_bits;
+  const uint8_t id = g_keyboard_active ? g_keyboard_layout.report_id : g_layout.report_id;
+  const uint32_t required = (bits + 7U) / 8U + (id ? 1U : 0U);
   const uint32_t size = ((required + candidate.packet_size - 1U) /
       candidate.packet_size) * candidate.packet_size;
   if (!size || size > 1024 ||
@@ -227,11 +308,13 @@ bool activate_candidate() {
   g_interrupt->num_bytes = static_cast<int>(size);
   g_interrupt->callback = on_report;
   g_transfer_errors = 0;
+  clear_input();
   if (usb_host_transfer_submit(g_interrupt) != ESP_OK) return false;
   g_interrupt_inflight = true;
-  ESP_LOGI(kTag, "HID gamepad active interface=%u ep=0x%02x mps=%u report-id=%u bytes=%u",
+  ESP_LOGI(kTag, "%s active interface=%u ep=0x%02x mps=%u report-id=%u bytes=%u",
+           g_keyboard_active ? "USB keyboard" : "HID gamepad",
            candidate.interface_number, candidate.endpoint,
-           candidate.packet_size, g_layout.report_id, unsigned(required));
+           candidate.packet_size, id, unsigned(required));
   return true;
 }
 
@@ -254,11 +337,27 @@ void close_device() {
     (void)usb_host_device_close(g_client, g_device);
     g_device = nullptr;
   }
-  g_device_address = 0;
   g_candidates_count = 0;
   g_candidate = 0;
+  g_pending_address = 0;
   g_control_done = false;
+  g_keyboard_active = false;
   g_disconnect = false;
+}
+
+void next_candidate() {
+  if (g_interrupt) {
+    (void)usb_host_transfer_free(g_interrupt);
+    g_interrupt = nullptr;
+  }
+  if (g_interface_claimed) {
+    (void)usb_host_interface_release(g_client, g_device, g_active_interface);
+    g_interface_claimed = false;
+  }
+  for (++g_candidate; g_candidate < g_candidates_count; ++g_candidate) {
+    if (start_candidate()) return;
+  }
+  g_disconnect = true;
 }
 
 void client_task(void *) {
@@ -271,48 +370,55 @@ void client_task(void *) {
     vTaskDelete(nullptr);
     return;
   }
-  ESP_LOGI(kTag, "USB HID host client ready; connect receiver in D-input mode");
+  ESP_LOGI(kTag, "USB HID host client ready; gamepads and 104/108-key keyboards supported");
   for (;;) {
     (void)usb_host_client_handle_events(g_client, pdMS_TO_TICKS(20));
     if (g_disconnect) {
-      // Do not free a submitted transfer. USB host completes/cancels it first.
+      // Never free a submitted DMA transfer; await its completion first.
       close_device();
       continue;
     }
     if (g_control_done && g_control) {
       g_control_done = false;
       const Candidate &candidate = g_candidates[g_candidate];
-      const bool descriptor_ok = g_control->status == USB_TRANSFER_STATUS_COMPLETED &&
-          g_control->actual_num_bytes >= 8 &&
-          usb_hid_parse_gamepad_descriptor(
-              g_control->data_buffer + 8,
-              static_cast<size_t>(g_control->actual_num_bytes - 8), g_layout);
+      const bool completed = g_control->status == USB_TRANSFER_STATUS_COMPLETED;
+      const ControlStage stage = g_control_stage;
+      bool valid = false;
+      if (stage == ControlStage::BootProtocol) {
+        if (completed) {
+          usb_hid_boot_keyboard_layout(g_keyboard_layout);
+          g_keyboard_active = true;
+          valid = true;
+        }
+      } else if (completed && g_control->actual_num_bytes >= 8) {
+        const uint8_t *report = g_control->data_buffer + 8;
+        const size_t bytes = static_cast<size_t>(g_control->actual_num_bytes - 8);
+        if (usb_hid_parse_gamepad_descriptor(report, bytes, g_layout)) {
+          g_keyboard_active = false;
+          valid = true;
+        } else if (usb_hid_parse_keyboard_descriptor(report, bytes, g_keyboard_layout)) {
+          g_keyboard_active = true;
+          valid = true;
+        }
+      }
       (void)usb_host_transfer_free(g_control);
       g_control = nullptr;
-      if (descriptor_ok && activate_candidate()) continue;
-      ESP_LOGW(kTag, "interface %u is not a supported gamepad report", candidate.interface_number);
-      if (g_interrupt) {
-        (void)usb_host_transfer_free(g_interrupt);
-        g_interrupt = nullptr;
-      }
-      if (g_interface_claimed) {
-        (void)usb_host_interface_release(g_client, g_device, g_active_interface);
-        g_interface_claimed = false;
-      }
-      if (++g_candidate < g_candidates_count && request_descriptor()) continue;
-      g_disconnect = true;
+      if (valid && activate_candidate()) continue;
+      if (stage == ControlStage::BootProtocol && !completed &&
+          request_descriptor()) continue; // Noncompliant boot device fallback.
+      ESP_LOGW(kTag, "interface %u is not a supported HID gamepad/keyboard",
+               candidate.interface_number);
+      next_candidate();
       continue;
     }
-    if (!g_device && g_pending_address &&
-        static_cast<int32_t>(millis() - g_retry_after_ms) >= 0) {
+    if (!g_device && g_pending_address) {
       const uint8_t address = g_pending_address;
       g_pending_address = 0;
       if (usb_host_device_open(g_client, address, &g_device) != ESP_OK) continue;
-      g_device_address = address;
       const usb_device_desc_t *descriptor = nullptr;
       const usb_config_desc_t *config = nullptr;
       if (usb_host_get_device_descriptor(g_device, &descriptor) == ESP_OK && descriptor) {
-        ESP_LOGI(kTag, "USB receiver VID=%04x PID=%04x", descriptor->idVendor,
+        ESP_LOGI(kTag, "USB HID VID=%04x PID=%04x", descriptor->idVendor,
                  descriptor->idProduct);
       }
       if (usb_host_get_active_config_descriptor(g_device, &config) != ESP_OK || !config) {
@@ -321,7 +427,11 @@ void client_task(void *) {
       }
       inspect_interfaces(config);
       g_candidate = 0;
-      if (!g_candidates_count || !request_descriptor()) g_disconnect = true;
+      if (!g_candidates_count) g_disconnect = true;
+      else if (!start_candidate()) {
+        // The first candidate may fail allocation; try the remaining ones.
+        next_candidate();
+      }
     }
   }
 }
@@ -354,8 +464,7 @@ void decode_actions(uint16_t pressed, uint32_t now) {
     g_buttons = 0;
     return;
   }
-  if ((pressed & rotate) == rotate &&
-      (!g_rotate_chord || (rising & right))) {
+  if ((pressed & rotate) == rotate && (!g_rotate_chord || (rising & right))) {
     g_rotate_chord = true;
     g_actions = SNES_ACTION_ROTATE;
   }
@@ -396,7 +505,7 @@ void decode_actions(uint16_t pressed, uint32_t now) {
   if (pressed & start) g_buttons |= GBEMU_INPUT_START;
   if ((pressed & select) && !g_select_consumed) g_buttons |= GBEMU_INPUT_SELECT;
 }
-} // namespace
+}  // namespace
 
 void usb_hid_gamepad_begin() {
   if (g_started) return;
@@ -419,10 +528,14 @@ void usb_hid_gamepad_begin() {
 uint8_t usb_hid_gamepad_buttons() {
   usb_hid_gamepad_begin();
   UsbHidGamepadState current;
+  uint8_t pending;
   portENTER_CRITICAL(&g_input_lock);
   current = g_raw;
+  pending = g_pending_keyboard_actions;
+  g_pending_keyboard_actions = 0;
   portEXIT_CRITICAL(&g_input_lock);
   decode_actions(pressed_mask(current), millis());
+  g_actions |= pending;
   return g_buttons;
 }
 
