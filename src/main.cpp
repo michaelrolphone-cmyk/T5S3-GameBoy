@@ -16,6 +16,8 @@
 #include "epd_video.h"
 #include "gbemu.h"
 #include "mono_canvas.h"
+#include "night_light.h"
+#include "snes_mini_controller.h"
 #include "paperboy_config.h"
 #include "paperboy_storage.h"
 #include "paperboy_ui.h"
@@ -1247,6 +1249,7 @@ bool rescan_storage() {
 }
 
 void on_shutdown() {
+  night_light_shutdown();
   epd_video_shutdown();
 }
 
@@ -1339,6 +1342,7 @@ void present_shutdown_page() {
     ESP_LOGW(kTag, "dirty cartridge save could not be written before shutdown");
   }
   present_shutdown_page();
+  night_light_shutdown();
   audio_deinit();
   paperboy_storage_end();
   epd_video_shutdown();
@@ -1483,9 +1487,24 @@ void run_console(void *unused) {
       }
     }
 
-    const uint8_t buttons =
-        (touch_ok && page == PaperboyPage::Game) ? paperboy_ui_map_buttons(&touch) : 0U;
-    const uint32_t actions = touch_ok ? paperboy_ui_map_actions(&touch, page) : 0U;
+    // Poll on every page so held shoulders cannot become a new press on return.
+    const uint8_t controller_buttons = snes_mini_controller_buttons();
+    const uint8_t controller_actions = snes_mini_controller_take_actions();
+    const uint8_t buttons = page == PaperboyPage::Game
+        ? ((touch_ok ? paperboy_ui_map_buttons(&touch) : 0U) | controller_buttons)
+        : 0U;
+    uint32_t actions = touch_ok ? paperboy_ui_map_actions(&touch, page) : 0U;
+    if (page == PaperboyPage::Game) {
+      if (controller_actions & SNES_ACTION_SAVE) actions |= PAPERBOY_ACTION_SAVE;
+      if (controller_actions & SNES_ACTION_LOAD) actions |= PAPERBOY_ACTION_LOAD;
+    }
+    if (controller_actions & (SNES_ACTION_DIM | SNES_ACTION_BRIGHTEN)) {
+      const uint8_t level = night_light_brightness();
+      const uint8_t target = (controller_actions & SNES_ACTION_BRIGHTEN)
+          ? static_cast<uint8_t>(level + 1U)
+          : static_cast<uint8_t>(level > 0U ? level - 1U : 0U);
+      (void)night_light_set_brightness(target);
+    }
     if (buttons != last_buttons) {
       full_scene_syncs = kPanelBufferCount;
     }
@@ -1895,6 +1914,7 @@ void setup() {
   }
 
   perform_startup_clear();
+  night_light_init();
 
   const bool battery_ready = battery_begin();
   ESP_LOGI(kTag, "battery management initialization=%s", battery_ready ? "ready" : "failed");

@@ -24,12 +24,20 @@ constexpr uint16_t kA = 0x0010U;
 constexpr uint16_t kB = 0x0040U;
 constexpr uint16_t kX = 0x0008U;
 constexpr uint16_t kY = 0x0020U;
+constexpr uint16_t kL = 0x2000U;
+constexpr uint16_t kR = 0x0200U;
+constexpr uint32_t kTurboHalfPeriodMs = 50U;  // 10 presses per second.
 constexpr uint16_t kStart = 0x0400U;
 constexpr uint16_t kSelect = 0x1000U;
 
 bool g_initialized = false;
 bool g_connected = false;
 uint8_t g_buttons = 0U;
+uint8_t g_actions = 0U;
+uint16_t g_previous_pressed = 0U;
+uint32_t g_turbo_a_started_ms = 0U;
+uint32_t g_turbo_b_started_ms = 0U;
+bool g_select_consumed = false;
 uint32_t g_last_poll_ms = 0U;
 uint32_t g_next_probe_ms = 0U;
 
@@ -47,6 +55,9 @@ void disconnect(uint32_t now, const char *reason) {
   g_connected = false;
   g_initialized = false;
   g_buttons = 0U;  // Release all keys; never leave a button stuck after unplug.
+  g_actions = 0U;
+  g_previous_pressed = 0U;
+  g_select_consumed = false;
   g_next_probe_ms = now + kReconnectIntervalMs;
 }
 
@@ -75,26 +86,49 @@ bool probe_and_initialize(uint32_t now) {
   return true;
 }
 
-uint8_t decode_buttons(const uint8_t data[6]) {
+uint8_t decode_buttons(const uint8_t data[6], uint32_t now) {
   const uint16_t pressed = static_cast<uint16_t>(
       (static_cast<uint16_t>(data[4] ^ 0xFFU) << 8U) |
       static_cast<uint16_t>(data[5] ^ 0xFFU));
+  const uint16_t rising = pressed & ~g_previous_pressed;
+  if (rising & kX) g_turbo_a_started_ms = now;
+  if (rising & kY) g_turbo_b_started_ms = now;
+  const bool turbo_a = (pressed & kX) &&
+      (((now - g_turbo_a_started_ms) / kTurboHalfPeriodMs) % 2U == 0U);
+  const bool turbo_b = (pressed & kY) &&
+      (((now - g_turbo_b_started_ms) / kTurboHalfPeriodMs) % 2U == 0U);
+
+  if (!(pressed & kSelect)) g_select_consumed = false;
+  if ((pressed & kSelect) && (pressed & (kL | kR))) {
+    g_select_consumed = true;
+    // Both shoulders together are a no-op. Require a fresh shoulder press.
+    if ((pressed & (kL | kR)) == kL && (rising & kL))
+      g_actions |= SNES_ACTION_DIM;
+    if ((pressed & (kL | kR)) == kR && (rising & kR))
+      g_actions |= SNES_ACTION_BRIGHTEN;
+  } else if (!(pressed & kSelect)) {
+    if ((pressed & (kL | kR)) == kL && (rising & kL))
+      g_actions |= SNES_ACTION_LOAD;
+    if ((pressed & (kL | kR)) == kR && (rising & kR))
+      g_actions |= SNES_ACTION_SAVE;
+  }
+  g_previous_pressed = pressed;
   uint8_t input = 0U;
   if (pressed & kUp) input |= GBEMU_INPUT_UP;
   if (pressed & kDown) input |= GBEMU_INPUT_DOWN;
   if (pressed & kLeft) input |= GBEMU_INPUT_LEFT;
   if (pressed & kRight) input |= GBEMU_INPUT_RIGHT;
-  if (pressed & (kA | kX)) input |= GBEMU_INPUT_A;
-  if (pressed & (kB | kY)) input |= GBEMU_INPUT_B;
+  if ((pressed & kA) || turbo_a) input |= GBEMU_INPUT_A;
+  if ((pressed & kB) || turbo_b) input |= GBEMU_INPUT_B;
   if (pressed & kStart) input |= GBEMU_INPUT_START;
-  if (pressed & kSelect) input |= GBEMU_INPUT_SELECT;
-  // L and R have no equivalents on an original Game Boy.
+  if ((pressed & kSelect) && !g_select_consumed) input |= GBEMU_INPUT_SELECT;
   return input;
 }
 
 }  // namespace
 
 uint8_t snes_mini_controller_buttons() {
+  g_actions = 0U;  // Actions belong only to this poll, never its cached report.
   const uint32_t now = millis();
   if (!g_initialized) {
     if (static_cast<int32_t>(now - g_next_probe_ms) < 0 ||
@@ -136,10 +170,16 @@ uint8_t snes_mini_controller_buttons() {
     disconnect(now, "invalid report flags");
     return 0U;
   }
-  g_buttons = decode_buttons(data);
+  g_buttons = decode_buttons(data, now);
   if (!g_connected) {
     ESP_LOGI(kTag, "SNES/NES Mini controller connected at 0x%02X", kAddress);
     g_connected = true;
   }
   return g_buttons;
+}
+
+uint8_t snes_mini_controller_take_actions() {
+  const uint8_t actions = g_actions;
+  g_actions = 0U;
+  return actions;
 }
