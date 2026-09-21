@@ -8,7 +8,6 @@
 #include <esp_log.h>
 
 namespace {
-
 constexpr char kTag[] = "battery";
 constexpr uint8_t kBq27220Address = 0x55;
 constexpr uint8_t kBq25896Address = 0x6B;
@@ -19,13 +18,35 @@ constexpr uint16_t kLowBatteryVoltageMv = 3500U;
 constexpr uint16_t kRecoveredBatteryVoltageMv = 3600U;
 constexpr uint16_t kLowBatterySocPercent = 10U;
 constexpr uint16_t kRecoveredBatterySocPercent = 12U;
-// The standalone GameBoy USB host requires its own 5 V VBUS. Do not attempt
-// boost at a marginal cell voltage or keep retrying a converter safety fault.
 constexpr uint16_t kBoostMinBatteryMv = 3600U;
 constexpr uint16_t kBoostStopBatteryMv = 3500U;
 constexpr uint16_t kBoostMinSocPercent = 15U;
 constexpr uint16_t kBoostStopSocPercent = 10U;
-constexpr uint16_t kBoostOutputMv = 5000U;
+
+// Source: RiscRTE v1.2.16 and board_power_t5s3_v2 (PRs #101/#102).
+// REG0A BOOSTV=1001 => 5.126 V; BOOST_LIM=010 => 1.2 A PMIC
+// peak/overcurrent threshold. The separate 500 mA USB admission budget is
+// NOT the BQ25896 peak limit. The 500 mA BOOST_LIM setting failed on board.
+constexpr uint8_t kRegAdcControl = 0x02U;
+constexpr uint8_t kRegPower = 0x03U;
+constexpr uint8_t kRegBoost = 0x0AU;
+constexpr uint8_t kRegStatus = 0x0BU;
+constexpr uint8_t kRegFault = 0x0CU;
+constexpr uint8_t kRegVbusAdc = 0x11U;
+constexpr uint8_t kOtgEnable = 0x20U;
+constexpr uint8_t kChargeEnable = 0x10U;
+constexpr uint8_t kAdcContinuous = 0x40U;
+constexpr uint8_t kVbusStatusMask = 0xE0U;
+constexpr uint8_t kVbusOtg = 0xE0U;
+constexpr uint8_t kBoostFault = 0x40U;
+constexpr uint8_t kPowerGood = 0x04U;
+constexpr uint8_t kVbusGood = 0x80U;
+constexpr uint8_t kBoostConfig5126Mv1200Ma = 0x92U;
+constexpr uint32_t kBoostSettleMs = 80U;
+constexpr uint32_t kBoostStartupFaultWindowMs = 250U;
+constexpr uint32_t kBoostRecoveryStableMs = 200U;
+constexpr uint32_t kBoostStartupTimeoutMs = 1500U;
+constexpr uint32_t kBoostShutdownTimeoutMs = 400U;
 
 struct BatteryProfile {
   uint16_t input_limit_ma;
@@ -38,7 +59,6 @@ struct BatteryProfile {
   uint16_t system_min_voltage_mv;
   int16_t current_threshold_ma;
 };
-
 constexpr BatteryProfile kProfile = {1000, 1500, 512, 64, 64, 4208, 100, 3300, 20};
 
 bool g_battery_init_attempted = false;
@@ -49,6 +69,10 @@ bool g_gauge_ready = false;
 bool g_low_battery = false;
 bool g_host_boost_active = false;
 bool g_host_boost_fault_latched = false;
+bool g_host_snapshot_valid = false;
+uint8_t g_saved_power = 0;
+uint8_t g_saved_boost = 0;
+uint8_t g_saved_adc = 0;
 uint32_t g_last_charger_service_ms = 0;
 bq25896_hal_esp_idf_ctx_t g_charger_hal = {};
 bq25896_t g_charger = {};
@@ -58,22 +82,28 @@ bool probe(uint8_t address) {
   Wire.beginTransmission(address);
   return Wire.endTransmission() == 0;
 }
-
 i2c_master_bus_handle_t i2c_bus_handle() {
   return reinterpret_cast<i2c_master_bus_handle_t>(&Wire);
 }
+bool charger_call_ok(bq25896_err_t result) { return BQ25896_SUCCEEDED(result); }
 
-bool charger_call_ok(bq25896_err_t result) {
-  return BQ25896_SUCCEEDED(result);
+bool read_reg(uint8_t reg, uint8_t &value) {
+  return g_charger_ready && charger_call_ok(bq25896_hal_read(
+      &g_charger.hal, g_charger.i2c_addr_7bit, reg, &value, 1));
 }
-
+bool write_reg(uint8_t reg, uint8_t value) {
+  return g_charger_ready && charger_call_ok(bq25896_hal_write(
+      &g_charger.hal, g_charger.i2c_addr_7bit, reg, &value, 1));
+}
+// REG0C first read is the latched history; a second separate I2C read
+// identifies the live fault. Never treat one historical inrush as a live fault.
+bool read_fault_pair(uint8_t &latched, uint8_t &live) {
+  return read_reg(kRegFault, latched) && read_reg(kRegFault, live);
+}
 bool external_vbus(const bq25896_status_t &status) {
-  // VBUS_GD can also report our OWN boost output. OTG is not external USB
-  // power and must never be presented as charging or block BATFET shutdown.
   return status.vbus_status != BQ25896_VBUS_STATUS_OTG &&
       (status.vbus_good || status.power_good);
 }
-
 bool restore_charger_profile() {
   return charger_call_ok(bq25896_disable_otg(&g_charger)) &&
       charger_call_ok(bq25896_enable_battery_power_path(&g_charger)) &&
@@ -85,7 +115,6 @@ bool restore_charger_profile() {
       charger_call_ok(bq25896_set_system_min_voltage_mv(&g_charger, kProfile.system_min_voltage_mv)) &&
       charger_call_ok(bq25896_enable_charge(&g_charger));
 }
-
 bool configure_charger() {
   bq25896_config_t config = {};
   if (BQ25896_FAILED(bq25896_get_default_config(&config)) ||
@@ -108,7 +137,10 @@ bool configure_charger() {
     g_charger = {};
     return false;
   }
+  // These functions read the register only after the charger is initialized.
+  g_charger_ready = true;
   if (!restore_charger_profile()) {
+    g_charger_ready = false;
     (void)bq25896_hal_esp_idf_ctx_deinit(&g_charger_hal);
     g_charger = {};
     return false;
@@ -119,13 +151,12 @@ bool configure_charger() {
            kProfile.charge_voltage_mv, kProfile.system_min_voltage_mv);
   return true;
 }
-
 bool configure_gauge() {
   if (!g_gauge.begin(i2c_bus_handle(), kBq27220Address, kI2cFrequencyHz)) return false;
   if (!g_gauge.setDefaultCapacity(kProfile.capacity_mah) ||
       !g_gauge.setChargeParameters(kProfile.charge_current_ma,
           kProfile.charge_voltage_mv, kProfile.termination_current_ma,
-          kProfile.charge_termination_voltage_delta_mv) || !g_gauge.init()) {
+          kProfile.charge_termination_voltage_mv) || !g_gauge.init()) {
     g_gauge.end();
     return false;
   }
@@ -134,13 +165,11 @@ bool configure_gauge() {
       kProfile.charge_voltage_mv, kProfile.termination_current_ma);
   return true;
 }
-
 bool charger_fault_active(const bq25896_fault_t &fault) {
   return fault.watchdog_fault || fault.boost_fault || fault.battery_fault ||
       fault.charge_fault != BQ25896_CHARGE_FAULT_NORMAL ||
       fault.ntc_fault != BQ25896_NTC_FAULT_NORMAL;
 }
-
 bool charger_config_matches_profile(const bq25896_charge_config_t &config) {
   return config.charge_enabled && !config.otg_enabled && !config.hiz_enabled &&
       !config.batfet_disabled &&
@@ -150,22 +179,6 @@ bool charger_config_matches_profile(const bq25896_charge_config_t &config) {
       config.charge_voltage_mv == kProfile.charge_voltage_mv &&
       config.sys_min_voltage_mv == kProfile.system_min_voltage_mv;
 }
-
-// BQ25896 REG0A[2:0] BOOST_LIM=000 selects USB-OTG's 500 mA limit.
-// Change only that field, preserving the output voltage and converter flags.
-bool set_safe_boost_current_limit() {
-  uint8_t value = 0;
-  if (BQ25896_FAILED(bq25896_hal_read(&g_charger.hal,
-          g_charger.i2c_addr_7bit, BQ25896_REG_0A, &value, 1))) return false;
-  value &= static_cast<uint8_t>(~BQ25896_REG0A_BOOST_LIM_MASK);
-  if (BQ25896_FAILED(bq25896_hal_write(&g_charger.hal,
-          g_charger.i2c_addr_7bit, BQ25896_REG_0A, &value, 1))) return false;
-  uint8_t verified = 0xFF;
-  return BQ25896_SUCCEEDED(bq25896_hal_read(&g_charger.hal,
-          g_charger.i2c_addr_7bit, BQ25896_REG_0A, &verified, 1)) &&
-      (verified & BQ25896_REG0A_BOOST_LIM_MASK) == 0;
-}
-
 bool battery_safe_for_boost(bool starting, uint16_t &mv, uint16_t &soc) {
   mv = 0;
   soc = 0;
@@ -178,69 +191,175 @@ bool battery_safe_for_boost(bool starting, uint16_t &mv, uint16_t &soc) {
           soc > (starting ? kBoostMinSocPercent : kBoostStopSocPercent);
     }
   }
-  // If the gauge is unavailable, use the charger's battery ADC, not its
-  // USB VBUS ADC (which measures our own 5 V output during host mode).
   bq25896_adc_t adc = {};
   if (!g_charger_ready || BQ25896_FAILED(bq25896_read_adc(&g_charger, &adc))) return false;
   mv = adc.battery_voltage_mv;
   return mv >= (starting ? kBoostMinBatteryMv : kBoostStopBatteryMv);
 }
 
-void stop_host_boost(const char *reason, bool latch_fault) {
-  if (g_host_boost_active) ESP_LOGW(kTag, "USB VBUS boost stopped: %s", reason);
-  g_host_boost_active = false;
+void report_boost_failure(const char *reason, uint32_t begun) {
+  uint8_t power = 0xFF, status = 0xFF, adc = 0xFF, prev = 0xFF, live = 0xFF;
+  uint8_t boost = 0xFF, battery = 0xFF, adc_control = 0xFF;
+  (void)read_reg(kRegPower, power);
+  (void)read_reg(kRegStatus, status);
+  (void)read_reg(kRegVbusAdc, adc);
+  (void)read_fault_pair(prev, live);
+  (void)read_reg(kRegBoost, boost);
+  (void)read_reg(0x0EU, battery);
+  (void)read_reg(kRegAdcControl, adc_control);
+  ESP_LOGE(kTag, "USB VBUS failure=%s p=%02x s=%02x v=%02x prev=%02x now=%02x bat=%02x cfg=%02x conv=%02x ms=%lu",
+           reason, power, status, adc, prev, live, battery, boost, adc_control,
+           static_cast<unsigned long>(millis() - begun));
+}
+
+// Never restore charge while sourcing cannot be proven off. A failed write or
+// readback leaves the source marked active and latched, blocking BATFET cutoff.
+bool stop_host_boost(const char *reason, bool latch_fault) {
   if (latch_fault) g_host_boost_fault_latched = true;
-  if (g_charger_ready && !restore_charger_profile()) {
-    ESP_LOGE(kTag, "failed to restore charging after USB VBUS boost stop");
+  if (!g_host_boost_active) return true;
+  if (!g_charger_ready || !g_host_snapshot_valid ||
+      !write_reg(kRegPower, static_cast<uint8_t>(g_saved_power & ~kOtgEnable))) {
+    ESP_LOGE(kTag, "USB VBUS unsafe rollback: OTG disable failed (%s)", reason);
+    g_host_boost_fault_latched = true;
+    return false;
+  }
+  const uint32_t begun = millis();
+  bool off = false;
+  while (millis() - begun < kBoostShutdownTimeoutMs) {
+    uint8_t power = 0, status = 0;
+    if (!read_reg(kRegPower, power) || !read_reg(kRegStatus, status)) break;
+    if (!(power & kOtgEnable) && (status & kVbusStatusMask) != kVbusOtg) {
+      off = true;
+      break;
+    }
+    delay(10);
+  }
+  if (!off || !write_reg(kRegBoost, g_saved_boost) ||
+      !write_reg(kRegAdcControl, g_saved_adc) || !restore_charger_profile()) {
+    ESP_LOGE(kTag, "USB VBUS unsafe rollback: rail-off or profile restore not verified (%s)", reason);
+    g_host_boost_fault_latched = true;
+    return false;
+  }
+  uint8_t power = 0, status = 0, boost = 0, adc = 0;
+  if (!read_reg(kRegPower, power) || !read_reg(kRegStatus, status) ||
+      !read_reg(kRegBoost, boost) || !read_reg(kRegAdcControl, adc) ||
+      (power & kOtgEnable) || (status & kVbusStatusMask) == kVbusOtg ||
+      boost != g_saved_boost || (adc & kAdcContinuous) != (g_saved_adc & kAdcContinuous)) {
+    ESP_LOGE(kTag, "USB VBUS unsafe rollback: readback failure (%s)", reason);
+    g_host_boost_fault_latched = true;
+    return false;
+  }
+  g_host_boost_active = false;
+  g_host_snapshot_valid = false;
+  ESP_LOGI(kTag, "USB VBUS source released and charger restored: %s", reason);
+  return true;
+}
+
+bool preflight_host_boost() {
+  uint8_t status = 0, vbus = 0, power = 0, prev = 0, live = 0;
+  if (!read_reg(kRegStatus, status) || !read_reg(kRegVbusAdc, vbus) ||
+      !read_reg(kRegPower, power) || !read_fault_pair(prev, live)) {
+    ESP_LOGE(kTag, "USB VBUS preflight I2C read failure");
+    return false;
+  }
+  if ((status & (kVbusStatusMask | kPowerGood)) ||
+      (vbus & kVbusGood) || (power & kOtgEnable)) {
+    ESP_LOGW(kTag, "USB VBUS preflight conflict s=%02x v=%02x p=%02x", status, vbus, power);
+    return false;
+  }
+  if (live & (kBoostFault | 0x08U | 0x07U)) {
+    ESP_LOGE(kTag, "USB VBUS preflight live fault prev=%02x now=%02x", prev, live);
+    return false;
+  }
+  if (prev & kBoostFault)
+    ESP_LOGW(kTag, "USB VBUS historical fault cleared prev=%02x now=%02x", prev, live);
+  return true;
+}
+
+bool verify_host_boost(uint32_t begun) {
+  bool startup_transient = false;
+  uint32_t clean_since = 0;
+  for (;;) {
+    uint8_t power = 0, status = 0, adc = 0, prev = 0, live = 0;
+    if (!read_reg(kRegPower, power) || !read_reg(kRegStatus, status) ||
+        !read_reg(kRegVbusAdc, adc) || !read_fault_pair(prev, live)) {
+      report_boost_failure("boost-read", begun);
+      return false;
+    }
+    const uint32_t elapsed = millis() - begun;
+    if (live & (kBoostFault | 0x08U | 0x07U)) {
+      report_boost_failure("boost-live-fault", begun);
+      return false;
+    }
+    if (!(power & kOtgEnable)) {
+      report_boost_failure("boost-disabled", begun);
+      return false;
+    }
+    if (prev & kBoostFault) {
+      if (startup_transient || elapsed > kBoostStartupFaultWindowMs ||
+          (status & kVbusStatusMask) != kVbusOtg) {
+        report_boost_failure("boost-transient-repeat", begun);
+        return false;
+      }
+      startup_transient = true;
+      clean_since = millis();
+      ESP_LOGW(kTag, "USB VBUS startup transient observed prev=%02x now=%02x ms=%lu",
+               prev, live, static_cast<unsigned long>(elapsed));
+    }
+    if (startup_transient && (status & kVbusStatusMask) != kVbusOtg) {
+      report_boost_failure("boost-unstable", begun);
+      return false;
+    }
+    // REG11 ADC takes up to ~1 s to refresh. REG11 VBUS_GD is input status,
+    // not proof against OTG: require OTG status and raw ADC >=18 (~4.4 V).
+    if ((status & kVbusStatusMask) == kVbusOtg && (adc & 0x7FU) >= 18U &&
+        (!startup_transient || millis() - clean_since >= kBoostRecoveryStableMs)) {
+      ESP_LOGI(kTag, "USB VBUS source verified cfg=0x%02x output_adc=%02x inrush=%u ms=%lu",
+               kBoostConfig5126Mv1200Ma, adc, startup_transient ? 1U : 0U,
+               static_cast<unsigned long>(millis() - begun));
+      return true;
+    }
+    if (elapsed >= kBoostStartupTimeoutMs) {
+      report_boost_failure("boost-timeout", begun);
+      return false;
+    }
+    delay(10);
   }
 }
 
 bool start_host_boost() {
   if (!g_charger_ready || g_host_boost_active || g_host_boost_fault_latched) return false;
-  bq25896_status_t before = {};
-  if (BQ25896_FAILED(bq25896_read_status(&g_charger, &before))) {
-    ESP_LOGW(kTag, "USB VBUS boost deferred: charger status unavailable");
-    return false;
-  }
-  if (external_vbus(before)) {
-    ESP_LOGI(kTag, "USB VBUS boost deferred: external USB power detected");
-    return false;
-  }
+  if (!preflight_host_boost()) return false;
   uint16_t voltage = 0, soc = 0;
   if (!battery_safe_for_boost(true, voltage, soc)) {
-    ESP_LOGW(kTag, "USB VBUS boost deferred: battery unsafe or unreadable mv=%u soc=%u",
-             voltage, soc);
+    ESP_LOGW(kTag, "USB VBUS boost deferred: battery unsafe or unreadable mv=%u soc=%u", voltage, soc);
     return false;
   }
-  const bool programmed = charger_call_ok(bq25896_enable_battery_power_path(&g_charger)) &&
-      charger_call_ok(bq25896_disable_charge(&g_charger)) &&
-      charger_call_ok(bq25896_set_otg_voltage_mv(&g_charger, kBoostOutputMv)) &&
-      set_safe_boost_current_limit() &&
-      charger_call_ok(bq25896_enable_otg(&g_charger));
-  if (!programmed) {
-    ESP_LOGE(kTag, "USB VBUS boost programming failed; restoring charger");
-    stop_host_boost("I2C configuration failure", true);
+  if (!read_reg(kRegPower, g_saved_power) || !read_reg(kRegBoost, g_saved_boost) ||
+      !read_reg(kRegAdcControl, g_saved_adc)) {
+    ESP_LOGE(kTag, "USB VBUS snapshot read failed");
     return false;
   }
-  // Datasheet: converter requires about 30 ms after OTG enable. Verify the
-  // actual operational state, not merely that the I2C write was accepted.
-  delay(60);
-  bq25896_status_t after = {};
-  bq25896_charge_config_t config = {};
-  bq25896_fault_t fault = {};
-  if (BQ25896_FAILED(bq25896_read_status(&g_charger, &after)) ||
-      BQ25896_FAILED(bq25896_read_charge_config(&g_charger, &config)) ||
-      BQ25896_FAILED(bq25896_read_fault(&g_charger, &fault)) ||
-      !config.otg_enabled || after.vbus_status != BQ25896_VBUS_STATUS_OTG ||
-      fault.boost_fault || fault.battery_fault || fault.ntc_fault != BQ25896_NTC_FAULT_NORMAL) {
-    ESP_LOGE(kTag, "USB VBUS boost verification failed mode=%u reg03=0x%02x fault=0x%02x; disabling",
-             unsigned(after.vbus_status), config.raw_reg03, fault.raw_reg0c);
-    stop_host_boost("boost verification failed", true);
-    return false;
-  }
+  g_host_snapshot_valid = true;
+  // Mark active before writes: failed I2C writes may have partially applied.
   g_host_boost_active = true;
-  ESP_LOGI(kTag, "USB VBUS boost active: 5 V / 500 mA limit, BAT=%u mV SOC=%u%% mode=%u",
-           voltage, soc, unsigned(after.vbus_status));
+  const uint8_t boost = static_cast<uint8_t>((g_saved_boost & 0x08U) | kBoostConfig5126Mv1200Ma);
+  const bool wrote = write_reg(kRegBoost, boost) &&
+      write_reg(kRegAdcControl, static_cast<uint8_t>(g_saved_adc | kAdcContinuous)) &&
+      write_reg(kRegPower, static_cast<uint8_t>((g_saved_power & ~kChargeEnable) | kOtgEnable));
+  if (!wrote) {
+    report_boost_failure("boost-config-write", millis());
+    (void)stop_host_boost("startup I2C error", true);
+    return false;
+  }
+  const uint32_t begun = millis();
+  delay(kBoostSettleMs);
+  if (!verify_host_boost(begun)) {
+    (void)stop_host_boost("startup verification failed", true);
+    return false;
+  }
+  ESP_LOGI(kTag, "USB VBUS boost active: 5126 mV, 1200 mA PMIC peak; BAT=%u mV SOC=%u%% cfg=0x%02x",
+           voltage, soc, boost);
   return true;
 }
 
@@ -263,8 +382,7 @@ void update_low_battery_status(PaperboyBatteryStatus &status) {
            (!soc_available || status.soc_percent > kRecoveredBatterySocPercent)) g_low_battery = false;
   status.low_battery = g_low_battery;
 }
-
-}  // namespace
+} // namespace
 
 bool battery_begin() {
   if (g_battery_init_attempted) return g_charger_ready || g_gauge_ready;
@@ -276,8 +394,6 @@ bool battery_begin() {
   ESP_LOGI(kTag, "battery management charger=%s gauge=%s",
            g_charger_ready ? "ready" : (g_charger_found ? "init-failed" : "missing"),
            g_gauge_ready ? "ready" : (g_gauge_found ? "init-failed" : "missing"));
-  // The standalone firmware always runs the native USB host: power its
-  // receiver before the host starts enumerating it in the console loop.
   if (g_charger_ready) (void)start_host_boost();
   return g_charger_ready || g_gauge_ready;
 }
@@ -297,10 +413,10 @@ void battery_service() {
     }
     return;
   }
-  bq25896_fault_t fault = {};
+  uint8_t prev = 0, live = 0;
   bq25896_charge_config_t config = {};
   bq25896_status_t status = {};
-  if (BQ25896_FAILED(bq25896_read_fault(&g_charger, &fault)) ||
+  if (!read_fault_pair(prev, live) ||
       BQ25896_FAILED(bq25896_read_charge_config(&g_charger, &config)) ||
       BQ25896_FAILED(bq25896_read_status(&g_charger, &status))) {
     ESP_LOGW(kTag, "charger service read failed; leaving safety state unchanged");
@@ -309,25 +425,24 @@ void battery_service() {
   if (g_host_boost_active) {
     uint16_t mv = 0, soc = 0;
     const bool battery_safe = battery_safe_for_boost(false, mv, soc);
-    if (fault.boost_fault || fault.battery_fault || fault.watchdog_fault ||
-        fault.ntc_fault != BQ25896_NTC_FAULT_NORMAL || !battery_safe ||
+    if ((live & (kBoostFault | 0x08U | 0x07U | 0x80U)) || !battery_safe ||
         !config.otg_enabled || status.vbus_status != BQ25896_VBUS_STATUS_OTG) {
-      ESP_LOGE(kTag, "USB VBUS protection fault=0x%02x reg03=0x%02x mode=%u BAT=%u SOC=%u safe=%u",
-               fault.raw_reg0c, config.raw_reg03, unsigned(status.vbus_status),
+      ESP_LOGE(kTag, "USB VBUS protection prev=0x%02x now=0x%02x reg03=0x%02x mode=%u BAT=%u SOC=%u safe=%u",
+               prev, live, config.raw_reg03, unsigned(status.vbus_status),
                mv, soc, battery_safe ? 1U : 0U);
-      // An external adapter might have caused an automatic role transition;
-      // never attempt to restart boost against it or repeatedly hit OCP.
-      stop_host_boost("fault, undervoltage, or host-mode loss", true);
+      (void)stop_host_boost("fault, undervoltage, or host-mode loss", true);
     }
-    return; // Never restore CHG_CONFIG while the USB host owns VBUS.
+    return; // Never restore charging while USB host owns VBUS.
   }
-  if (charger_fault_active(fault)) {
-    ESP_LOGW(kTag, "charger safety fault raw=0x%02X charge=%u ntc=%u; not forcing charge",
-             fault.raw_reg0c, unsigned(fault.charge_fault), unsigned(fault.ntc_fault));
-    return;
-  }
+  // A failed rollback retains the source ownership even if a register no
+  // longer reports OTG. Do not restore charge or retry on an uncertain rail.
+  if (g_host_boost_fault_latched && g_host_snapshot_valid) return;
   if (!g_host_boost_fault_latched && !external_vbus(status)) {
     (void)start_host_boost();
+    return;
+  }
+  if ((live & (kBoostFault | 0x08U | 0x07U | 0x80U | 0x30U)) != 0) {
+    ESP_LOGW(kTag, "charger live safety fault now=0x%02x; no charge restore", live);
     return;
   }
   if (!charger_config_matches_profile(config)) {
@@ -430,14 +545,9 @@ bool battery_read_status(PaperboyBatteryStatus &status) {
 BatteryShutdownResult battery_request_shutdown() {
   (void)battery_begin();
   if (!g_charger_ready) return BatteryShutdownResult::ChargerUnavailable;
-  // Stop sourcing our own VBUS BEFORE deciding whether an external USB supply
-  // prevents BATFET shutdown. Otherwise OTG's VBUS_GD looks like a charger.
-  if (g_host_boost_active) {
-    if (BQ25896_FAILED(bq25896_disable_otg(&g_charger)))
-      return BatteryShutdownResult::IoError;
-    g_host_boost_active = false;
-    delay(40);
-  }
+  // Never cut BATFET while the OTG source state is uncertain.
+  if (g_host_boost_active && !stop_host_boost("power-off", false))
+    return BatteryShutdownResult::IoError;
   bq25896_status_t status = {};
   if (BQ25896_FAILED(bq25896_read_status(&g_charger, &status)))
     return BatteryShutdownResult::IoError;
