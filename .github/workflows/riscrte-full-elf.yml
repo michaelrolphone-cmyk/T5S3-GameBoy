@@ -3,7 +3,7 @@ name: Build faithful GameBoy RiscRTE ELF
 on:
   push:
     branches:
-      - feature/riscrte-elf-faithful-rebuild
+      - master
   pull_request:
     paths:
       - 'src/**'
@@ -20,14 +20,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout experimental RiscRTE USB HID firmware ABI
+      - name: Checkout current RiscRTE host ABI
         uses: actions/checkout@v4
         with:
           repository: michaelrolphone-cmyk/T5S3-Reader
-          ref: feature/usb-hid-elf-input
+          ref: master
           path: _riscrte
           persist-credentials: false
-      - name: Record exact experimental firmware ABI commit
+      - name: Record exact RiscRTE firmware ABI commit
         run: |
           git -C _riscrte rev-parse HEAD
           test -f _riscrte/sdk/driver/RiscUsbHidV1.h
@@ -67,7 +67,7 @@ jobs:
         run: pio run -e T5S3-GameBoy
       - name: Generate exact source compilation database
         run: pio run -e T5S3-GameBoy -t compiledb
-      - name: Generate real experimental firmware export inventory
+      - name: Generate current RiscRTE firmware export inventory
         run: |
           python - <<'PY'
           import pathlib, sys
@@ -76,7 +76,7 @@ jobs:
           names = firmware_exports(pathlib.Path('_riscrte'))
           pathlib.Path('build/riscrte').mkdir(parents=True, exist_ok=True)
           pathlib.Path('build/riscrte/host_exports.txt').write_text('\n'.join(sorted(names)) + '\n')
-          print(f'Loaded {len(names)} registered experimental RiscRTE ELF exports')
+          print(f'Loaded {len(names)} registered RiscRTE ELF exports')
           PY
       - name: Compile and link GameBoy against the provider-backed HID ABI
         env:
