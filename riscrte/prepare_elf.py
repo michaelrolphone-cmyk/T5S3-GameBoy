@@ -59,12 +59,11 @@ def stage(destination: Path) -> None:
         'extern "C" void paperboy_elf_console_task(void *unused) {\n  (void)unused;\n  setup();',
         'extern "C" void paperboy_elf_console_task(void *unused) {\n'
         '  (void)unused;\n'
-        '  const uint32_t start_signal = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(15000));\n'
-        '  if (start_signal != 0) {\n'
-        '    setup();\n'
-        '  } else {\n'
-        '    ESP_LOGE(kTag, "ELF console start timed out");\n'
-        '  }',
+        '  // The owner retains console_task while loading optional providers.\n'
+        '  // It must remain live until the owner releases this start barrier;\n'
+        '  // timing out and deleting here leaves xTaskNotifyGive a freed TCB.\n'
+        '  while (ulTaskNotifyTake(pdTRUE, portMAX_DELAY) == 0) {}\n'
+        '  setup();',
         'console waits for optional providers')
     main = patch_once(
         main,

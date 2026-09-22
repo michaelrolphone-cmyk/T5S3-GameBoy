@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory() as tmp:
     hid_begin = app_main.index('paperboy_usb_owner_begin();')
     worker_start = app_main.index('xTaskNotifyGive(console_task);')
     assert create < hid_begin < worker_start
-    assert 'ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(15000))' in staged
+    assert 'ulTaskNotifyTake(pdTRUE, portMAX_DELAY)' in staged
     assert 'while (!paperboy_elf_exit_requested()) {' in staged
     assert 'paperboy_elf_request_exit();' in staged
     assert 'app_hardware_takeover()' in staged
@@ -63,3 +63,22 @@ with tempfile.TemporaryDirectory() as tmp:
     assert original == (ROOT / 'src/main.cpp').read_text()
     assert epd_original == (ROOT / 'src/epd_video.cpp').read_text()
 print('Faithful GameBoy ELF source staging and hardware-release checks passed')
+
+# Execute the staged worker itself against a deterministic scheduler shim.
+# A provider can finish after the old 15-second timeout, with or without a HID
+# device. The worker must still be alive when its owner sends the start signal.
+import subprocess
+with tempfile.TemporaryDirectory() as tmp:
+    target = Path(tmp)
+    stage(target)
+    staged = (target / 'main.cpp').read_text()
+    worker = staged.split('extern "C" void paperboy_elf_console_task', 1)[1]
+    worker = 'extern "C" void paperboy_elf_console_task' + worker.split(
+        'extern "C" __attribute__((visibility("default"))) void app_main()', 1)[0]
+    harness = (ROOT / 'tests/elf_start_gate_harness.cpp').read_text()
+    source = target / 'worker_test.cpp'
+    source.write_text(harness.replace('// STAGED_WORKER', worker))
+    binary = target / 'worker_test'
+    subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+                    str(source), '-o', str(binary)], check=True)
+    subprocess.run([str(binary)], check=True, timeout=10)
