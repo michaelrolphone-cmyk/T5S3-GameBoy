@@ -24,14 +24,16 @@ SECTIONS
       .gnu.linkonce.literal.* .gnu.linkonce.t.*.literal .gnu.linkonce.t.*)
     *(.iram1 .iram1.*)
   }
-  .rodata :
+  .rodata : ALIGN(16)
   {
     *(.rodata .rodata.* .gnu.linkonce.r.*)
     *(.got.loc)
     *(.eh_frame .eh_frame.*)
     *(.gcc_except_table .gcc_except_table.*)
+    /* Loader packs DATA, RODATA, DRLRO, BSS without inter-section padding. */
+    . = ALIGN(16);
   }
-  .data :
+  .data : ALIGN(16)
   {
     __app_init_array_start = .;
     KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*)))
@@ -49,5 +51,12 @@ SECTIONS
     __app_dtors_end = .;
     *(.got .got.*)
     *(.data .data.* .gnu.linkonce.d.*)
+    . = ALIGN(16);
+  }
+  .data.rel.ro : ALIGN(16)
+  {
+    *(.data.rel.ro.local* .gnu.linkonce.d.rel.ro.local.*)
+    *(.data.rel.ro .data.rel.ro.* .gnu.linkonce.d.rel.ro.*)
+    . = ALIGN(16);
   }
 } INSERT BEFORE .dynamic;

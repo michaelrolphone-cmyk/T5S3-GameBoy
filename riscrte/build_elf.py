@@ -53,6 +53,19 @@ storage_file.write_text(storage, encoding='utf-8')
 HOST_ROOT = Path(os.environ.get('RISCRTE_HOST_ROOT', ROOT / '_riscrte')).resolve()
 HOST_INCLUDE = HOST_ROOT / 'lib/NativeApps/include'
 HOST_DRIVER_INCLUDE = HOST_ROOT / 'sdk/driver'
+
+# Run the adapter with no host API and with both optional grants denied before
+# publishing an ELF. Host-only stubs replace locks, not adapter behavior.
+subprocess.run([sys.executable, str(ROOT / 'tests/elf_layout_test.py')], check=True)
+optional_test = BUILD / 'hid-optional-test'
+subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+    '-I' + str(ROOT / 'tests/elf_hid_stubs'),
+    '-I' + str(ROOT / 'tests/controller_stubs'), '-I' + str(ROOT / 'src'),
+    '-I' + str(HOST_INCLUDE), '-I' + str(HOST_DRIVER_INCLUDE),
+    str(ROOT / 'tests/elf_hid_optional_test.cpp'),
+    str(ROOT / 'src/usb_hid_keyboard.cpp'), '-o', str(optional_test)], check=True)
+subprocess.run([str(optional_test)], check=True)
+
 if not HOST_INCLUDE.joinpath('T5StorageApi.h').exists() or not HOST_INCLUDE.joinpath('T5ProviderCapabilityApi.h').exists() or not HOST_DRIVER_INCLUDE.joinpath('RiscUsbHidV1.h').exists():
     raise SystemExit(f'Experimental RiscRTE USB HID ABI not found under {HOST_ROOT}')
 

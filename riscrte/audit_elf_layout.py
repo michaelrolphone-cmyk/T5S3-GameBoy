@@ -62,6 +62,19 @@ def audit(path):
     if not mapped['.text'][3] <= entry < mapped['.text'][3] + mapped['.text'][5]:
         raise ValueError('ELF entry is outside .text')
 
+    # The current host packs these sections consecutively, ignoring sh_addralign.
+    # Audit runtime offsets, not only linked virtual addresses (which are aligned).
+    packed_offset = 0
+    for name in ('.data', '.rodata', '.data.rel.ro', '.bss'):
+        section = mapped.get(name)
+        if section is None:
+            continue
+        alignment = max(4, section[8])
+        if alignment > 16 or packed_offset % alignment or section[3] % alignment:
+            raise ValueError(f'{name} misaligned in RiscRTE packed data at offset '
+                             f'{packed_offset:#x}, requires {alignment}-byte alignment')
+        packed_offset += section[5]
+
     def location(addr):
         return next((name for name, s in mapped.items()
                      if s[3] <= addr < s[3] + s[5]), None)
