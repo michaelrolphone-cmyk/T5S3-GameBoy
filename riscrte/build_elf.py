@@ -37,8 +37,8 @@ main = patch_once(main,
                   '  (void)paperboy_storage_begin();\n  paperboy_usb_owner_begin();\n  s_elf_owner_task =',
                   'HID grant acquired on owner task')
 main = patch_once(main,
-                  '  night_light_shutdown();\n  audio_deinit();\n  paperboy_storage_end();',
-                  '  paperboy_usb_owner_end();\n  night_light_shutdown();\n  audio_deinit();\n  paperboy_storage_end();',
+                  '    paperboy_storage_owner_wait();\n  }\n  if (s_elf_boot_interrupt_attached)',
+                  '    paperboy_storage_owner_wait();\n  }\n  paperboy_usb_owner_end();\n  if (s_elf_boot_interrupt_attached)',
                   'HID grant teardown on owner task')
 main_file.write_text(main, encoding='utf-8')
 
