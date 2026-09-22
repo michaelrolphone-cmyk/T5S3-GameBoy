@@ -554,6 +554,7 @@ void compose_scene(
   } else {
     PaperboyRomLibraryView library;
     build_rom_library_view(library);
+    const UsbGamepadTestStatus gamepad = usb_hid_gamepad_test_status();
     paperboy_ui_draw_page(
         g_scene,
         page,
@@ -561,7 +562,8 @@ void compose_scene(
         kFirmwareVersion,
         g_emu == nullptr ? nullptr : gbemu_get_rom_title(g_emu),
         g_touch_available,
-        &library);
+        &library,
+        &gamepad);
   }
   rotate_portrait_to_panel(g_scene, framebuffer);
 }
@@ -1389,6 +1391,8 @@ void run_console(void *unused) {
   uint32_t pca_button_pressed_since_ms = 0;
   uint32_t last_boot_refresh_ms = 0;
   uint32_t last_battery_poll_ms = millis();
+  uint32_t last_gamepad_test_refresh_ms = 0;
+  UsbGamepadTestStatus last_gamepad_test_status = {};
   uint8_t full_scene_syncs = 0;
   uint8_t skipped_since_render = 0;
   uint32_t last_vsync = epd_video_get_vsync_count();
@@ -1712,11 +1716,21 @@ void run_console(void *unused) {
     if ((actions & PAPERBOY_ACTION_ABOUT) != 0U && page == PaperboyPage::Settings) {
       next_page = PaperboyPage::About;
     }
+    if ((actions & PAPERBOY_ACTION_GAMEPAD_TEST) != 0U && page == PaperboyPage::Settings)
+      next_page = PaperboyPage::GamepadTest;
     if ((actions & PAPERBOY_ACTION_REFRESH) != 0U && page == PaperboyPage::Battery) {
       const bool ok = battery_read_status(battery);
       ESP_LOGI(kTag, "battery refresh %s soc=%u voltage=%u", ok ? "ok" : "failed",
                battery.soc_percent, battery.voltage_mv);
       full_scene_syncs = kPanelBufferCount;
+    }
+    if (page == PaperboyPage::GamepadTest && now_ms - last_gamepad_test_refresh_ms >= 250U) {
+      last_gamepad_test_refresh_ms = now_ms;
+      const UsbGamepadTestStatus live = usb_hid_gamepad_test_status();
+      if (memcmp(&live, &last_gamepad_test_status, sizeof(live)) != 0) {
+        last_gamepad_test_status = live;
+        full_scene_syncs = 1U;
+      }
     }
     if (next_page != page) {
       if (next_page == PaperboyPage::Battery) {

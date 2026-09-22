@@ -85,7 +85,8 @@ int main() {
   assert(paperboy_ui_controller_selection() == 2);
   nav(0, PaperboyPage::Settings, 1510);
   nav(GBEMU_INPUT_DOWN, PaperboyPage::Settings, 1520);
-  assert(paperboy_ui_controller_selection() == 0);
+  assert(paperboy_ui_controller_selection() == 3);
+  assert(nav(GBEMU_INPUT_A, PaperboyPage::Settings, 1521) == PAPERBOY_ACTION_GAMEPAD_TEST);
   nav(0, PaperboyPage::Settings, 1530);
   nav(GBEMU_INPUT_UP, PaperboyPage::Settings, 1540);
   assert(paperboy_ui_controller_selection() == 2);

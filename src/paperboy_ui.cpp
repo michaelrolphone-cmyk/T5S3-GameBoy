@@ -55,6 +55,7 @@ constexpr Rect kHomeRect = {408, 20, 112, 44};
 constexpr Rect kBatteryRect = {30, 150, 480, 120};
 constexpr Rect kSdCardRect = {30, 290, 480, 120};
 constexpr Rect kAboutRect = {30, 430, 480, 120};
+constexpr Rect kGamepadRect = {30, 570, 480, 120};
 constexpr Rect kRefreshRect = {170, 856, 200, 40};
 constexpr Rect kLightOffRect = {30, 778, 146, 56};
 constexpr Rect kLightDownRect = {196, 778, 146, 56};
@@ -162,6 +163,7 @@ uint32_t current_action_mask(const touch_state_t *touch, PaperboyPage page) {
       if (point_in_rect(x, y, kAboutRect)) {
         mask |= PAPERBOY_ACTION_ABOUT;
       }
+      if (point_in_rect(x, y, kGamepadRect)) mask |= PAPERBOY_ACTION_GAMEPAD_TEST;
     } else if (page == PaperboyPage::Battery) {
       if (point_in_rect(x, y, kRefreshRect)) {
         mask |= PAPERBOY_ACTION_REFRESH;
@@ -308,11 +310,52 @@ void draw_settings_menu(uint8_t *framebuffer) {
   draw_menu_item(framebuffer, kBatteryRect, "BATTERY + LIGHT", "POWER AND BRIGHTNESS CONTROLS");
   draw_menu_item(framebuffer, kSdCardRect, "SD CARD", "ROM LIBRARY AND SAVE FILES");
   draw_menu_item(framebuffer, kAboutRect, "ABOUT SYSTEM", "DEVICE AND SOFTWARE INFO");
-  const Rect options[] = {kBatteryRect, kSdCardRect, kAboutRect};
+  draw_menu_item(framebuffer, kGamepadRect, "GAMEPAD TEST", "CONNECTION AND LIVE INPUT");
+  const Rect options[] = {kBatteryRect, kSdCardRect, kAboutRect, kGamepadRect};
   const Rect &focus = options[paperboy_ui_controller_selection()];
   mono_draw_frame(framebuffer, kPitch, kWidth, kHeight,
                   focus.x - 7, focus.y - 7, focus.width + 14, focus.height + 14, 3, false);
-  draw_centered_text(framebuffer, 650, "UP/DOWN: SELECT   A: OPEN   B: BACK", 1);
+  draw_centered_text(framebuffer, 740, "UP/DOWN: SELECT   A: OPEN   B: BACK", 1);
+}
+
+void draw_gamepad_test(uint8_t *framebuffer, const UsbGamepadTestStatus *status) {
+  UsbGamepadTestStatus empty = {};
+  if (!status) status = &empty;
+  char line[96];
+  const auto row = [&](int y, const char *value) {
+    mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, y, value, 2, false);
+  };
+  row(160, status->provider_ready ? "DRIVER: READY" : "DRIVER: UNAVAILABLE");
+  row(208, status->connected ? "RECEIVER: CONNECTED" : "RECEIVER: NOT DETECTED");
+  if (status->poll_failed) row(255, "POLL: ERROR");
+  snprintf(line, sizeof(line), "REPORTS: %lu  ID: %u",
+           static_cast<unsigned long>(status->reports), unsigned(status->report_id));
+  row(302, line);
+  snprintf(line, sizeof(line), "BUTTONS: %08lX", static_cast<unsigned long>(status->buttons));
+  row(351, line);
+  const char *names[] = {"B", "A", "Y", "X", "L", "R", "7", "8",
+                         "SELECT", "START", "11", "12", "13", "14", "15", "16"};
+  int x = 34, y = 408;
+  for (unsigned i = 0; i < 16; ++i) {
+    if (!(status->buttons & (1UL << i))) continue;
+    mono_draw_text(framebuffer, kPitch, kWidth, kHeight, x, y, names[i], 2, false);
+    x += static_cast<int>(strlen(names[i]) * 12 + 20);
+    if (x > 420) { x = 34; y += 36; }
+  }
+  if (!status->buttons) row(408, "NO BUTTONS PRESSED");
+  snprintf(line, sizeof(line), "X:%d Y:%d HAT:%u", int(status->x), int(status->y),
+           unsigned(status->hat));
+  row(555, line);
+  snprintf(line, sizeof(line), "RX:%d RY:%d", int(status->rx), int(status->ry));
+  row(600, line);
+  row(670, "LAST ERROR:");
+  // Single clipped row keeps an unexpected provider message inside the screen.
+  char error[62];
+  snprintf(error, sizeof(error), "%.60s", status->error[0] ? status->error : "NONE");
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 712, error, 1, false);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 752,
+                 "LOG: /sd/gameboy-hid.log", 1, false);
+  draw_centered_text(framebuffer, 820, "B OR BACK: SETTINGS", 1);
 }
 
 const char *battery_state_text(const PaperboyBatteryStatus &battery) {
@@ -795,7 +838,8 @@ void paperboy_ui_draw_page(
     const char *firmware_version,
     const char *rom_title,
     bool touch_available,
-    const PaperboyRomLibraryView *rom_library) {
+    const PaperboyRomLibraryView *rom_library,
+    const UsbGamepadTestStatus *gamepad) {
   if (framebuffer == nullptr || page == PaperboyPage::Game) {
     return;
   }
@@ -818,6 +862,10 @@ void paperboy_ui_draw_page(
     case PaperboyPage::About:
       draw_settings_header(framebuffer, "ABOUT SYSTEM");
       draw_about_page(framebuffer, firmware_version, rom_title, touch_available);
+      break;
+    case PaperboyPage::GamepadTest:
+      draw_settings_header(framebuffer, "GAMEPAD TEST");
+      draw_gamepad_test(framebuffer, gamepad);
       break;
     case PaperboyPage::Game:
     default:

@@ -47,6 +47,13 @@ t5_provider_capability_lease_t g_gamepad_lease = 0;
 uint64_t g_keyboard_subscription = 0;
 uint64_t g_gamepad_subscription = 0;
 portMUX_TYPE g_input_lock = portMUX_INITIALIZER_UNLOCKED;
+UsbGamepadTestStatus g_test = {};
+void gamepad_error(const char *message) {
+  portENTER_CRITICAL(&g_input_lock);
+  snprintf(g_test.error, sizeof(g_test.error), "%s", message);
+  portEXIT_CRITICAL(&g_input_lock);
+  paperboy_storage_hid_diagnostic(message);
+}
 UsbHidKeyboardKeys g_keys;
 constexpr size_t kKeyboardQueueCapacity = 32;
 UsbHidKeyboardKeys g_keyboard_queue[kKeyboardQueueCapacity];
@@ -142,6 +149,15 @@ void map_gamepad(const risc_usb_gamepad_state_v1 &state, bool synchronize = fals
     pad.start = (state.buttons & (1UL << 9)) != 0;
   }
   portENTER_CRITICAL(&g_input_lock);
+  g_test.connected = state.connected;
+  g_test.buttons = state.connected ? state.buttons : 0;
+  g_test.x = state.connected ? state.x : 0;
+  g_test.y = state.connected ? state.y : 0;
+  g_test.rx = state.connected ? state.rx : 0;
+  g_test.ry = state.connected ? state.ry : 0;
+  g_test.hat = state.connected ? state.hat : 8;
+  g_test.report_id = state.connected ? state.report_id : 0;
+  if (!synchronize && state.connected && g_test.reports != UINT32_MAX) ++g_test.reports;
   bool overflow = false;
   if (synchronize || !state.connected) {
     // A disconnect/GAP must clear stale presses, not replay them later.
@@ -293,8 +309,13 @@ void paperboy_usb_owner_begin() {
         api->poll && api->next && api->snapshot) {
       g_gamepad_api = api;
       g_gamepad_subscription = api->subscribe(api->context, 0);
-      if (g_gamepad_subscription)
+      if (g_gamepad_subscription) {
+        portENTER_CRITICAL(&g_input_lock);
+        g_test.provider_ready = true;
+        g_test.error[0] = 0;
+        portEXIT_CRITICAL(&g_input_lock);
         paperboy_storage_hid_diagnostic("Gamepad subscribed; waiting for connection");
+      }
     }
     if (!g_gamepad_subscription) {
       (void)g_provider->release(g_gamepad_lease);
@@ -303,7 +324,12 @@ void paperboy_usb_owner_begin() {
     }
   }
   if (!g_gamepad_lease && !g_gamepad_acquire_failed)
-    acquire_error("Gamepad acquisition failed; keyboard lease retained");
+    gamepad_error("Gamepad driver acquisition failed");
+  if (!g_gamepad_lease) {
+    portENTER_CRITICAL(&g_input_lock);
+    g_test.provider_ready = false;
+    portEXIT_CRITICAL(&g_input_lock);
+  }
   g_gamepad_acquire_failed = !g_gamepad_lease;
   g_last_acquire_ms = millis(); // Back off from completion, including slow failed loads.
   ESP_LOGI(kTag, "RiscRTE HID grants keyboard=%u gamepad=%u",
@@ -354,8 +380,17 @@ void paperboy_usb_owner_poll() {
   if (g_gamepad_api && g_gamepad_subscription) {
     const bool ok = g_gamepad_api->poll(g_gamepad_api->context, 4);
     if (ok == g_gamepad_poll_failed) {
-      paperboy_storage_hid_diagnostic(ok ? "Gamepad polling recovered" : "Gamepad provider poll failed");
+      if (!ok) gamepad_error("Gamepad provider poll failed");
+      else {
+        paperboy_storage_hid_diagnostic("Gamepad polling recovered");
+        portENTER_CRITICAL(&g_input_lock);
+        g_test.error[0] = 0;
+        portEXIT_CRITICAL(&g_input_lock);
+      }
       g_gamepad_poll_failed = !ok;
+      portENTER_CRITICAL(&g_input_lock);
+      g_test.poll_failed = !ok;
+      portEXIT_CRITICAL(&g_input_lock);
     }
     // A failed poll can still leave a queued disconnect or state transition.
     for (unsigned n = 0; n < 32; ++n) {
@@ -364,7 +399,7 @@ void paperboy_usb_owner_poll() {
                                             g_gamepad_subscription, &event);
       if (!rc) break;
       if (rc < 0 || event.kind == 5) {
-        paperboy_storage_hid_diagnostic("Gamepad event gap; taking snapshot");
+        gamepad_error("Gamepad event gap; taking snapshot");
         gamepad_snapshot(); break;
       }
       if (event.kind == 2) {
@@ -400,6 +435,9 @@ void paperboy_usb_owner_end() {
   if (g_provider && g_gamepad_lease) (void)g_provider->release(g_gamepad_lease);
   g_keyboard_lease = g_gamepad_lease = 0;
   g_provider = nullptr;
+  portENTER_CRITICAL(&g_input_lock);
+  g_test = {};
+  portEXIT_CRITICAL(&g_input_lock);
   g_gamepad_poll_failed = g_gamepad_state_seen = false;
   g_keyboard_acquire_failed = g_gamepad_acquire_failed = false;
   portENTER_CRITICAL(&g_input_lock);
@@ -463,4 +501,11 @@ uint8_t usb_hid_gamepad_take_actions() {
   const uint8_t actions = g_actions;
   g_actions = 0;
   return actions;
+}
+
+UsbGamepadTestStatus usb_hid_gamepad_test_status() {
+  portENTER_CRITICAL(&g_input_lock);
+  UsbGamepadTestStatus result = g_test;
+  portEXIT_CRITICAL(&g_input_lock);
+  return result;
 }

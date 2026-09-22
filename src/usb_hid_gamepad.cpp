@@ -4,6 +4,7 @@
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <stdio.h>
 #include <string.h>
 #include <usb/usb_host.h>
 
@@ -30,6 +31,12 @@ struct Candidate {
 enum class ControlStage : uint8_t { Descriptor, BootProtocol };
 
 portMUX_TYPE g_input_lock = portMUX_INITIALIZER_UNLOCKED;
+UsbGamepadTestStatus g_test = {};
+void test_error(const char *message) {
+  portENTER_CRITICAL(&g_input_lock);
+  snprintf(g_test.error, sizeof(g_test.error), "%s", message);
+  portEXIT_CRITICAL(&g_input_lock);
+}
 UsbHidGamepadState g_raw;
 UsbHidKeyboardKeys g_previous_keyboard;
 uint8_t g_pending_keyboard_actions = 0;
@@ -97,6 +104,10 @@ void on_client_event(const usb_host_client_event_msg_t *event, void *) {
     if (!g_device && !g_pending_address) g_pending_address = event->new_dev.address;
   } else if (event->event == USB_HOST_CLIENT_EVENT_DEV_GONE &&
              event->dev_gone.dev_hdl == g_device) {
+    portENTER_CRITICAL(&g_input_lock);
+    g_test.connected = false;
+    g_test.buttons = 0;
+    portEXIT_CRITICAL(&g_input_lock);
     ESP_LOGW(kTag, "HID device removed; releasing all buttons and keys");
     g_disconnect = true;
     clear_input();
@@ -266,12 +277,20 @@ void on_report(usb_transfer_t *transfer) {
       if (usb_hid_decode_gamepad(g_layout, transfer->data_buffer, size, decoded)) {
         portENTER_CRITICAL(&g_input_lock);
         g_raw = decoded;
+        g_test.buttons = (decoded.b ? 1U : 0U) | (decoded.a ? 2U : 0U) |
+            (decoded.y ? 4U : 0U) | (decoded.x ? 8U : 0U) |
+            (decoded.l ? 16U : 0U) | (decoded.r ? 32U : 0U) |
+            (decoded.select ? 256U : 0U) | (decoded.start ? 512U : 0U);
+        g_test.x = decoded.left ? -32767 : decoded.right ? 32767 : 0;
+        g_test.y = decoded.up ? -32767 : decoded.down ? 32767 : 0;
+        if (g_test.reports != UINT32_MAX) ++g_test.reports;
         portEXIT_CRITICAL(&g_input_lock);
         g_transfer_errors = 0;
       }
     }
   } else {
     ESP_LOGW(kTag, "HID interrupt IN status=%d", int(transfer->status));
+    test_error("USB interrupt transfer failed");
     if (++g_transfer_errors >= 3) {
       g_disconnect = true;
       clear_input();
@@ -311,6 +330,13 @@ bool activate_candidate() {
   clear_input();
   if (usb_host_transfer_submit(g_interrupt) != ESP_OK) return false;
   g_interrupt_inflight = true;
+  portENTER_CRITICAL(&g_input_lock);
+  g_test.provider_ready = true;
+  g_test.connected = !g_keyboard_active;
+  g_test.report_id = id;
+  g_test.hat = 8;
+  g_test.error[0] = 0;
+  portEXIT_CRITICAL(&g_input_lock);
   ESP_LOGI(kTag, "%s active interface=%u ep=0x%02x mps=%u report-id=%u bytes=%u",
            g_keyboard_active ? "USB keyboard" : "HID gamepad",
            candidate.interface_number, candidate.endpoint,
@@ -343,6 +369,10 @@ void close_device() {
   g_control_done = false;
   g_keyboard_active = false;
   g_disconnect = false;
+  portENTER_CRITICAL(&g_input_lock);
+  g_test.connected = false;
+  g_test.buttons = 0;
+  portEXIT_CRITICAL(&g_input_lock);
 }
 
 void next_candidate() {
@@ -371,6 +401,9 @@ void client_task(void *) {
     return;
   }
   ESP_LOGI(kTag, "USB HID host client ready; gamepads and 104/108-key keyboards supported");
+  portENTER_CRITICAL(&g_input_lock);
+  g_test.provider_ready = true;
+  portEXIT_CRITICAL(&g_input_lock);
   for (;;) {
     (void)usb_host_client_handle_events(g_client, pdMS_TO_TICKS(20));
     if (g_disconnect) {
@@ -428,6 +461,7 @@ void client_task(void *) {
       inspect_interfaces(config);
       g_candidate = 0;
       if (!g_candidates_count) g_disconnect = true;
+      if (!g_candidates_count) test_error("No supported HID interface on receiver");
       else if (!start_candidate()) {
         // The first candidate may fail allocation; try the remaining ones.
         next_candidate();
@@ -515,6 +549,7 @@ void usb_hid_gamepad_begin() {
   cfg.intr_flags = 0;
   const esp_err_t rc = usb_host_install(&cfg);
   if (rc != ESP_OK) {
+    test_error("USB host install failed");
     ESP_LOGE(kTag, "USB OTG host install failed: %s (native USB CDC must be disabled)",
              esp_err_to_name(rc));
     return;
@@ -544,4 +579,11 @@ uint8_t usb_hid_gamepad_take_actions() {
   const uint8_t actions = g_actions;
   g_actions = 0;
   return actions;
+}
+
+UsbGamepadTestStatus usb_hid_gamepad_test_status() {
+  portENTER_CRITICAL(&g_input_lock);
+  UsbGamepadTestStatus result = g_test;
+  portEXIT_CRITICAL(&g_input_lock);
+  return result;
 }
