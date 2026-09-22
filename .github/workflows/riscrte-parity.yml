@@ -3,7 +3,7 @@ name: RiscRTE GameBoy behavior parity
 on:
   push:
     branches:
-      - feature/riscrte-elf-faithful-rebuild
+      - master
   pull_request:
     paths:
       - 'riscrte/**'
