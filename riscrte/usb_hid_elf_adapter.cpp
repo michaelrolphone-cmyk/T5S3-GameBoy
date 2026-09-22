@@ -6,6 +6,7 @@
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
+#include <stdio.h>
 #include <string.h>
 #include <stddef.h>
 
@@ -32,6 +33,8 @@ uint32_t g_last_acquire_ms = 0;
 bool g_owner_active = false;
 bool g_keyboard_poll_failed = false;
 bool g_keyboard_key_seen = false;
+bool g_gamepad_poll_failed = false;
+bool g_gamepad_state_seen = false;
 void acquire_error(const char *capability) {
   paperboy_storage_hid_diagnostic(capability);
 }
@@ -286,6 +289,8 @@ void paperboy_usb_owner_begin() {
         api->poll && api->next && api->snapshot) {
       g_gamepad_api = api;
       g_gamepad_subscription = api->subscribe(api->context, 0);
+      if (g_gamepad_subscription)
+        paperboy_storage_hid_diagnostic("Gamepad subscribed; waiting for connection");
     }
     if (!g_gamepad_subscription) {
       (void)g_provider->release(g_gamepad_lease);
@@ -340,15 +345,37 @@ void paperboy_usb_owner_poll() {
       accept_keyboard(keys, true);
     }
   }
-  if (g_gamepad_api && g_gamepad_subscription &&
-      g_gamepad_api->poll(g_gamepad_api->context, 4)) {
+  if (g_gamepad_api && g_gamepad_subscription) {
+    const bool ok = g_gamepad_api->poll(g_gamepad_api->context, 4);
+    if (ok == g_gamepad_poll_failed) {
+      paperboy_storage_hid_diagnostic(ok ? "Gamepad polling recovered" : "Gamepad provider poll failed");
+      g_gamepad_poll_failed = !ok;
+    }
+    // A failed poll can still leave a queued disconnect or state transition.
     for (unsigned n = 0; n < 32; ++n) {
       risc_usb_gamepad_event_v1 event{};
       const int32_t rc = g_gamepad_api->next(g_gamepad_api->context,
                                             g_gamepad_subscription, &event);
       if (!rc) break;
-      if (rc < 0 || event.kind == 5) { gamepad_snapshot(); break; }
-      if (event.kind == 2) { map_gamepad(risc_usb_gamepad_state_v1{}); continue; }
+      if (rc < 0 || event.kind == 5) {
+        paperboy_storage_hid_diagnostic("Gamepad event gap; taking snapshot");
+        gamepad_snapshot(); break;
+      }
+      if (event.kind == 2) {
+        paperboy_storage_hid_diagnostic("Gamepad disconnected");
+        map_gamepad(risc_usb_gamepad_state_v1{});
+        g_gamepad_state_seen = false;
+        continue;
+      }
+      if (event.kind == 1) paperboy_storage_hid_diagnostic("Gamepad connected");
+      if (event.kind == 3 && !g_gamepad_state_seen) {
+        char detail[96];
+        snprintf(detail, sizeof(detail), "Gamepad report id=%u buttons=%08lx x=%d y=%d hat=%u",
+                 unsigned(event.state.report_id), static_cast<unsigned long>(event.state.buttons),
+                 int(event.state.x), int(event.state.y), unsigned(event.state.hat));
+        paperboy_storage_hid_diagnostic(detail);
+        g_gamepad_state_seen = true;
+      }
       if (event.kind == 1 || event.kind == 3) map_gamepad(event.state);
     }
   }
@@ -367,6 +394,7 @@ void paperboy_usb_owner_end() {
   if (g_provider && g_gamepad_lease) (void)g_provider->release(g_gamepad_lease);
   g_keyboard_lease = g_gamepad_lease = 0;
   g_provider = nullptr;
+  g_gamepad_poll_failed = g_gamepad_state_seen = false;
   portENTER_CRITICAL(&g_input_lock);
   g_keys = {};
   g_sampled_keys = {};
