@@ -20,13 +20,18 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Checkout merged RiscRTE native ABI
+      - name: Checkout experimental RiscRTE USB HID firmware ABI
         uses: actions/checkout@v4
         with:
           repository: michaelrolphone-cmyk/T5S3-Reader
-          ref: master
+          ref: feature/usb-hid-elf-input
           path: _riscrte
           persist-credentials: false
+      - name: Record exact experimental firmware ABI commit
+        run: |
+          git -C _riscrte rev-parse HEAD
+          test -f _riscrte/sdk/driver/RiscUsbHidV1.h
+          test -f _riscrte/lib/NativeApps/include/T5ProviderCapabilityApi.h
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -62,7 +67,7 @@ jobs:
         run: pio run -e T5S3-GameBoy
       - name: Generate exact source compilation database
         run: pio run -e T5S3-GameBoy -t compiledb
-      - name: Generate real firmware export inventory
+      - name: Generate real experimental firmware export inventory
         run: |
           python - <<'PY'
           import pathlib, sys
@@ -71,13 +76,25 @@ jobs:
           names = firmware_exports(pathlib.Path('_riscrte'))
           pathlib.Path('build/riscrte').mkdir(parents=True, exist_ok=True)
           pathlib.Path('build/riscrte/host_exports.txt').write_text('\n'.join(sorted(names)) + '\n')
-          print(f'Loaded {len(names)} registered RiscRTE ELF exports')
+          print(f'Loaded {len(names)} registered experimental RiscRTE ELF exports')
           PY
-      - name: Compile and link all original GameBoy subsystems into a real ELF
+      - name: Compile and link GameBoy against the provider-backed HID ABI
         env:
           RISCRTE_EXPORT_LIST: build/riscrte/host_exports.txt
           RISCRTE_HOST_ROOT: _riscrte
         run: python riscrte/build_elf.py
+      - name: Reject direct USB host imports in the ELF
+        run: |
+          python - <<'PY'
+          import json
+          names = json.load(open('dist/riscrte/imports.json'))['undefined']
+          forbidden = sorted(name for name in names if name.startswith('usb_host_'))
+          if forbidden:
+              raise SystemExit('Standalone USB host calls leaked into ELF: ' + ', '.join(forbidden))
+          if 't5_provider_capability_get_api' not in names:
+              raise SystemExit('GameBoy ELF did not import the RiscRTE provider capability API')
+          print('HID import boundary verified; no standalone USB host calls')
+          PY
       - name: Validate ELF with the actual RiscRTE firmware validator
         run: |
           cc -std=c11 -Wall -Wextra -Werror \
