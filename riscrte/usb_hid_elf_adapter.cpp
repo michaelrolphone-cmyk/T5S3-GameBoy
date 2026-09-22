@@ -33,12 +33,7 @@ bool g_owner_active = false;
 bool g_keyboard_poll_failed = false;
 bool g_keyboard_key_seen = false;
 void acquire_error(const char *capability) {
-  char detail[160] = {};
   paperboy_storage_hid_diagnostic(capability);
-  if (g_provider && g_provider->struct_size >=
-      offsetof(t5_provider_capability_api_v1, last_error) + sizeof(g_provider->last_error) &&
-      g_provider->last_error && g_provider->last_error(detail, sizeof(detail)))
-    paperboy_storage_hid_diagnostic(detail);
 }
 const risc_usb_keyboard_api_v1 *g_keyboard_api = nullptr;
 const risc_usb_gamepad_api_v1 *g_gamepad_api = nullptr;
