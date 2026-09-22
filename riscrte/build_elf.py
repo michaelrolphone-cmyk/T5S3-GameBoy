@@ -16,7 +16,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'riscrte'))
-from prepare_elf import stage
+from prepare_elf import stage, patch_once
 from stage_core import stage_core
 
 OUT = ROOT / 'dist/riscrte'
@@ -26,10 +26,35 @@ OUT.mkdir(parents=True, exist_ok=True)
 SRC.mkdir(parents=True, exist_ok=True)
 stage(SRC)
 stage_core(SRC)
+
+# Patch the staged ELF only; the standalone build retains its native USB host.
+# The app owner owns provider grants, polls the event queues while servicing
+# storage requests, and releases both subscriptions before module teardown.
+main_file = SRC / 'main.cpp'
+main = main_file.read_text(encoding='utf-8')
+main = patch_once(main,
+                  '  (void)paperboy_storage_begin();\n  s_elf_owner_task =',
+                  '  (void)paperboy_storage_begin();\n  paperboy_usb_owner_begin();\n  s_elf_owner_task =',
+                  'HID grant acquired on owner task')
+main = patch_once(main,
+                  '  night_light_shutdown();\n  audio_deinit();\n  paperboy_storage_end();',
+                  '  paperboy_usb_owner_end();\n  night_light_shutdown();\n  audio_deinit();\n  paperboy_storage_end();',
+                  'HID grant teardown on owner task')
+main_file.write_text(main, encoding='utf-8')
+
+storage_file = SRC / 'paperboy_storage_host.cpp'
+storage = (ROOT / 'riscrte/paperboy_storage_host.cpp').read_text(encoding='utf-8')
+storage = patch_once(storage,
+                     '    } else {\n      (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));\n    }\n  }\n}\n\nvoid paperboy_storage_bind_host()',
+                     '    }\n    paperboy_usb_owner_poll();\n    if (!request) (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));\n  }\n}\n\nvoid paperboy_storage_bind_host()',
+                     'HID polling on storage owner task')
+storage_file.write_text(storage, encoding='utf-8')
+
 HOST_ROOT = Path(os.environ.get('RISCRTE_HOST_ROOT', ROOT / '_riscrte')).resolve()
 HOST_INCLUDE = HOST_ROOT / 'lib/NativeApps/include'
-if not HOST_INCLUDE.joinpath('T5StorageApi.h').exists():
-    raise SystemExit(f'RiscRTE native API headers not found under {HOST_INCLUDE}')
+HOST_DRIVER_INCLUDE = HOST_ROOT / 'sdk/driver'
+if not HOST_INCLUDE.joinpath('T5StorageApi.h').exists() or not HOST_INCLUDE.joinpath('T5ProviderCapabilityApi.h').exists() or not HOST_DRIVER_INCLUDE.joinpath('RiscUsbHidV1.h').exists():
+    raise SystemExit(f'Experimental RiscRTE USB HID ABI not found under {HOST_ROOT}')
 
 
 def run(cmd):
@@ -62,7 +87,8 @@ if missing:
     # inclusion would introduce duplicate audio backends or peripheral code.
     print('Unused by standalone build:', *(str(p.relative_to(ROOT)) for p in missing))
 for required in ('src/main.cpp', 'src/epd_video.cpp', 'src/gbemu.c',
-                 'src/paperboy_storage.cpp', 'src/paperboy_ui.cpp', 'src/audio.c'):
+                 'src/paperboy_storage.cpp', 'src/paperboy_ui.cpp', 'src/audio.c',
+                 'src/usb_hid_gamepad.cpp'):
     if ROOT.joinpath(required).resolve() not in commands:
         raise SystemExit(f'Compilation database lacks original {required}')
 
@@ -81,7 +107,8 @@ for source, entry in sorted(commands.items()):
         'src/main.cpp': SRC / 'main.cpp',
         'src/epd_video.cpp': SRC / 'epd_video.cpp',
         'src/gbemu.c': SRC / 'gbemu.c',
-        'src/paperboy_storage.cpp': ROOT / 'riscrte/paperboy_storage_host.cpp',
+        'src/paperboy_storage.cpp': SRC / 'paperboy_storage_host.cpp',
+        'src/usb_hid_gamepad.cpp': ROOT / 'riscrte/usb_hid_elf_adapter.cpp',
     }.get(relative.as_posix(), source)
     obj = BUILD / 'objects' / relative.with_suffix(relative.suffix + '.o')
     obj.parent.mkdir(parents=True, exist_ok=True)
@@ -111,6 +138,7 @@ for source, entry in sorted(commands.items()):
         '-fvisibility=hidden', '-ffunction-sections', '-fdata-sections',
         '-DPAPERBOY_RISCRTE_ELF=1', '-I' + str(ROOT / 'riscrte'),
         '-I' + str(SRC), '-I' + str(ROOT / 'src'), '-I' + str(HOST_INCLUDE),
+        '-I' + str(HOST_DRIVER_INCLUDE),
         '-c', str(staged), '-o', str(obj),
     ])
     run(tokens)
