@@ -22,3 +22,6 @@ void paperboy_storage_owner_note_console_done();
 void paperboy_usb_owner_begin();
 void paperboy_usb_owner_poll();
 void paperboy_usb_owner_end();
+
+// Called on the console core before USB startup; setup reuses the bus.
+bool paperboy_elf_prepare_display_bus();

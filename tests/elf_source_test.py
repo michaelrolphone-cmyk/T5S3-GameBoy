@@ -36,7 +36,10 @@ with tempfile.TemporaryDirectory() as tmp:
     create = app_main.index('xTaskCreatePinnedToCore(')
     hid_begin = app_main.index('paperboy_usb_owner_begin();')
     worker_start = app_main.index('xTaskNotifyGive(console_task);')
-    assert create < hid_begin < worker_start
+    display_wait = app_main.index('ulTaskNotifyTake(pdTRUE, portMAX_DELAY)')
+    assert create < display_wait < hid_begin < worker_start
+    assert 'if (s_elf_display_bus_ready) paperboy_usb_owner_begin();' in app_main
+    assert 'bool paperboy_elf_prepare_display_bus() { return init_panel_bus(); }' in epd_staged
     assert 'ulTaskNotifyTake(pdTRUE, portMAX_DELAY)' in staged
     assert 'while (!paperboy_elf_exit_requested()) {' in staged
     assert 'paperboy_elf_request_exit();' in staged

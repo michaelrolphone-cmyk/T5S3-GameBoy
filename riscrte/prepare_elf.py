@@ -59,25 +59,32 @@ def stage(destination: Path) -> None:
         'extern "C" void paperboy_elf_console_task(void *unused) {\n  (void)unused;\n  setup();',
         'extern "C" void paperboy_elf_console_task(void *unused) {\n'
         '  (void)unused;\n'
+        '  // Claim the display IRQ/DMA before USB can consume its available vector.\n'
+        '  s_elf_display_bus_ready = paperboy_elf_prepare_display_bus();\n'
+        '  xTaskNotifyGive(s_elf_owner_task);\n'
         '  // The owner retains console_task while loading optional providers.\n'
         '  // It must remain live until the owner releases this start barrier;\n'
         '  // timing out and deleting here leaves xTaskNotifyGive a freed TCB.\n'
         '  while (ulTaskNotifyTake(pdTRUE, portMAX_DELAY) == 0) {}\n'
-        '  setup();',
+        '  if (s_elf_display_bus_ready) setup();',
         'console waits for optional providers')
     main = patch_once(
         main,
         '  } else {\n    paperboy_storage_owner_wait();\n  }\n'
         '  if (s_elf_boot_interrupt_attached)',
         '  } else {\n'
-        '    // Reserve the critical worker stack before loading optional HID providers.\n'
-        '    paperboy_usb_owner_begin();\n'
+        '    // Wait for display resources before starting optional USB on this owner.\n'
+        '    while (ulTaskNotifyTake(pdTRUE, portMAX_DELAY) == 0) {}\n'
+        '    if (s_elf_display_bus_ready) paperboy_usb_owner_begin();\n'
         '    xTaskNotifyGive(console_task);\n'
         '    paperboy_storage_owner_wait();\n'
         '  }\n'
         '  paperboy_usb_owner_end();\n'
         '  if (s_elf_boot_interrupt_attached)',
         'HID starts after worker allocation')
+    main = patch_once(main, 'TaskHandle_t s_elf_owner_task = nullptr;',
+                      'TaskHandle_t s_elf_owner_task = nullptr;\n'
+                      'bool s_elf_display_bus_ready = false;', 'display preparation state')
     (destination / 'main.cpp').write_text(main, encoding='utf-8')
 
     epd = (ROOT / 'src/epd_video.cpp').read_text(encoding='utf-8')
@@ -87,6 +94,8 @@ def stage(destination: Path) -> None:
     original_tail = '''  if (g_expander != nullptr) {\n    g_expander->safeShutdownOutputs();\n  }\n}'''
     replacement_tail = '''  if (g_expander != nullptr) {\n    g_expander->safeShutdownOutputs();\n  }\n#ifdef PAPERBOY_RISCRTE_ELF\n  if (g_panel_io != nullptr) {\n    const esp_err_t rc = esp_lcd_panel_io_del(g_panel_io);\n    if (rc != ESP_OK) { ESP_LOGE(kTag, "panel IO release: %s", esp_err_to_name(rc)); abort(); }\n    g_panel_io = nullptr;\n  }\n  if (g_i80_bus != nullptr) {\n    const esp_err_t rc = esp_lcd_del_i80_bus(g_i80_bus);\n    if (rc != ESP_OK) { ESP_LOGE(kTag, "i80 bus release: %s", esp_err_to_name(rc)); abort(); }\n    g_i80_bus = nullptr;\n  }\n  release_allocations();\n  g_expander = nullptr;\n  g_dma_done = true;\n  g_flip_req = false;\n  g_drive_pending = false;\n#endif\n}'''
     epd = patch_once(epd, original_tail, replacement_tail, 'LCD/DMA teardown')
+    epd += '\n// Reserve on the console core before the owner loads optional USB.\n' \
+           'bool paperboy_elf_prepare_display_bus() { return init_panel_bus(); }\n'
     (destination / 'epd_video.cpp').write_text(epd, encoding='utf-8')
     print(f'Staged complete GameBoy application and original display driver in {destination}')
 
