@@ -32,12 +32,18 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'paperboy_storage_owner_wait();' in staged
     assert 'paperboy_storage_owner_note_console_done();' in staged
     assert staged.find('paperboy_storage_bind_host();') < staged.find('(void)paperboy_storage_begin();') < staged.find('xTaskCreatePinnedToCore(')
+    app_main = staged.split('void app_main()', 1)[1]
+    create = app_main.index('xTaskCreatePinnedToCore(')
+    hid_begin = app_main.index('paperboy_usb_owner_begin();')
+    worker_start = app_main.index('xTaskNotifyGive(console_task);')
+    assert create < hid_begin < worker_start
+    assert 'ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(15000))' in staged
     assert 'while (!paperboy_elf_exit_requested()) {' in staged
     assert 'paperboy_elf_request_exit();' in staged
     assert 'app_hardware_takeover()' in staged
     assert 'void app_main()' in staged
-    app_main = staged.split('void app_main()', 1)[1]
     assert app_main.index('paperboy_storage_owner_wait();') < app_main.index('night_light_shutdown();') < app_main.index('epd_video_shutdown();')
+    assert app_main.index('paperboy_storage_owner_wait();') < app_main.index('paperboy_usb_owner_end();') < app_main.index('night_light_shutdown();')
     assert 'int app_module_init()' in staged
     assert 'void app_module_fini()' in staged
     assert 'if (s_elf_boot_interrupt_attached)' in staged

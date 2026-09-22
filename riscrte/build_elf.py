@@ -28,18 +28,9 @@ stage(SRC)
 stage_core(SRC)
 
 # Patch the staged ELF only; the standalone build retains its native USB host.
-# The app owner owns provider grants, polls the event queues while servicing
-# storage requests, and releases both subscriptions before module teardown.
+# The app owner polls provider event queues while servicing storage requests.
 main_file = SRC / 'main.cpp'
 main = main_file.read_text(encoding='utf-8')
-main = patch_once(main,
-                  '  (void)paperboy_storage_begin();\n  s_elf_owner_task =',
-                  '  (void)paperboy_storage_begin();\n  paperboy_usb_owner_begin();\n  s_elf_owner_task =',
-                  'HID grant acquired on owner task')
-main = patch_once(main,
-                  '    paperboy_storage_owner_wait();\n  }\n  if (s_elf_boot_interrupt_attached)',
-                  '    paperboy_storage_owner_wait();\n  }\n  paperboy_usb_owner_end();\n  if (s_elf_boot_interrupt_attached)',
-                  'HID grant teardown on owner task')
 main_file.write_text(main, encoding='utf-8')
 
 storage_file = SRC / 'paperboy_storage_host.cpp'
