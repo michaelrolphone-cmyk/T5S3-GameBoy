@@ -159,9 +159,13 @@ output = OUT / 'gameboy.elf'
 # The firmware loader maps only canonical sections by name. Pack IRAM_ATTR
 # routines, constructors and linker-created tables there at ELF link time;
 # don't require a special firmware loader just to run this application.
+# Xtensa link-time relaxation can shrink packed data after linker-script
+# alignment has been evaluated. Keep final section sizes stable; the existing
+# post-link audit still checks the actual RiscRTE runtime packing.
 layout = ROOT / 'riscrte/elf_loader_layout.ld'
 run([linker, '-shared', '-nostdlib', '-nostartfiles', '-fPIC', '-mlongcalls',
-     '-Wl,--hash-style=sysv', '-Wl,--gc-sections', '-Wl,-T,' + str(layout),
+     '-Wl,--hash-style=sysv', '-Wl,--gc-sections', '-Wl,--no-relax',
+     '-Wl,-T,' + str(layout),
      *objects, '-o', output])
 readelf = str(Path(linker).parent / 'xtensa-esp32s3-elf-readelf')
 header = subprocess.check_output([readelf, '-h', str(output)], text=True)
