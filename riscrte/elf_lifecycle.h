@@ -16,3 +16,9 @@ void paperboy_storage_bind_host();
 // the console worker requests exit.
 void paperboy_storage_owner_wait();
 void paperboy_storage_owner_note_console_done();
+
+// RiscRTE provider grants and subscriptions are task-owned. All HID provider
+// calls run here on the storage/ELF owner, never on the console worker.
+void paperboy_usb_owner_begin();
+void paperboy_usb_owner_poll();
+void paperboy_usb_owner_end();
