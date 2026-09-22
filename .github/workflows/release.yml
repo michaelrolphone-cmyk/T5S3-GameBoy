@@ -164,15 +164,19 @@ jobs:
           (cd dist && sha256sum gameboy.elf gameboy.json >> SHA256SUMS)
           (cd dist && sha256sum -c SHA256SUMS)
           python - <<'PY'
+          import hashlib
           import json
           from pathlib import Path
           manifest = json.loads(Path('dist/gameboy.json').read_text())
           elf = Path('dist/gameboy.elf')
+          payload = elf.read_bytes()
           if manifest.get('file_name') != elf.name:
               raise SystemExit('RiscRTE manifest filename does not match release ELF asset')
-          if manifest.get('size_bytes') != elf.stat().st_size:
+          if manifest.get('size_bytes') != len(payload):
               raise SystemExit('RiscRTE manifest size does not match release ELF asset')
-          print(f"RiscRTE app version {manifest.get('version')} staged: {elf.stat().st_size} bytes")
+          if manifest.get('sha256') != hashlib.sha256(payload).hexdigest():
+              raise SystemExit('RiscRTE manifest SHA-256 does not match release ELF asset')
+          print(f"RiscRTE app version {manifest.get('version')} staged: {len(payload)} bytes")
           PY
 
       - name: Create tag if needed and publish individual release files
