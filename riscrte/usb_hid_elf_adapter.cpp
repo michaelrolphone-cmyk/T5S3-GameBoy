@@ -33,6 +33,13 @@ uint64_t g_gamepad_subscription = 0;
 portMUX_TYPE g_input_lock = portMUX_INITIALIZER_UNLOCKED;
 UsbHidKeyboardKeys g_keys;
 UsbHidGamepadState g_gamepad;
+// Keep digital transitions across owner-poll bursts until the console samples
+// them. Analog changes inside the same mapped direction consume no queue slots.
+constexpr size_t kGamepadQueueCapacity = 32;
+UsbHidGamepadState g_gamepad_queue[kGamepadQueueCapacity];
+size_t g_gamepad_head = 0, g_gamepad_count = 0;
+uint32_t g_gamepad_overflows = 0;
+uint16_t pressed_mask(const UsbHidGamepadState &s);
 uint8_t g_pending_keyboard_actions = 0;
 uint8_t g_buttons = 0;
 uint8_t g_navigation = 0;
@@ -82,7 +89,7 @@ void keyboard_snapshot() {
 
 void gamepad_snapshot();
 
-void map_gamepad(const risc_usb_gamepad_state_v1 &state) {
+void map_gamepad(const risc_usb_gamepad_state_v1 &state, bool synchronize = false) {
   UsbHidGamepadState pad{};
   if (state.connected) {
     const uint8_t hat = state.hat;
@@ -108,8 +115,28 @@ void map_gamepad(const risc_usb_gamepad_state_v1 &state) {
     pad.start = (state.buttons & (1UL << 9)) != 0;
   }
   portENTER_CRITICAL(&g_input_lock);
-  g_gamepad = pad;
+  bool overflow = false;
+  if (synchronize || !state.connected) {
+    // A disconnect/GAP must clear stale presses, not replay them later.
+    g_gamepad_head = g_gamepad_count = 0;
+    g_gamepad = pad;
+  } else {
+    const auto &last = g_gamepad_count
+        ? g_gamepad_queue[(g_gamepad_head + g_gamepad_count - 1) % kGamepadQueueCapacity]
+        : g_gamepad;
+    if (pressed_mask(last) != pressed_mask(pad)) {
+      if (g_gamepad_count == kGamepadQueueCapacity) {
+        // Bound latency and recover to actual state if the console stalls.
+        g_gamepad_head = g_gamepad_count = 0;
+        g_gamepad = pad;
+        overflow = (++g_gamepad_overflows == 1);
+      } else {
+        g_gamepad_queue[(g_gamepad_head + g_gamepad_count++) % kGamepadQueueCapacity] = pad;
+      }
+    }
+  }
   portEXIT_CRITICAL(&g_input_lock);
+  if (overflow) ESP_LOGW(kTag, "gamepad input queue overflow; synchronized to latest state");
 }
 
 void gamepad_snapshot() {
@@ -118,7 +145,7 @@ void gamepad_snapshot() {
   size_t count = kSnapshotCapacity;
   if (g_gamepad_api->snapshot(g_gamepad_api->context, states, &count)) {
     for (size_t i = 0; i < count && i < kSnapshotCapacity; ++i) {
-      if (states[i].connected) { map_gamepad(states[i]); return; }
+      if (states[i].connected) { map_gamepad(states[i], true); return; }
     }
   }
   map_gamepad(risc_usb_gamepad_state_v1{});
@@ -295,6 +322,8 @@ void paperboy_usb_owner_end() {
   portENTER_CRITICAL(&g_input_lock);
   g_keys = {};
   g_gamepad = {};
+  g_gamepad_head = g_gamepad_count = 0;
+  g_gamepad_overflows = 0;
   g_pending_keyboard_actions = 0;
   portEXIT_CRITICAL(&g_input_lock);
   g_buttons = g_navigation = g_actions = 0;
@@ -311,6 +340,11 @@ uint8_t usb_hid_gamepad_buttons() {
   UsbHidKeyboardKeys keys;
   uint8_t pending;
   portENTER_CRITICAL(&g_input_lock);
+  if (g_gamepad_count) {
+    g_gamepad = g_gamepad_queue[g_gamepad_head];
+    g_gamepad_head = (g_gamepad_head + 1) % kGamepadQueueCapacity;
+    --g_gamepad_count;
+  }
   pad = g_gamepad;
   keys = g_keys;
   pending = g_pending_keyboard_actions;

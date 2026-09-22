@@ -9,9 +9,14 @@ static bool deny(const char *, uint32_t, t5_provider_capability_lease_t *lease, 
   ++attempts; *lease = 0; *iface = nullptr; return false;
 }
 static bool release(t5_provider_capability_lease_t) { ++releases; return true; }
-static const t5_provider_capability_api_v1 api = {
-  T5_PROVIDER_CAPABILITY_API_VERSION, sizeof(t5_provider_capability_api_v1), deny, release
-};
+static const t5_provider_capability_api_v1 api = [] {
+  t5_provider_capability_api_v1 result{};
+  result.api_version = T5_PROVIDER_CAPABILITY_API_VERSION;
+  result.struct_size = sizeof(result);
+  result.acquire = deny;
+  result.release = release;
+  return result;
+}();
 extern "C" const t5_provider_capability_api_v1 *t5_provider_capability_get_api(uint32_t) {
   return api_present ? &api : nullptr;
 }
@@ -29,5 +34,36 @@ int main() {
     assert(attempts == (available ? 2u : 0u));
     assert(releases == 0);
   }
+  // A complete quick tap received during one owner poll survives until the
+  // emulator samples input; repeated analog noise does not create a backlog.
+  risc_usb_gamepad_state_v1 state{};
+  state.connected = 1; state.hat = 8; state.buttons = 2;
+  map_gamepad(state);
+  for (int i = 0; i < 100; ++i) { state.x = i; map_gamepad(state); }
+  state.buttons = 0; map_gamepad(state);
+  assert(g_gamepad_count == 2);
+  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
+  assert(!(usb_hid_gamepad_buttons() & GBEMU_INPUT_A));
+  // Separate taps remain separate, rather than collapsing into one held key.
+  for (int i = 0; i < 2; ++i) {
+    state.buttons = 2; map_gamepad(state);
+    state.buttons = 0; map_gamepad(state);
+  }
+  for (int i = 0; i < 2; ++i) {
+    assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
+    assert(usb_hid_gamepad_buttons() == 0);
+  }
+  state.buttons = 2; map_gamepad(state);
+  map_gamepad(risc_usb_gamepad_state_v1{});
+  assert(usb_hid_gamepad_buttons() == 0 && g_gamepad_count == 0);
+  for (size_t i = 0; i <= kGamepadQueueCapacity; ++i) {
+    state.buttons = (i % 2 == 0) ? 2 : 0; map_gamepad(state);
+  }
+  assert(g_gamepad_overflows == 1 && g_gamepad_count == 0);
+  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
+  state.buttons = 0; map_gamepad(state, true);
+  assert(usb_hid_gamepad_buttons() == 0);
+  paperboy_usb_owner_end();
+  puts("Gamepad bursts, analog coalescing, disconnect and overflow recovery: PASS");
   puts("ELF absent API/denied optional HID and repeated teardown: PASS");
 }
