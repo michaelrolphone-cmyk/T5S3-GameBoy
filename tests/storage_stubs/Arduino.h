@@ -9,3 +9,5 @@ inline void xTaskNotifyGive(TaskHandle_t) {}
 inline unsigned ulTaskNotifyTake(bool, unsigned) { vTaskDelay(1); return 1; }
 #define pdTRUE true
 #define pdMS_TO_TICKS(x) (x)
+
+uint32_t millis();

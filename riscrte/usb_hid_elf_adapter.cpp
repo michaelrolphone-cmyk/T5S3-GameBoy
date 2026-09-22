@@ -7,6 +7,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
 #include <string.h>
+#include <stddef.h>
 
 #include <T5ProviderCapabilityApi.h>
 #include <RiscUsbHidV1.h>
@@ -16,6 +17,8 @@
 #include "usb_hid_keyboard.h"
 #include "usb_hid_report.h"
 
+void paperboy_storage_hid_diagnostic(const char *message);
+
 namespace {
 constexpr char kTag[] = "gameboy_hid";
 constexpr uint32_t kTurboHalfMs = 50;
@@ -24,6 +27,19 @@ constexpr size_t kSnapshotCapacity = 4;
 // Provider calls, grants and subscriptions belong exclusively to the ELF
 // owner task. The console task only reads copied state under this lock.
 const t5_provider_capability_api_v1 *g_provider = nullptr;
+constexpr uint32_t kAcquireRetryMs = 5000;
+uint32_t g_last_acquire_ms = 0;
+bool g_owner_active = false;
+bool g_keyboard_poll_failed = false;
+bool g_keyboard_key_seen = false;
+void acquire_error(const char *capability) {
+  char detail[160] = {};
+  paperboy_storage_hid_diagnostic(capability);
+  if (g_provider && g_provider->struct_size >=
+      offsetof(t5_provider_capability_api_v1, last_error) + sizeof(g_provider->last_error) &&
+      g_provider->last_error && g_provider->last_error(detail, sizeof(detail)))
+    paperboy_storage_hid_diagnostic(detail);
+}
 const risc_usb_keyboard_api_v1 *g_keyboard_api = nullptr;
 const risc_usb_gamepad_api_v1 *g_gamepad_api = nullptr;
 t5_provider_capability_lease_t g_keyboard_lease = 0;
@@ -237,17 +253,19 @@ void decode_actions(uint16_t pressed, uint32_t now) {
 
 // Both entry and exit are invoked on the app's original RiscRTE owner task.
 void paperboy_usb_owner_begin() {
-  if (g_provider) return;
-  g_provider = t5_provider_capability_get_api(T5_PROVIDER_CAPABILITY_API_VERSION);
+  g_owner_active = true;
+  g_last_acquire_ms = millis();
+  if (!g_provider) g_provider = t5_provider_capability_get_api(T5_PROVIDER_CAPABILITY_API_VERSION);
   if (!g_provider || g_provider->api_version != T5_PROVIDER_CAPABILITY_API_VERSION ||
-      g_provider->struct_size < sizeof(*g_provider) ||
+      g_provider->struct_size < offsetof(t5_provider_capability_api_v1, release) + sizeof(g_provider->release) ||
       !g_provider->acquire || !g_provider->release) {
     ESP_LOGW(kTag, "RiscRTE provider capability API unavailable");
     g_provider = nullptr;
+    paperboy_storage_hid_diagnostic("Provider API unavailable; retry scheduled");
     return;
   }
   const void *iface = nullptr;
-  if (g_provider->acquire("usb.hid.keyboard", RISC_USB_KEYBOARD_API_V1,
+  if (!g_keyboard_lease && g_provider->acquire("usb.hid.keyboard", RISC_USB_KEYBOARD_API_V1,
                           &g_keyboard_lease, &iface)) {
     const auto *api = static_cast<const risc_usb_keyboard_api_v1 *>(iface);
     if (api && api->api_version == RISC_USB_KEYBOARD_API_V1 &&
@@ -255,6 +273,7 @@ void paperboy_usb_owner_begin() {
         api->poll && api->next && api->snapshot) {
       g_keyboard_api = api;
       g_keyboard_subscription = api->subscribe(api->context, 0);
+      if (g_keyboard_subscription) paperboy_storage_hid_diagnostic("Keyboard subscribed; waiting for connection");
     }
     if (!g_keyboard_subscription) {
       (void)g_provider->release(g_keyboard_lease);
@@ -262,8 +281,9 @@ void paperboy_usb_owner_begin() {
       g_keyboard_api = nullptr;
     }
   }
+  if (!g_keyboard_lease) acquire_error("Keyboard acquisition failed; retry scheduled");
   iface = nullptr;
-  if (g_provider->acquire("usb.hid.gamepad", RISC_USB_GAMEPAD_API_V1,
+  if (!g_gamepad_lease && g_provider->acquire("usb.hid.gamepad", RISC_USB_GAMEPAD_API_V1,
                           &g_gamepad_lease, &iface)) {
     const auto *api = static_cast<const risc_usb_gamepad_api_v1 *>(iface);
     if (api && api->api_version == RISC_USB_GAMEPAD_API_V1 &&
@@ -278,21 +298,42 @@ void paperboy_usb_owner_begin() {
       g_gamepad_api = nullptr;
     }
   }
+  if (!g_gamepad_lease) acquire_error("Gamepad acquisition failed; keyboard lease retained");
+  g_last_acquire_ms = millis(); // Back off from completion, including slow failed loads.
   ESP_LOGI(kTag, "RiscRTE HID grants keyboard=%u gamepad=%u",
            static_cast<unsigned>(g_keyboard_lease != 0),
            static_cast<unsigned>(g_gamepad_lease != 0));
 }
 
 void paperboy_usb_owner_poll() {
-  if (g_keyboard_api && g_keyboard_subscription &&
-      g_keyboard_api->poll(g_keyboard_api->context, 4)) {
+  // Retry only missing capabilities; never release a working subscription or
+  // power-cycle a live controller because the other optional provider failed.
+  if (g_owner_active && (!g_keyboard_lease || !g_gamepad_lease) &&
+      uint32_t(millis() - g_last_acquire_ms) >= kAcquireRetryMs)
+    paperboy_usb_owner_begin();
+  if (g_keyboard_api && g_keyboard_subscription) {
+    const bool ok = g_keyboard_api->poll(g_keyboard_api->context, 4);
+    if (ok == g_keyboard_poll_failed) {
+      paperboy_storage_hid_diagnostic(ok ? "Keyboard polling recovered" : "Keyboard provider poll failed");
+      g_keyboard_poll_failed = !ok;
+    }
+    // Poll can publish events before a later interface fails. Consume the
+    // bounded event queue on both paths, including pending disconnects.
     for (unsigned n = 0; n < 32; ++n) {
       risc_usb_keyboard_event_v1 event{};
       const int32_t rc = g_keyboard_api->next(g_keyboard_api->context,
                                              g_keyboard_subscription, &event);
       if (!rc) break;
       if (rc < 0 || event.kind == 5) { keyboard_snapshot(); break; }
-      if (event.kind == 2) { clear_keyboard(); continue; }
+      if (event.kind == 1) { paperboy_storage_hid_diagnostic("Keyboard connected"); continue; }
+      if (event.kind == 2) {
+        paperboy_storage_hid_diagnostic("Keyboard disconnected");
+        clear_keyboard(); g_keyboard_key_seen = false; continue;
+      }
+      if (event.kind == 3 && !g_keyboard_key_seen) {
+        paperboy_storage_hid_diagnostic("Keyboard key event received");
+        g_keyboard_key_seen = true;
+      }
       if (event.kind != 3 && event.kind != 4) continue;
       UsbHidKeyboardKeys keys;
       portENTER_CRITICAL(&g_input_lock);
@@ -319,6 +360,7 @@ void paperboy_usb_owner_poll() {
 }
 
 void paperboy_usb_owner_end() {
+  g_owner_active = false;
   if (g_keyboard_api && g_keyboard_subscription)
     (void)g_keyboard_api->unsubscribe(g_keyboard_api->context, g_keyboard_subscription);
   if (g_gamepad_api && g_gamepad_subscription)

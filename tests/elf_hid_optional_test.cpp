@@ -2,14 +2,35 @@
 #include <cassert>
 #include <initializer_list>
 #include <cstdio>
+void paperboy_storage_hid_diagnostic(const char *) {}
 uint32_t test_now;
 static bool api_present;
-static unsigned attempts, releases;
-static bool deny(const char *, uint32_t, t5_provider_capability_lease_t *lease, const void **iface) {
-  ++attempts; *lease = 0; *iface = nullptr; return false;
+static unsigned attempts, releases, subscriptions, unsubscriptions;
+static bool allow_keyboard, fail_poll;
+static risc_usb_keyboard_event_v1 events[4];
+static unsigned event_count, event_cursor;
+static uint64_t subscribe_keyboard(void *, uint64_t filter) { assert(filter == 0); ++subscriptions; return 17; }
+static bool unsubscribe_keyboard(void *, uint64_t id) { assert(id == 17); ++unsubscriptions; return true; }
+static bool poll_keyboard(void *, size_t budget) { assert(budget == 4); return !fail_poll; }
+static int32_t next_keyboard(void *, uint64_t id, risc_usb_keyboard_event_v1 *out) {
+  assert(id == 17);
+  if (event_cursor == event_count) return 0;
+  *out = events[event_cursor++]; return 1;
+}
+static bool snapshot_keyboard(void *, risc_usb_keyboard_state_v1 *, size_t *count) { *count = 0; return true; }
+static const risc_usb_keyboard_api_v1 keyboard_api = {
+ RISC_USB_KEYBOARD_API_V1, sizeof(risc_usb_keyboard_api_v1), nullptr,
+ subscribe_keyboard, unsubscribe_keyboard, poll_keyboard, next_keyboard, snapshot_keyboard
+};
+static bool deny(const char *name, uint32_t, t5_provider_capability_lease_t *lease, const void **iface) {
+  ++attempts; *lease = 0; *iface = nullptr;
+  if (allow_keyboard && !strcmp(name, "usb.hid.keyboard")) {
+    *lease = 8; *iface = &keyboard_api; return true;
+  }
+  return false;
 }
 static bool release(t5_provider_capability_lease_t) { ++releases; return true; }
-static const t5_provider_capability_api_v1 api = [] {
+static t5_provider_capability_api_v1 api = [] {
   t5_provider_capability_api_v1 result{};
   result.api_version = T5_PROVIDER_CAPABILITY_API_VERSION;
   result.struct_size = sizeof(result);
@@ -34,6 +55,35 @@ int main() {
     assert(attempts == (available ? 2u : 0u));
     assert(releases == 0);
   }
+  // Actual provider path: older valid API prefix, denied launch, retry,
+  // late attach, menu events, disconnect/reconnect, and only-on-exit release.
+  api_present = true; attempts = releases = 0;
+  api.struct_size = offsetof(t5_provider_capability_api_v1, release) + sizeof(api.release);
+  test_now = 0; paperboy_usb_owner_begin(); assert(attempts == 2);
+  allow_keyboard = true;
+  test_now = 4999; paperboy_usb_owner_poll(); assert(subscriptions == 0);
+  test_now = 5000; paperboy_usb_owner_poll(); assert(subscriptions == 1 && releases == 0);
+  events[0] = {}; events[0].kind = 1;
+  events[1] = {}; events[1].kind = 3; events[1].usage = 0x28;
+  events[2] = {}; events[2].kind = 4; events[2].usage = 0x28;
+  event_cursor = 0; event_count = 3;
+  fail_poll = true; // Events published before a later interface fails still count.
+  paperboy_usb_owner_poll();
+  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
+  assert(usb_hid_gamepad_navigation_buttons() & GBEMU_INPUT_A);
+  assert(usb_hid_gamepad_buttons() == 0);
+  fail_poll = false;
+  events[0].kind = 2; event_cursor = 0; event_count = 1;
+  paperboy_usb_owner_poll(); assert(usb_hid_gamepad_buttons() == 0 && releases == 0);
+  events[0].kind = 1; events[1].usage = 0x51; events[2].usage = 0x51;
+  event_cursor = 0; event_count = 3;
+  test_now = 10000; paperboy_usb_owner_poll();
+  assert(subscriptions == 1 && releases == 0); // Missing gamepad doesn't reset keyboard.
+  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_DOWN);
+  assert(usb_hid_gamepad_buttons() == 0);
+  paperboy_usb_owner_end(); assert(releases == 1 && unsubscriptions == 1);
+  test_now = 20000; paperboy_usb_owner_poll(); assert(subscriptions == 1);
+  puts("Provider ABI prefix, delayed acquisition, hotplug/reconnect and menu event delivery: PASS");
   // A complete quick tap received during one owner poll survives until the
   // emulator samples input; repeated analog noise does not create a backlog.
   risc_usb_gamepad_state_v1 state{};
