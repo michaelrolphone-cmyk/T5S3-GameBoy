@@ -91,6 +91,17 @@ def stage(destination: Path) -> None:
     original_wait = '''  for (uint8_t i = 0; i < 20 && g_scan_task != nullptr; ++i) {\n    vTaskDelay(pdMS_TO_TICKS(10));\n  }\n\n  wait_for_dma();'''
     replacement_wait = '''  for (uint16_t i = 0; i < 200 && g_scan_task != nullptr; ++i) {\n    vTaskDelay(pdMS_TO_TICKS(10));\n  }\n  if (g_scan_task != nullptr) {\n    ESP_LOGE(kTag, "scan task did not stop; refusing unsafe ELF unload");\n    abort();\n  }\n  vTaskDelay(1);\n  wait_for_dma();'''
     epd = patch_once(epd, original_wait, replacement_wait, 'scan-task join')
+    epd = patch_once(epd, '  g_dma_done = true;\n  return true;\n}',
+        '  // The panel has no D/C wire. Detach LCD output from shared LoRa CS\n'
+        '  // before owner-side SD reads (including USB provider loading).\n'
+        '  gpio_set_level(kDummyDcGpio, 1);\n'
+        '  gpio_config_t unused_dc = {};\n'
+        '  unused_dc.pin_bit_mask = 1ULL << kDummyDcGpio;\n'
+        '  unused_dc.mode = GPIO_MODE_OUTPUT;\n'
+        '  unused_dc.pull_up_en = GPIO_PULLUP_ENABLE;\n'
+        '  if (gpio_config(&unused_dc) != ESP_OK) return false;\n'
+        '  g_dma_done = true;\n  return true;\n}', 'keep LoRa deselected before SD reads')
+
     original_tail = '''  if (g_expander != nullptr) {\n    g_expander->safeShutdownOutputs();\n  }\n}'''
     replacement_tail = '''  if (g_expander != nullptr) {\n    g_expander->safeShutdownOutputs();\n  }\n#ifdef PAPERBOY_RISCRTE_ELF\n  if (g_panel_io != nullptr) {\n    const esp_err_t rc = esp_lcd_panel_io_del(g_panel_io);\n    if (rc != ESP_OK) { ESP_LOGE(kTag, "panel IO release: %s", esp_err_to_name(rc)); abort(); }\n    g_panel_io = nullptr;\n  }\n  if (g_i80_bus != nullptr) {\n    const esp_err_t rc = esp_lcd_del_i80_bus(g_i80_bus);\n    if (rc != ESP_OK) { ESP_LOGE(kTag, "i80 bus release: %s", esp_err_to_name(rc)); abort(); }\n    g_i80_bus = nullptr;\n  }\n  release_allocations();\n  g_expander = nullptr;\n  g_dma_done = true;\n  g_flip_req = false;\n  g_drive_pending = false;\n#endif\n}'''
     epd = patch_once(epd, original_tail, replacement_tail, 'LCD/DMA teardown')

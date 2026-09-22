@@ -64,6 +64,29 @@ int main() {
   state.buttons = 0; map_gamepad(state, true);
   assert(usb_hid_gamepad_buttons() == 0);
   paperboy_usb_owner_end();
+  // Arrow/Enter taps drained in one owner poll must reach menu navigation.
+  for (auto usage : {0x51, 0x52, 0x28, 0x29}) {
+    const uint8_t expected = usage == 0x51 ? GBEMU_INPUT_DOWN :
+        usage == 0x52 ? GBEMU_INPUT_UP : usage == 0x28 ? GBEMU_INPUT_A : GBEMU_INPUT_B;
+    for (unsigned tap = 0; tap < 2; ++tap) {
+      UsbHidKeyboardKeys keys{}; set_key(keys, usage, true);
+      accept_keyboard(keys, true); accept_keyboard(UsbHidKeyboardKeys{}, true);
+    }
+    for (unsigned tap = 0; tap < 2; ++tap) {
+      assert(usb_hid_gamepad_buttons() & expected);
+      assert(usb_hid_gamepad_navigation_buttons() & expected);
+      assert(usb_hid_gamepad_buttons() == 0);
+    }
+  }
+  UsbHidKeyboardKeys held{}; set_key(held, 0x51, true);
+  accept_keyboard(held, true); clear_keyboard();
+  assert(usb_hid_gamepad_buttons() == 0);
+  for (size_t i = 0; i <= kKeyboardQueueCapacity; ++i)
+    accept_keyboard(i % 2 ? UsbHidKeyboardKeys{} : held, true);
+  assert(g_keyboard_count == 0);
+  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_DOWN);
+  clear_keyboard();
+  puts("Keyboard quick menu taps, disconnect and overflow: PASS");
   puts("Gamepad bursts, analog coalescing, disconnect and overflow recovery: PASS");
   puts("ELF absent API/denied optional HID and repeated teardown: PASS");
 }

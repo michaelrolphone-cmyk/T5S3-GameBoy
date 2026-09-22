@@ -85,3 +85,37 @@ with tempfile.TemporaryDirectory() as tmp:
     subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
                     str(source), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True, timeout=10)
+
+# Execute the actual staged LCD setup: the shared SPI device must be
+# deselected before the first display transfer, while USB ELFs load from SD.
+with tempfile.TemporaryDirectory() as tmp:
+    target = Path(tmp)
+    stage(target)
+    staged = (target / 'epd_video.cpp').read_text()
+    bus = 'bool init_panel_bus() {' + staged.split('bool init_panel_bus() {', 1)[1].split('\nvoid row_control_start()', 1)[0]
+    source = target / 'display_test.cpp'
+    source.write_text((ROOT / 'tests/elf_display_bus_harness.cpp').read_text().replace('// STAGED_BUS', bus))
+    binary = target / 'display_test'
+    subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror', str(source), '-o', str(binary)], check=True)
+    subprocess.run([str(binary)], check=True, timeout=10)
+print('Staged LCD bus keeps LoRa CS high before provider SD reads: PASS')
+
+# ELF telemetry must bind without calling the standalone charger/OTG writers.
+with tempfile.TemporaryDirectory() as tmp:
+    target = Path(tmp)
+    battery = (ROOT / 'src/battery_power.cpp').read_text()
+    functions = []
+    for name in ('bool configure_charger()', 'bool start_host_boost()', 'void battery_service()'):
+        start = battery.index(name + ' {')
+        end = battery.index('{', start) + 1
+        depth = 1
+        while depth:
+            depth += (battery[end] == '{') - (battery[end] == '}')
+            end += 1
+        functions.append(battery[start:end])
+    source = target / 'power_test.cpp'
+    source.write_text((ROOT / 'tests/elf_power_harness.cpp').read_text().replace('// ELF_POWER_FUNCTIONS', '\n'.join(functions)))
+    binary = target / 'power_test'
+    subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror', str(source), '-o', str(binary)], check=True)
+    subprocess.run([str(binary)], check=True, timeout=10)
+print('ELF charger telemetry leaves USB provider power control intact: PASS')

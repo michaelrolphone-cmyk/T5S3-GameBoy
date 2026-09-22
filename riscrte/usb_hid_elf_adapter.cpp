@@ -32,6 +32,10 @@ uint64_t g_keyboard_subscription = 0;
 uint64_t g_gamepad_subscription = 0;
 portMUX_TYPE g_input_lock = portMUX_INITIALIZER_UNLOCKED;
 UsbHidKeyboardKeys g_keys;
+constexpr size_t kKeyboardQueueCapacity = 32;
+UsbHidKeyboardKeys g_keyboard_queue[kKeyboardQueueCapacity];
+UsbHidKeyboardKeys g_sampled_keys;
+size_t g_keyboard_head = 0, g_keyboard_count = 0;
 UsbHidGamepadState g_gamepad;
 // Keep digital transitions across owner-poll bursts until the console samples
 // them. Analog changes inside the same mapped direction consume no queue slots.
@@ -62,6 +66,13 @@ void accept_keyboard(const UsbHidKeyboardKeys &next, bool emit_actions) {
   if (emit_actions) {
     const UsbHidKeyboardMapping mapped = usb_hid_map_keyboard(next, g_keys);
     g_pending_keyboard_actions |= mapped.actions;
+  }
+  if (!emit_actions || g_keyboard_count == kKeyboardQueueCapacity) {
+    // Disconnect/GAP or overflow synchronizes to live state, never stale presses.
+    g_keyboard_head = g_keyboard_count = 0;
+    g_sampled_keys = next;
+  } else if (memcmp(&g_keys, &next, sizeof(next)) != 0) {
+    g_keyboard_queue[(g_keyboard_head + g_keyboard_count++) % kKeyboardQueueCapacity] = next;
   }
   g_keys = next;
   portEXIT_CRITICAL(&g_input_lock);
@@ -321,6 +332,8 @@ void paperboy_usb_owner_end() {
   g_provider = nullptr;
   portENTER_CRITICAL(&g_input_lock);
   g_keys = {};
+  g_sampled_keys = {};
+  g_keyboard_head = g_keyboard_count = 0;
   g_gamepad = {};
   g_gamepad_head = g_gamepad_count = 0;
   g_gamepad_overflows = 0;
@@ -346,7 +359,12 @@ uint8_t usb_hid_gamepad_buttons() {
     --g_gamepad_count;
   }
   pad = g_gamepad;
-  keys = g_keys;
+  if (g_keyboard_count) {
+    g_sampled_keys = g_keyboard_queue[g_keyboard_head];
+    g_keyboard_head = (g_keyboard_head + 1) % kKeyboardQueueCapacity;
+    --g_keyboard_count;
+  }
+  keys = g_sampled_keys;
   pending = g_pending_keyboard_actions;
   g_pending_keyboard_actions = 0;
   portEXIT_CRITICAL(&g_input_lock);
