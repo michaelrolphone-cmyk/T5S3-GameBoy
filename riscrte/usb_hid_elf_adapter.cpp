@@ -35,6 +35,8 @@ bool g_keyboard_poll_failed = false;
 bool g_keyboard_key_seen = false;
 bool g_gamepad_poll_failed = false;
 bool g_gamepad_state_seen = false;
+bool g_keyboard_acquire_failed = false;
+bool g_gamepad_acquire_failed = false;
 void acquire_error(const char *capability) {
   paperboy_storage_hid_diagnostic(capability);
 }
@@ -279,7 +281,9 @@ void paperboy_usb_owner_begin() {
       g_keyboard_api = nullptr;
     }
   }
-  if (!g_keyboard_lease) acquire_error("Keyboard acquisition failed; retry scheduled");
+  if (!g_keyboard_lease && !g_keyboard_acquire_failed)
+    acquire_error("Keyboard acquisition failed; retry scheduled");
+  g_keyboard_acquire_failed = !g_keyboard_lease;
   iface = nullptr;
   if (!g_gamepad_lease && g_provider->acquire("usb.hid.gamepad", RISC_USB_GAMEPAD_API_V1,
                           &g_gamepad_lease, &iface)) {
@@ -298,7 +302,9 @@ void paperboy_usb_owner_begin() {
       g_gamepad_api = nullptr;
     }
   }
-  if (!g_gamepad_lease) acquire_error("Gamepad acquisition failed; keyboard lease retained");
+  if (!g_gamepad_lease && !g_gamepad_acquire_failed)
+    acquire_error("Gamepad acquisition failed; keyboard lease retained");
+  g_gamepad_acquire_failed = !g_gamepad_lease;
   g_last_acquire_ms = millis(); // Back off from completion, including slow failed loads.
   ESP_LOGI(kTag, "RiscRTE HID grants keyboard=%u gamepad=%u",
            static_cast<unsigned>(g_keyboard_lease != 0),
@@ -395,6 +401,7 @@ void paperboy_usb_owner_end() {
   g_keyboard_lease = g_gamepad_lease = 0;
   g_provider = nullptr;
   g_gamepad_poll_failed = g_gamepad_state_seen = false;
+  g_keyboard_acquire_failed = g_gamepad_acquire_failed = false;
   portENTER_CRITICAL(&g_input_lock);
   g_keys = {};
   g_sampled_keys = {};
