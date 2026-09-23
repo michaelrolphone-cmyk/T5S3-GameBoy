@@ -48,6 +48,12 @@ jobs:
             src/usb_hid_keyboard.cpp tests/usb_hid_keyboard_test.cpp -o /tmp/usb-keyboard-test
           /tmp/usb-keyboard-test
 
+      - name: Test Xbox 360 wired and wireless report parsing
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc \
+            tests/usb_xinput_report_test.cpp -o /tmp/usb-xinput-test
+          /tmp/usb-xinput-test
+
       - name: Test controller shortcuts and menu navigation
         run: |
           c++ -std=c++11 -Wall -Wextra -Werror -Wno-unused-parameter -fsanitize=address,undefined \
