@@ -56,6 +56,13 @@ jobs:
             tests/controller_test.cpp -o /tmp/controller-test
           /tmp/controller-test
 
+      - name: Test Settings touch opens Gamepad Test
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -ffunction-sections -fdata-sections \
+            -Wl,--gc-sections -Itests/controller_stubs -Isrc \
+            src/paperboy_ui.cpp tests/settings_touch_test.cpp -o /tmp/settings-touch-test
+          /tmp/settings-touch-test
+
       - name: Cache PlatformIO packages
         uses: actions/cache@v4
         with:

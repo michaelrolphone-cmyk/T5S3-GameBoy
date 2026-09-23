@@ -2,6 +2,7 @@
 #include "paperboy_landscape.h"
 
 #include <Arduino.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -81,7 +82,7 @@ constexpr int kButtonBY = 720;
 constexpr int kButtonRadius = 40;
 
 uint32_t g_last_action_mask = 0;
-uint32_t g_last_action_ms[20] = {0};
+uint32_t g_last_action_ms[21] = {0};
 bool g_ignore_actions_until_release = false;
 bool g_ignore_buttons_until_release = false;
 uint32_t g_rom_navigation_repeat_action = 0;
@@ -697,10 +698,11 @@ uint32_t paperboy_ui_map_actions(const touch_state_t *touch, PaperboyPage page) 
       kLightDownAction,
       kLightUpAction,
       PAPERBOY_ACTION_ROTATE,
+      PAPERBOY_ACTION_GAMEPAD_TEST,
   };
   static_assert(sizeof(kActionBits) / sizeof(kActionBits[0]) ==
                     sizeof(g_last_action_ms) / sizeof(g_last_action_ms[0]),
-                "action debounce array must include all light actions");
+                "action debounce array must include every touch action");
   const uint32_t now = millis();
   const uint32_t raw_current = current_action_mask(touch, page);
   const uint32_t raw_navigation = raw_current & kRomNavigationActions;
