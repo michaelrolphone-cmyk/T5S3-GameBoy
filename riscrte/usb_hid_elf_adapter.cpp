@@ -13,6 +13,8 @@
 #include <T5ProviderCapabilityApi.h>
 #include <RiscUsbHidV1.h>
 #include <RiscUsbInterruptV1.h>
+#include "RiscUsbGamepadDiagnosticsV1.h"
+#include "RiscUsbDiscoveryDiagnosticsV1.h"
 
 #include "gbemu.h"
 #include "snes_mini_controller.h"
@@ -34,8 +36,6 @@ uint32_t g_last_acquire_ms = 0;
 bool g_owner_active = false;
 bool g_keyboard_poll_failed = false;
 bool g_keyboard_key_seen = false;
-bool g_gamepad_poll_failed = false;
-bool g_gamepad_state_seen = false;
 bool g_keyboard_acquire_failed = false;
 bool g_gamepad_acquire_failed = false;
 bool g_host_probe_attempted = false;
@@ -47,11 +47,19 @@ void acquire_error(const char *capability) {
   paperboy_storage_hid_diagnostic(capability);
 }
 const risc_usb_keyboard_api_v1 *g_keyboard_api = nullptr;
-const risc_usb_gamepad_api_v1 *g_gamepad_api = nullptr;
 t5_provider_capability_lease_t g_keyboard_lease = 0;
-t5_provider_capability_lease_t g_gamepad_lease = 0;
 uint64_t g_keyboard_subscription = 0;
-uint64_t g_gamepad_subscription = 0;
+struct GamepadProvider {
+  constexpr GamepadProvider(const char *name) : capability(name) {}
+  const char *capability;
+  const risc_usb_gamepad_api_v1 *api = nullptr;
+  t5_provider_capability_lease_t lease = 0;
+  uint64_t subscription = 0;
+  bool poll_failed = false, state_seen = false;
+  risc_usb_gamepad_state_v1 state{};
+};
+GamepadProvider g_gamepads[] = {{"usb.hid.gamepad"}, {"usb.xinput.gamepad"}};
+GamepadProvider *g_active_gamepad = nullptr;
 portMUX_TYPE g_input_lock = portMUX_INITIALIZER_UNLOCKED;
 UsbGamepadTestStatus g_test = {};
 void diagnostic_event(const char *message) {
@@ -63,10 +71,12 @@ void diagnostic_event(const char *message) {
   paperboy_storage_hid_diagnostic(message);
 }
 void diagnostic_stage(const char *stage) {
+  char bounded[sizeof(g_test.stage)] = {};
+  snprintf(bounded, sizeof(bounded), "%s", stage);
   bool changed;
   portENTER_CRITICAL(&g_input_lock);
-  changed = strcmp(g_test.stage, stage) != 0;
-  if (changed) snprintf(g_test.stage, sizeof(g_test.stage), "%s", stage);
+  changed = strcmp(g_test.stage, bounded) != 0;
+  if (changed) memcpy(g_test.stage, bounded, sizeof(bounded));
   portEXIT_CRITICAL(&g_input_lock);
   if (changed) diagnostic_event(stage);
 }
@@ -96,12 +106,30 @@ void probe_usb_discovery() {
     diagnostic_stage("USB DEVICE SNAPSHOT FAILED"); return;
   }
   portENTER_CRITICAL(&g_input_lock);
+  const uint16_t previous_vid = g_test.vid, previous_pid = g_test.pid;
+  const uint8_t previous_devices = g_test.usb_devices;
   g_test.usb_devices = static_cast<uint8_t>(count);
   g_test.hid_interfaces = 0;
   g_test.hid_protocol = 0;
   g_test.vid = g_test.pid = 0;
   portEXIT_CRITICAL(&g_input_lock);
-  if (!count) { diagnostic_stage("NO USB DEVICE ENUMERATED"); return; }
+  if (!count) {
+    if (host.host.struct_size >= sizeof(risc_usb_host_diagnostics_v1)) {
+      const auto *extended = reinterpret_cast<const risc_usb_host_diagnostics_v1 *>(g_host_api);
+      char reason[sizeof(g_test.error)] = {};
+      if (extended->diagnostic &&
+          extended->diagnostic(host.host.context, reason, sizeof(reason)) && reason[0]) {
+        diagnostic_stage(reason);
+        if (strstr(reason, "ENUM FAIL:")) {
+          portENTER_CRITICAL(&g_input_lock);
+          snprintf(g_test.error, sizeof(g_test.error), "%s", reason);
+          portEXIT_CRITICAL(&g_input_lock);
+        }
+        return;
+      }
+    }
+    diagnostic_stage("NO USB DEVICE ENUMERATED"); return;
+  }
   size_t length = sizeof(g_configuration);
   uint16_t vid = 0, pid = 0;
   if (!host.host.configuration(host.host.context, devices[0], g_configuration,
@@ -120,7 +148,7 @@ void probe_usb_discovery() {
       at += size;
     }
   }
-  const bool identity_changed = g_test.vid != vid || g_test.pid != pid;
+  const bool identity_changed = !previous_devices || previous_vid != vid || previous_pid != pid;
   portENTER_CRITICAL(&g_input_lock);
   g_test.vid = vid; g_test.pid = pid;
   g_test.hid_interfaces = hid_count;
@@ -132,7 +160,27 @@ void probe_usb_discovery() {
              unsigned(vid), unsigned(pid), unsigned(hid_count), unsigned(protocol));
     diagnostic_event(line);
   }
-  diagnostic_stage(hid_count ? (g_test.connected ? "GAMEPAD REPORT CONNECTED" :
+  // New driver packages expose the actual class-discovery failure. The v1
+  // prefix remains compatible with installed older drivers and host SDKs.
+  const bool xinput = vid == 0x045e && pid == 0x028e;
+  const auto *gamepad_api = g_gamepads[xinput ? 1 : 0].api;
+  if ((hid_count || xinput) && gamepad_api &&
+      gamepad_api->struct_size >= sizeof(risc_usb_gamepad_diagnostics_v1)) {
+    const auto *extended = reinterpret_cast<const risc_usb_gamepad_diagnostics_v1 *>(gamepad_api);
+    char reason[48] = {};
+    if (extended->diagnostic &&
+        extended->diagnostic(gamepad_api->context, reason, sizeof(reason)) && reason[0]) {
+      diagnostic_stage(reason);
+      if (strstr(reason, "FAILED") || strstr(reason, "UNSUPPORTED") || strstr(reason, "EXHAUSTED")) {
+        portENTER_CRITICAL(&g_input_lock);
+        snprintf(g_test.error, sizeof(g_test.error), "%s", reason);
+        portEXIT_CRITICAL(&g_input_lock);
+      }
+      return;
+    }
+  }
+  diagnostic_stage(xinput ? (gamepad_api ? "XINPUT WAITING FOR REPORT" : "XINPUT DRIVER UNAVAILABLE") :
+                     hid_count ? (g_test.connected ? "GAMEPAD REPORT CONNECTED" :
                      "USB HID SEEN; WAITING FOR GAMEPAD") :
                      "USB DEVICE HAS NO HID INTERFACE");
 }
@@ -203,8 +251,6 @@ void keyboard_snapshot() {
   accept_keyboard(keys, false);
 }
 
-void gamepad_snapshot();
-
 void map_gamepad(const risc_usb_gamepad_state_v1 &state, bool synchronize = false) {
   UsbHidGamepadState pad{};
   if (state.connected) {
@@ -264,16 +310,37 @@ void map_gamepad(const risc_usb_gamepad_state_v1 &state, bool synchronize = fals
   if (overflow) ESP_LOGW(kTag, "gamepad input queue overflow; synchronized to latest state");
 }
 
-void gamepad_snapshot() {
-  if (!g_gamepad_api) return;
+void accept_gamepad(GamepadProvider &source, const risc_usb_gamepad_state_v1 &state,
+                    bool synchronize = false) {
+  // Select one physical controller for this single-player app. Events from
+  // the other protocol must never release the active controller's buttons.
+  if (source.state.connected && state.device && state.device != source.state.device) return;
+  source.state = state;
+  if (g_active_gamepad && g_active_gamepad->state.connected) {
+    if (g_active_gamepad == &source) map_gamepad(state, synchronize);
+    return;
+  }
+  g_active_gamepad = nullptr;
+  for (auto &candidate : g_gamepads) {
+    if (!candidate.state.connected) continue;
+    g_active_gamepad = &candidate;
+    map_gamepad(candidate.state, true);
+    return;
+  }
+  map_gamepad(risc_usb_gamepad_state_v1{}, true);
+}
+
+void gamepad_snapshot(GamepadProvider &source) {
+  if (!source.api) return;
   risc_usb_gamepad_state_v1 states[kSnapshotCapacity] = {};
   size_t count = kSnapshotCapacity;
-  if (g_gamepad_api->snapshot(g_gamepad_api->context, states, &count)) {
+  source.state = {};
+  if (source.api->snapshot(source.api->context, states, &count)) {
     for (size_t i = 0; i < count && i < kSnapshotCapacity; ++i) {
-      if (states[i].connected) { map_gamepad(states[i], true); return; }
+      if (states[i].connected) { accept_gamepad(source, states[i], true); return; }
     }
   }
-  map_gamepad(risc_usb_gamepad_state_v1{});
+  accept_gamepad(source, risc_usb_gamepad_state_v1{}, true);
 }
 
 uint16_t pressed_mask(const UsbHidGamepadState &s) {
@@ -383,51 +450,52 @@ void paperboy_usb_owner_begin() {
   if (!g_keyboard_lease && !g_keyboard_acquire_failed)
     acquire_error("Keyboard acquisition failed; retry scheduled");
   g_keyboard_acquire_failed = !g_keyboard_lease;
-  iface = nullptr;
-  if (!g_gamepad_lease && g_provider->acquire("usb.hid.gamepad", RISC_USB_GAMEPAD_API_V1,
-                          &g_gamepad_lease, &iface)) {
+  for (auto &source : g_gamepads) {
+    iface = nullptr;
+    if (source.lease || !g_provider->acquire(source.capability, RISC_USB_GAMEPAD_API_V1,
+                                           &source.lease, &iface)) continue;
     const auto *api = static_cast<const risc_usb_gamepad_api_v1 *>(iface);
     if (api && api->api_version == RISC_USB_GAMEPAD_API_V1 &&
         api->struct_size >= sizeof(*api) && api->subscribe && api->unsubscribe &&
         api->poll && api->next && api->snapshot) {
-      g_gamepad_api = api;
-      g_gamepad_subscription = api->subscribe(api->context, 0);
-      if (g_gamepad_subscription) {
-        portENTER_CRITICAL(&g_input_lock);
-        g_test.provider_ready = true;
-        g_test.error[0] = 0;
-        portEXIT_CRITICAL(&g_input_lock);
-        paperboy_storage_hid_diagnostic("Gamepad subscribed; waiting for connection");
+      source.api = api;
+      source.subscription = api->subscribe(api->context, 0);
+      if (source.subscription) {
+        char detail[64];
+        snprintf(detail, sizeof(detail), "%s subscribed", source.capability);
+        paperboy_storage_hid_diagnostic(detail);
+        gamepad_snapshot(source);
       }
     }
-    if (!g_gamepad_subscription) {
-      (void)g_provider->release(g_gamepad_lease);
-      g_gamepad_lease = 0;
-      g_gamepad_api = nullptr;
+    if (!source.subscription) {
+      (void)g_provider->release(source.lease);
+      source.lease = 0;
+      source.api = nullptr;
     }
   }
-  if (!g_gamepad_lease && !g_gamepad_acquire_failed)
+  const bool ready = g_gamepads[0].subscription || g_gamepads[1].subscription;
+  if (!ready && !g_gamepad_acquire_failed)
     capability_error("Gamepad driver acquisition failed");
-  if (!g_gamepad_lease) {
-    portENTER_CRITICAL(&g_input_lock);
-    g_test.provider_ready = false;
-    portEXIT_CRITICAL(&g_input_lock);
-  }
-  g_gamepad_acquire_failed = !g_gamepad_lease;
+  portENTER_CRITICAL(&g_input_lock);
+  if (ready && !g_test.provider_ready) g_test.error[0] = 0;
+  g_test.provider_ready = ready;
+  portEXIT_CRITICAL(&g_input_lock);
+  g_gamepad_acquire_failed = !ready;
   g_last_acquire_ms = millis(); // Back off from completion, including slow failed loads.
   ESP_LOGI(kTag, "RiscRTE HID grants keyboard=%u gamepad=%u",
            static_cast<unsigned>(g_keyboard_lease != 0),
-           static_cast<unsigned>(g_gamepad_lease != 0));
-  char grants[72];
-  snprintf(grants, sizeof(grants), "HID grants keyboard=%u gamepad=%u",
-           unsigned(g_keyboard_lease != 0), unsigned(g_gamepad_lease != 0));
+           static_cast<unsigned>(ready));
+  char grants[80];
+  snprintf(grants, sizeof(grants), "Input grants keyboard=%u hid=%u xinput=%u",
+           unsigned(g_keyboard_lease != 0), unsigned(g_gamepads[0].lease != 0),
+           unsigned(g_gamepads[1].lease != 0));
   paperboy_storage_hid_diagnostic(grants);
 }
 
 void paperboy_usb_owner_poll() {
   // Retry only missing capabilities; never release a working subscription or
   // power-cycle a live controller because the other optional provider failed.
-  if (g_owner_active && (!g_keyboard_lease || !g_gamepad_lease) &&
+  if (g_owner_active && (!g_keyboard_lease || !g_gamepads[0].lease || !g_gamepads[1].lease) &&
       uint32_t(millis() - g_last_acquire_ms) >= kAcquireRetryMs)
     paperboy_usb_owner_begin();
   if (g_keyboard_api && g_keyboard_subscription) {
@@ -464,47 +532,48 @@ void paperboy_usb_owner_poll() {
       accept_keyboard(keys, true);
     }
   }
-  if (g_gamepad_api && g_gamepad_subscription) {
-    const bool ok = g_gamepad_api->poll(g_gamepad_api->context, 4);
-    if (ok == g_gamepad_poll_failed) {
+  for (auto &source : g_gamepads) {
+    if (!source.api || !source.subscription) continue;
+    const bool ok = source.api->poll(source.api->context, 4);
+    if (ok == source.poll_failed) {
+      source.poll_failed = !ok;
       if (!ok) gamepad_error("Gamepad provider poll failed");
       else {
         paperboy_storage_hid_diagnostic("Gamepad polling recovered");
         portENTER_CRITICAL(&g_input_lock);
-        g_test.error[0] = 0;
+        if (!g_gamepads[0].poll_failed && !g_gamepads[1].poll_failed) g_test.error[0] = 0;
         portEXIT_CRITICAL(&g_input_lock);
       }
-      g_gamepad_poll_failed = !ok;
       portENTER_CRITICAL(&g_input_lock);
-      g_test.poll_failed = !ok;
+      g_test.poll_failed = g_gamepads[0].poll_failed || g_gamepads[1].poll_failed;
       portEXIT_CRITICAL(&g_input_lock);
     }
     // A failed poll can still leave a queued disconnect or state transition.
     for (unsigned n = 0; n < 32; ++n) {
       risc_usb_gamepad_event_v1 event{};
-      const int32_t rc = g_gamepad_api->next(g_gamepad_api->context,
-                                            g_gamepad_subscription, &event);
+      const int32_t rc = source.api->next(source.api->context,
+                                           source.subscription, &event);
       if (!rc) break;
       if (rc < 0 || event.kind == 5) {
         gamepad_error("Gamepad event gap; taking snapshot");
-        gamepad_snapshot(); break;
+        gamepad_snapshot(source); break;
       }
       if (event.kind == 2) {
         paperboy_storage_hid_diagnostic("Gamepad disconnected");
-        map_gamepad(risc_usb_gamepad_state_v1{});
-        g_gamepad_state_seen = false;
+        accept_gamepad(source, event.state, true);
+        source.state_seen = false;
         continue;
       }
       if (event.kind == 1) paperboy_storage_hid_diagnostic("Gamepad connected");
-      if (event.kind == 3 && !g_gamepad_state_seen) {
+      if (event.kind == 3 && !source.state_seen) {
         char detail[96];
         snprintf(detail, sizeof(detail), "Gamepad report id=%u buttons=%08lx x=%d y=%d hat=%u",
                  unsigned(event.state.report_id), static_cast<unsigned long>(event.state.buttons),
                  int(event.state.x), int(event.state.y), unsigned(event.state.hat));
         paperboy_storage_hid_diagnostic(detail);
-        g_gamepad_state_seen = true;
+        source.state_seen = true;
       }
-      if (event.kind == 1 || event.kind == 3) map_gamepad(event.state);
+      if (event.kind == 1 || event.kind == 3) accept_gamepad(source, event.state, event.kind == 1);
     }
   }
   // One bounded configuration read per second; HID/gamepad providers already
@@ -551,15 +620,19 @@ void paperboy_usb_owner_end() {
   g_owner_active = false;
   if (g_keyboard_api && g_keyboard_subscription)
     (void)g_keyboard_api->unsubscribe(g_keyboard_api->context, g_keyboard_subscription);
-  if (g_gamepad_api && g_gamepad_subscription)
-    (void)g_gamepad_api->unsubscribe(g_gamepad_api->context, g_gamepad_subscription);
-  g_keyboard_subscription = g_gamepad_subscription = 0;
+  for (auto &source : g_gamepads) {
+    if (source.api && source.subscription)
+      (void)source.api->unsubscribe(source.api->context, source.subscription);
+    if (g_provider && source.lease) (void)g_provider->release(source.lease);
+    const char *capability = source.capability;
+    source = GamepadProvider{capability};
+  }
+  g_active_gamepad = nullptr;
+  g_keyboard_subscription = 0;
   g_keyboard_api = nullptr;
-  g_gamepad_api = nullptr;
   if (g_provider && g_keyboard_lease) (void)g_provider->release(g_keyboard_lease);
-  if (g_provider && g_gamepad_lease) (void)g_provider->release(g_gamepad_lease);
   if (g_provider && g_host_lease) (void)g_provider->release(g_host_lease);
-  g_keyboard_lease = g_gamepad_lease = 0;
+  g_keyboard_lease = 0;
   g_host_lease = 0;
   g_host_api = nullptr;
   g_host_probe_attempted = false;
@@ -568,7 +641,6 @@ void paperboy_usb_owner_end() {
   portENTER_CRITICAL(&g_input_lock);
   g_test = {};
   portEXIT_CRITICAL(&g_input_lock);
-  g_gamepad_poll_failed = g_gamepad_state_seen = false;
   g_keyboard_acquire_failed = g_gamepad_acquire_failed = false;
   portENTER_CRITICAL(&g_input_lock);
   g_keys = {};

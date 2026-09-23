@@ -5,8 +5,45 @@
 void paperboy_storage_hid_diagnostic(const char *) {}
 uint32_t test_now;
 static bool api_present;
+static bool driver_diagnostic(void *, char *out, size_t capacity) {
+  snprintf(out, capacity, "HID REPORT DESCRIPTOR READ FAILED");
+  return true;
+}
+static const char *enumeration_reason = "ATTACHED; ENUM FAIL: Bad transfer status -1: GET_SHORT_DEV_DESC";
+static bool host_diagnostic(void *, char *out, size_t capacity) {
+  snprintf(out, capacity, "%s", enumeration_reason);
+  return true;
+}
 static unsigned attempts, releases, subscriptions, unsubscriptions;
 static bool allow_keyboard, allow_host, attached, fail_poll;
+static bool allow_xinput, xbox_device, xinput_poll_fail;
+static unsigned xinput_subscriptions, xinput_unsubscriptions, xinput_cursor, xinput_count;
+static risc_usb_gamepad_event_v1 xinput_events[4];
+static risc_usb_gamepad_state_v1 xinput_state;
+static uint64_t subscribe_xinput(void *, uint64_t filter) {
+  assert(filter == 0); ++xinput_subscriptions; return 27;
+}
+static bool unsubscribe_xinput(void *, uint64_t id) {
+  assert(id == 27); ++xinput_unsubscriptions; return true;
+}
+static bool poll_xinput(void *, size_t budget) { assert(budget == 4); return !xinput_poll_fail; }
+static int32_t next_xinput(void *, uint64_t id, risc_usb_gamepad_event_v1 *out) {
+  assert(id == 27);
+  if (xinput_cursor == xinput_count) return 0;
+  *out = xinput_events[xinput_cursor++]; xinput_state = out->state; return 1;
+}
+static bool snapshot_xinput(void *, risc_usb_gamepad_state_v1 *out, size_t *count) {
+  assert(*count >= 1); *out = xinput_state; *count = 1; return true;
+}
+static bool xinput_diagnostic(void *, char *out, size_t capacity) {
+  snprintf(out, capacity, "%s", xinput_state.connected ? "XINPUT GAMEPAD CONNECTED" : "XINPUT WAITING FOR REPORT");
+  return true;
+}
+static const risc_usb_gamepad_diagnostics_v1 xinput_api = {
+  {RISC_USB_GAMEPAD_API_V1, sizeof(risc_usb_gamepad_diagnostics_v1), nullptr,
+   subscribe_xinput, unsubscribe_xinput, poll_xinput, next_xinput, snapshot_xinput},
+  xinput_diagnostic
+};
 static bool host_devices(void *, uint64_t *out, size_t *count) {
   const size_t n = attached ? 1u : 0u;
   if (*count < n) return false;
@@ -22,6 +59,7 @@ static bool host_configuration(void *, uint64_t device, uint8_t *out, size_t *le
   memcpy(out, config, sizeof(config));
   *length = sizeof(config);
   *vid = 0x1234; *pid = 0x5678;
+  if (xbox_device) { *vid = 0x045e; *pid = 0x028e; out[14] = 0xff; out[15] = 0x5d; out[16] = 1; }
   return true;
 }
 static risc_usb_host_interrupt_v1 host_api = [] {
@@ -55,6 +93,9 @@ static bool deny(const char *name, uint32_t, t5_provider_capability_lease_t *lea
   if (allow_host && !strcmp(name, "usb.host")) {
     *lease = 9; *iface = &host_api; return true;
   }
+  if (allow_xinput && !strcmp(name, "usb.xinput.gamepad")) {
+    *lease = 10; *iface = &xinput_api; return true;
+  }
   return false;
 }
 static bool release(t5_provider_capability_lease_t) { ++releases; return true; }
@@ -80,17 +121,17 @@ int main() {
       assert(usb_hid_gamepad_take_actions() == 0);
     }
     paperboy_usb_owner_end(); paperboy_usb_owner_end();
-    assert(attempts == (available ? 3u : 0u)); // Host discovery is monitored without opening the test screen.
+    assert(attempts == (available ? 4u : 0u)); // Keyboard, HID, XInput and automatic host diagnostics.
     assert(releases == 0);
   }
   // Actual provider path: older valid API prefix, denied launch, retry,
   // late attach, menu events, disconnect/reconnect, and only-on-exit release.
   api_present = true; attempts = releases = 0;
   api.struct_size = offsetof(t5_provider_capability_api_v1, release) + sizeof(api.release);
-  test_now = 0; paperboy_usb_owner_begin(); assert(attempts == 2);
+  test_now = 0; paperboy_usb_owner_begin(); assert(attempts == 3);
   usb_hid_gamepad_test_active(true);
   test_now = 1000; paperboy_usb_owner_poll();
-  assert(attempts == 3);
+  assert(attempts == 4);
   assert(!strcmp(usb_hid_gamepad_test_status().stage, "USB HOST DIAGNOSTIC UNAVAILABLE"));
   usb_hid_gamepad_test_active(false);
   allow_keyboard = true;
@@ -183,7 +224,91 @@ int main() {
   assert(detected.usb_devices == 1 && detected.hid_interfaces == 1);
   assert(detected.vid == 0x1234 && detected.pid == 0x5678);
   assert(!strcmp(detected.stage, "USB HID SEEN; WAITING FOR GAMEPAD"));
+  test_now += 1000; paperboy_usb_owner_poll();
+  auto unchanged = usb_hid_gamepad_test_status();
+  assert(!memcmp(detected.events, unchanged.events, sizeof(detected.events)));
+  // Older drivers expose only the original prefix; never read a missing tail.
+  risc_usb_gamepad_api_v1 old_gamepad{};
+  old_gamepad.struct_size = sizeof(old_gamepad);
+  g_gamepads[0].api = &old_gamepad;
+  test_now += 1000; paperboy_usb_owner_poll();
+  assert(!strcmp(usb_hid_gamepad_test_status().stage, "USB HID SEEN; WAITING FOR GAMEPAD"));
+  risc_usb_gamepad_diagnostics_v1 diagnostic_gamepad{};
+  diagnostic_gamepad.base.struct_size = sizeof(diagnostic_gamepad);
+  diagnostic_gamepad.diagnostic = driver_diagnostic;
+  g_gamepads[0].api = &diagnostic_gamepad.base;
+  test_now += 1000; paperboy_usb_owner_poll();
+  const auto failure = usb_hid_gamepad_test_status();
+  assert(!strcmp(failure.stage, "HID REPORT DESCRIPTOR READ FAILED"));
+  assert(!strcmp(failure.error, failure.stage));
+  assert(!strcmp(failure.events[2], failure.stage));
+  test_now += 1000; paperboy_usb_owner_poll();
+  unchanged = usb_hid_gamepad_test_status();
+  assert(!memcmp(failure.events, unchanged.events, sizeof(failure.events)));
+  // A bus snapshot with zero devices can still report physical attachment
+  // and the exact enumeration error through the optional host suffix.
+  attached = false;
+  g_gamepads[0].api = nullptr;
+  risc_usb_host_diagnostics_v1 diagnostic_host{};
+  diagnostic_host.base = host_api;
+  diagnostic_host.base.discovery.host.struct_size = sizeof(diagnostic_host);
+  diagnostic_host.diagnostic = host_diagnostic;
+  g_host_api = &diagnostic_host.base;
+  test_now += 1000; paperboy_usb_owner_poll();
+  const auto enumeration_failure = usb_hid_gamepad_test_status();
+  assert(enumeration_failure.usb_devices == 0 && enumeration_failure.hid_interfaces == 0);
+  assert(!strcmp(enumeration_failure.error, enumeration_reason));
+  assert(!strncmp(enumeration_failure.stage, enumeration_reason, sizeof(enumeration_failure.stage) - 1));
+  test_now += 1000; paperboy_usb_owner_poll();
+  unchanged = usb_hid_gamepad_test_status();
+  assert(!memcmp(enumeration_failure.events, unchanged.events, sizeof(unchanged.events)));
+  enumeration_reason = "NO ATTACH; NO ENUM EVENT";
+  test_now += 1000; paperboy_usb_owner_poll();
+  assert(!strcmp(usb_hid_gamepad_test_status().stage, enumeration_reason));
+  diagnostic_host.diagnostic = nullptr;
+  test_now += 1000; paperboy_usb_owner_poll();
+  assert(!strcmp(usb_hid_gamepad_test_status().stage, "NO USB DEVICE ENUMERATED"));
   paperboy_usb_owner_end();
+  // The real optional-capability path must work with XInput alone. Failed HID
+  // acquisition cannot mask readiness, input, or the vendor-interface status.
+  allow_keyboard = false; allow_xinput = xbox_device = attached = true;
+  releases = 0; test_now += 5000;
+  paperboy_usb_owner_begin();
+  assert(xinput_subscriptions == 1 && usb_hid_gamepad_test_status().provider_ready);
+  usb_hid_gamepad_test_active(true);
+  xinput_events[0] = {}; xinput_events[0].kind = 1;
+  xinput_events[0].state.device = 55; xinput_events[0].state.connected = 1;
+  xinput_events[0].state.hat = 8;
+  xinput_events[1] = xinput_events[0]; xinput_events[1].kind = 3; xinput_events[1].state.buttons = 2;
+  xinput_events[2] = xinput_events[1]; xinput_events[2].state.buttons = 0;
+  xinput_cursor = 0; xinput_count = 3;
+  paperboy_usb_owner_poll();
+  const auto xbox = usb_hid_gamepad_test_status();
+  assert(xbox.vid == 0x045e && xbox.pid == 0x028e && xbox.hid_interfaces == 0);
+  assert(!strcmp(xbox.stage, "XINPUT GAMEPAD CONNECTED") && xbox.reports == 2);
+  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
+  assert(usb_hid_gamepad_navigation_buttons() & GBEMU_INPUT_A);
+  assert(usb_hid_gamepad_buttons() == 0);
+  xinput_events[0] = xinput_events[1]; xinput_events[0].state.buttons = 1;
+  xinput_cursor = 0; xinput_count = 1; paperboy_usb_owner_poll();
+  // A different HID device connecting/disconnecting cannot erase held Xbox input.
+  risc_usb_gamepad_state_v1 other{}; other.connected = 1; other.device = 99; other.hat = 8;
+  accept_gamepad(g_gamepads[0], other, true);
+  other.connected = 0; accept_gamepad(g_gamepads[0], other, true);
+  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_B);
+  xinput_poll_fail = true;
+  xinput_events[0].kind = 2; xinput_events[0].state.connected = 0;
+  xinput_events[0].state.buttons = 0; xinput_cursor = 0;
+  paperboy_usb_owner_poll();
+  assert(usb_hid_gamepad_buttons() == 0 && !usb_hid_gamepad_test_status().connected);
+  xinput_poll_fail = false;
+  xinput_events[0].kind = 1; xinput_events[0].state.connected = 1;
+  xinput_events[1] = xinput_events[0]; xinput_events[1].kind = 3; xinput_events[1].state.hat = 2;
+  xinput_cursor = 0; xinput_count = 2; paperboy_usb_owner_poll();
+  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_RIGHT);
+  paperboy_usb_owner_end(); paperboy_usb_owner_end();
+  assert(xinput_unsubscriptions == 1 && releases == 2);
+  puts("XInput-only grants, quick taps, HID coexistence, error disconnect and reconnect: PASS");
   puts("On-screen USB discovery, VID/PID, HID interface and stage: PASS");
   puts("Gamepad bursts, analog coalescing, disconnect and overflow recovery: PASS");
   puts("ELF absent API/denied optional HID and repeated teardown: PASS");
