@@ -27,6 +27,9 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'paperboy_elf_console_task' in staged
     assert 'xTaskCreatePinnedToCore(' in staged
     assert '32768' in staged
+    # RiscRTE's loopTask services USB at priority 1. A priority-2 console can
+    # starve reception whenever emulation uses the whole frame budget.
+    assert '1, // Same priority as the RiscRTE owner' in staged
     assert 'paperboy_storage_bind_host();' in staged
     assert '(void)paperboy_storage_begin();' in staged
     assert 'paperboy_storage_owner_wait();' in staged
@@ -67,10 +70,36 @@ with tempfile.TemporaryDirectory() as tmp:
     assert epd_original == (ROOT / 'src/epd_video.cpp').read_text()
 print('Faithful GameBoy ELF source staging and hardware-release checks passed')
 
+# Execute the real frame pacer with an overdue emulated frame. The ELF must
+# give blocked owner/USB work and idle tasks an opportunity to run even when
+# no frame time remains; standalone has its own higher-priority USB tasks.
+import subprocess
+with tempfile.TemporaryDirectory() as tmp:
+    target = Path(tmp)
+    stage(target)
+    staged = (target / 'main.cpp').read_text()
+    constants = original[original.index('constexpr uint32_t kDmgClockHz'):]
+    constants = constants[:constants.index(';', constants.index('constexpr int64_t kGameFramePeriodCeilingUs')) + 1]
+    frame = original[original.index('struct GameFramePacer {'):].split('};', 1)[0] + '};'
+    for name, code, must_yield in [('elf', staged, True), ('standalone', original, False)]:
+        functions = code[code.index('void reset_game_frame_pacer('):code.index('void compose_scene(')]
+        source = target / f'{name}_pacer.cpp'
+        source.write_text('''#include <cstdint>
+static int64_t now = 100000;
+static unsigned delays;
+static int64_t esp_timer_get_time() { return now; }
+static void vTaskDelay(unsigned ticks) { delays += ticks; now += ticks * 1000; }
+static void delayMicroseconds(unsigned us) { now += us; }
+''' + constants + frame + functions + '\nint main() { GameFramePacer p{}; pace_game_frame(p); return ' +
+                          ('delays == 0' if must_yield else 'delays != 0') + '; }\n')
+        binary = target / f'{name}_pacer'
+        subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror', str(source), '-o', str(binary)], check=True)
+        subprocess.run([str(binary)], check=True, timeout=10)
+print('Overdue ELF frames yield; standalone frame pacing remains unchanged: PASS')
+
 # Execute the staged worker itself against a deterministic scheduler shim.
 # A provider can finish after the old 15-second timeout, with or without a HID
 # device. The worker must still be alive when its owner sends the start signal.
-import subprocess
 with tempfile.TemporaryDirectory() as tmp:
     target = Path(tmp)
     stage(target)

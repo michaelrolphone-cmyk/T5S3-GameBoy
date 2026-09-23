@@ -54,8 +54,7 @@ struct GamepadProvider {
   const char *capability;
   const risc_usb_gamepad_api_v1 *api = nullptr;
   t5_provider_capability_lease_t lease = 0;
-  uint64_t subscription = 0;
-  bool poll_failed = false, state_seen = false;
+  bool poll_failed = false;
   risc_usb_gamepad_state_v1 state{};
 };
 GamepadProvider g_gamepads[] = {{"usb.hid.gamepad"}, {"usb.xinput.gamepad"}};
@@ -323,17 +322,30 @@ void accept_gamepad(GamepadProvider &source, const risc_usb_gamepad_state_v1 &st
   map_gamepad(risc_usb_gamepad_state_v1{}, true);
 }
 
+bool same_gamepad_state(const risc_usb_gamepad_state_v1 &a,
+                        const risc_usb_gamepad_state_v1 &b) {
+  return a.device == b.device && a.connected == b.connected && a.buttons == b.buttons &&
+      a.x == b.x && a.y == b.y && a.z == b.z && a.rx == b.rx && a.ry == b.ry &&
+      a.rz == b.rz && a.hat == b.hat && a.report_id == b.report_id;
+}
+
 void gamepad_snapshot(GamepadProvider &source) {
   if (!source.api) return;
   risc_usb_gamepad_state_v1 states[kSnapshotCapacity] = {};
+  risc_usb_gamepad_state_v1 current{};
   size_t count = kSnapshotCapacity;
-  source.state = {};
-  if (source.api->snapshot(source.api->context, states, &count)) {
-    for (size_t i = 0; i < count && i < kSnapshotCapacity; ++i) {
-      if (states[i].connected) { accept_gamepad(source, states[i], true); return; }
+  if (source.api->snapshot(source.api->context, states, &count) && count <= kSnapshotCapacity) {
+    for (size_t i = 0; i < count; ++i) {
+      if (!states[i].connected) continue;
+      if (!current.connected || states[i].device == source.state.device) current = states[i];
+      if (states[i].device == source.state.device) break;
     }
   }
-  accept_gamepad(source, risc_usb_gamepad_state_v1{}, true);
+  const bool changed = !same_gamepad_state(source.state, current);
+  if (source.state.connected != current.connected)
+    paperboy_storage_hid_diagnostic(current.connected ? "Gamepad connected" : "Gamepad disconnected");
+  source.state = {}; // Permit switching when the previously selected device disappeared.
+  accept_gamepad(source, current, !changed);
 }
 
 uint16_t pressed_mask(const UsbHidGamepadState &s) {
@@ -449,24 +461,17 @@ void paperboy_usb_owner_begin() {
                                            &source.lease, &iface)) continue;
     const auto *api = static_cast<const risc_usb_gamepad_api_v1 *>(iface);
     if (api && api->api_version == RISC_USB_GAMEPAD_API_V1 &&
-        api->struct_size >= sizeof(*api) && api->subscribe && api->unsubscribe &&
-        api->poll && api->next && api->snapshot) {
+        api->struct_size >= sizeof(*api) && api->poll && api->snapshot) {
       source.api = api;
-      source.subscription = api->subscribe(api->context, 0);
-      if (source.subscription) {
-        char detail[64];
-        snprintf(detail, sizeof(detail), "%s subscribed", source.capability);
-        paperboy_storage_hid_diagnostic(detail);
-        gamepad_snapshot(source);
-      }
+      gamepad_snapshot(source);
     }
-    if (!source.subscription) {
+    if (!source.api) {
       (void)g_provider->release(source.lease);
       source.lease = 0;
       source.api = nullptr;
     }
   }
-  const bool ready = g_gamepads[0].subscription || g_gamepads[1].subscription;
+  const bool ready = g_gamepads[0].api || g_gamepads[1].api;
   if (!ready && !g_gamepad_acquire_failed)
     capability_error("Gamepad driver acquisition failed");
   portENTER_CRITICAL(&g_input_lock);
@@ -526,8 +531,8 @@ void paperboy_usb_owner_poll() {
     }
   }
   for (auto &source : g_gamepads) {
-    if (!source.api || !source.subscription) continue;
-    const bool ok = source.api->poll(source.api->context, 4);
+    if (!source.api || !source.lease) continue;
+    const bool ok = source.api->poll(source.api->context, 16);
     if (ok == source.poll_failed) {
       source.poll_failed = !ok;
       if (!ok) gamepad_error("Gamepad provider poll failed");
@@ -541,33 +546,10 @@ void paperboy_usb_owner_poll() {
       g_test.poll_failed = g_gamepads[0].poll_failed || g_gamepads[1].poll_failed;
       portEXIT_CRITICAL(&g_input_lock);
     }
-    // A failed poll can still leave a queued disconnect or state transition.
-    for (unsigned n = 0; n < 32; ++n) {
-      risc_usb_gamepad_event_v1 event{};
-      const int32_t rc = source.api->next(source.api->context,
-                                           source.subscription, &event);
-      if (!rc) break;
-      if (rc < 0 || event.kind == 5) {
-        gamepad_error("Gamepad event gap; taking snapshot");
-        gamepad_snapshot(source); break;
-      }
-      if (event.kind == 2) {
-        paperboy_storage_hid_diagnostic("Gamepad disconnected");
-        accept_gamepad(source, event.state, true);
-        source.state_seen = false;
-        continue;
-      }
-      if (event.kind == 1) paperboy_storage_hid_diagnostic("Gamepad connected");
-      if (event.kind == 3 && !source.state_seen) {
-        char detail[96];
-        snprintf(detail, sizeof(detail), "Gamepad report id=%u buttons=%08lx x=%d y=%d hat=%u",
-                 unsigned(event.state.report_id), static_cast<unsigned long>(event.state.buttons),
-                 int(event.state.x), int(event.state.y), unsigned(event.state.hat));
-        paperboy_storage_hid_diagnostic(detail);
-        source.state_seen = true;
-      }
-      if (event.kind == 1 || event.kind == 3) accept_gamepad(source, event.state, event.kind == 1);
-    }
+    // The consumer sees only the current controller snapshot. No gamepad
+    // subscription, event cursor, or replay of intermediate button states.
+    // A failed poll may have updated disconnect state; snapshot it as well.
+    gamepad_snapshot(source);
   }
   // One bounded configuration read per second; HID/gamepad providers already
   // advance enumeration during their ordinary poll above.
@@ -614,8 +596,6 @@ void paperboy_usb_owner_end() {
   if (g_keyboard_api && g_keyboard_subscription)
     (void)g_keyboard_api->unsubscribe(g_keyboard_api->context, g_keyboard_subscription);
   for (auto &source : g_gamepads) {
-    if (source.api && source.subscription)
-      (void)source.api->unsubscribe(source.api->context, source.subscription);
     if (g_provider && source.lease) (void)g_provider->release(source.lease);
     const char *capability = source.capability;
     source = GamepadProvider{capability};

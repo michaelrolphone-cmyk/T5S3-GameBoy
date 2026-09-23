@@ -28,7 +28,7 @@ stage(SRC)
 stage_core(SRC)
 
 # Patch the staged ELF only; the standalone build retains its native USB host.
-# The app owner polls provider event queues while servicing storage requests.
+# The app owner polls current controller state and buffered keyboard events.
 main_file = SRC / 'main.cpp'
 main = main_file.read_text(encoding='utf-8')
 main_file.write_text(main, encoding='utf-8')
@@ -37,7 +37,7 @@ storage_file = SRC / 'paperboy_storage_host.cpp'
 storage = (ROOT / 'riscrte/paperboy_storage_host.cpp').read_text(encoding='utf-8')
 storage = patch_once(storage,
                      '    } else {\n      (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));\n    }\n    serial_flush();\n  }',
-                     '    }\n    paperboy_usb_owner_poll();\n    serial_flush();\n    if (!request) (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));\n  }',
+                     '    }\n    paperboy_usb_owner_poll();\n    serial_flush();\n    if (!request) (void)ulTaskNotifyTake(pdTRUE, 1);\n  }',
                      'HID polling on storage owner task')
 storage_file.write_text(storage, encoding='utf-8')
 

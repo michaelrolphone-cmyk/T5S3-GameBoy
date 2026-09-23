@@ -26,11 +26,14 @@ static uint64_t subscribe_xinput(void *, uint64_t filter) {
 static bool unsubscribe_xinput(void *, uint64_t id) {
   assert(id == 27); ++xinput_unsubscriptions; return true;
 }
-static bool poll_xinput(void *, size_t budget) { assert(budget == 4); return !xinput_poll_fail; }
-static int32_t next_xinput(void *, uint64_t id, risc_usb_gamepad_event_v1 *out) {
-  assert(id == 27);
-  if (xinput_cursor == xinput_count) return 0;
-  *out = xinput_events[xinput_cursor++]; xinput_state = out->state; return 1;
+static bool poll_xinput(void *, size_t budget) {
+  assert(budget == 16);
+  while (xinput_cursor != xinput_count) xinput_state = xinput_events[xinput_cursor++].state;
+  return !xinput_poll_fail;
+}
+static int32_t next_xinput(void *, uint64_t, risc_usb_gamepad_event_v1 *) {
+  assert(!"Gameboy must sample the snapshot, never consume gamepad history");
+  return -1;
 }
 static bool snapshot_xinput(void *, risc_usb_gamepad_state_v1 *out, size_t *count) {
   assert(*count >= 1); *out = xinput_state; *count = 1; return true;
@@ -273,7 +276,7 @@ int main() {
   allow_keyboard = false; allow_xinput = xbox_device = attached = true;
   releases = 0; test_now += 5000;
   paperboy_usb_owner_begin();
-  assert(xinput_subscriptions == 1 && usb_hid_gamepad_test_status().provider_ready);
+  assert(xinput_subscriptions == 0 && usb_hid_gamepad_test_status().provider_ready);
   usb_hid_gamepad_test_active(true);
   xinput_events[0] = {}; xinput_events[0].kind = 1;
   xinput_events[0].state.device = 55; xinput_events[0].state.connected = 1;
@@ -284,7 +287,7 @@ int main() {
   paperboy_usb_owner_poll();
   const auto xbox = usb_hid_gamepad_test_status();
   assert(xbox.vid == 0x045e && xbox.pid == 0x028e && xbox.hid_interfaces == 0);
-  assert(!strcmp(xbox.stage, "XINPUT GAMEPAD CONNECTED") && xbox.reports == 2);
+  assert(!strcmp(xbox.stage, "XINPUT GAMEPAD CONNECTED"));
   assert(usb_hid_gamepad_buttons() == 0); // Provider already delivered the release.
   assert(usb_hid_gamepad_navigation_buttons() == 0);
   xbox_clone = true; test_now += 1000; paperboy_usb_owner_poll();
@@ -315,7 +318,7 @@ int main() {
   map_gamepad(xinput_events[1].state, true);
   assert(usb_hid_gamepad_buttons() == GBEMU_INPUT_RIGHT);
   paperboy_usb_owner_end(); paperboy_usb_owner_end();
-  assert(xinput_unsubscriptions == 1 && releases == 2);
+  assert(xinput_subscriptions == 0 && xinput_unsubscriptions == 0 && releases == 2);
   puts("XInput-only grants, current snapshots, HID coexistence, error disconnect and reconnect: PASS");
   puts("On-screen USB discovery, VID/PID, HID interface and stage: PASS");
   puts("Gamepad latest state, immediate releases, long holds and no historical replay: PASS");
