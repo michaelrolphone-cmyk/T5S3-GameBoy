@@ -165,6 +165,11 @@ void probe_usb_discovery() {
   g_test.vid = vid; g_test.pid = pid;
   g_test.hid_interfaces = hid_count;
   g_test.hid_protocol = protocol;
+  // A readable configuration proves enumeration has since succeeded. Keep
+  // class/poll failures, but do not display a prior detach/reset failure as
+  // the current error beside a successfully connected gamepad.
+  if (diagnostic_contains(g_test.error, sizeof(g_test.error), "ENUM FAIL:"))
+    g_test.error[0] = 0;
   portEXIT_CRITICAL(&g_input_lock);
   if (identity_changed) {
     char line[64];

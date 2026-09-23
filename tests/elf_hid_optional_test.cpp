@@ -334,6 +334,24 @@ int main() {
   enumeration_reason = "NO ATTACH; NO ENUM EVENT";
   test_now += 1000; paperboy_usb_owner_poll();
   assert(!strcmp(usb_hid_gamepad_test_status().stage, enumeration_reason));
+  // Reproduce the reported reconnect: reset fails while detached, then
+  // the HID receiver enumerates. The old bus error must not survive success.
+  enumeration_reason = "NO ATTACH; ENUM FAIL: Root port reset failed";
+  probe_usb_discovery();
+  assert(!strcmp(usb_hid_gamepad_test_status().error, enumeration_reason));
+  attached = true;
+  probe_usb_discovery();
+  assert(usb_hid_gamepad_test_status().usb_devices == 1);
+  assert(usb_hid_gamepad_test_status().hid_interfaces == 1);
+  assert(!usb_hid_gamepad_test_status().error[0]);
+  // Reading a configuration must not erase a still-relevant class failure.
+  g_gamepads[0].api = &diagnostic_gamepad.base;
+  probe_usb_discovery();
+  assert(!strcmp(usb_hid_gamepad_test_status().error, "HID REPORT DESCRIPTOR READ FAILED"));
+  probe_usb_discovery();
+  assert(!strcmp(usb_hid_gamepad_test_status().error, "HID REPORT DESCRIPTOR READ FAILED"));
+  g_gamepads[0].api = nullptr;
+  attached = false;
   diagnostic_host.diagnostic = nullptr;
   test_now += 1000; paperboy_usb_owner_poll();
   assert(!strcmp(usb_hid_gamepad_test_status().stage, "NO USB DEVICE ENUMERATED"));
