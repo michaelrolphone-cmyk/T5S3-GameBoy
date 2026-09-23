@@ -72,7 +72,9 @@ def audit(path):
         alignment = max(4, section[8])
         if alignment > 16 or packed_offset % alignment or section[3] % alignment:
             raise ValueError(f'{name} misaligned in RiscRTE packed data at offset '
-                             f'{packed_offset:#x}, requires {alignment}-byte alignment')
+                             f'{packed_offset:#x}, requires {alignment}-byte alignment; '
+                             f'packed sections: '
+                             f'{[(n, hex(mapped[n][5]), mapped[n][8]) for n in (".data", ".rodata", ".data.rel.ro", ".bss") if n in mapped]}')
         packed_offset += section[5]
 
     def location(addr):
