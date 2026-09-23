@@ -221,6 +221,7 @@ uint32_t g_turbo_a_started = 0;
 uint32_t g_turbo_b_started = 0;
 bool g_settings_chord = false;
 bool g_rotate_chord = false;
+bool g_refresh_chord = false;
 bool g_select_consumed = false;
 bool g_start_consumed = false;
 
@@ -379,6 +380,7 @@ void decode_actions(uint16_t pressed, uint32_t now) {
   constexpr uint16_t rotate = left_shoulder | right_shoulder | right;
   if ((pressed & settings) == settings && !g_settings_chord) {
     g_settings_chord = true;
+    g_refresh_chord = false;
     g_actions = SNES_ACTION_SETTINGS;
   }
   if (g_settings_chord) {
@@ -396,6 +398,21 @@ void decode_actions(uint16_t pressed, uint32_t now) {
   if (g_rotate_chord) {
     g_previous = pressed;
     if (!(pressed & rotate)) g_rotate_chord = false;
+    g_buttons = 0;
+    return;
+  }
+  // Start+Select performs one hardware-style panel clear. A later complete
+  // Settings chord can still take priority; suppress partial release actions.
+  constexpr uint16_t refresh = start | select;
+  if ((pressed & settings) == refresh && (rising & refresh) && !g_refresh_chord) {
+    g_refresh_chord = true;
+    g_actions = SNES_ACTION_REFRESH;
+  }
+  if (g_refresh_chord) {
+    g_previous = pressed;
+    g_select_consumed = (pressed & select) != 0;
+    g_start_consumed = (pressed & start) != 0;
+    if (!(pressed & settings)) g_refresh_chord = false;
     g_buttons = 0;
     return;
   }
@@ -638,7 +655,8 @@ void paperboy_usb_owner_end() {
   portEXIT_CRITICAL(&g_input_lock);
   g_buttons = g_navigation = g_actions = 0;
   g_previous = 0;
-  g_settings_chord = g_rotate_chord = g_select_consumed = g_start_consumed = false;
+  g_settings_chord = g_rotate_chord = g_refresh_chord = false;
+  g_select_consumed = g_start_consumed = false;
 }
 
 void usb_hid_gamepad_begin() {

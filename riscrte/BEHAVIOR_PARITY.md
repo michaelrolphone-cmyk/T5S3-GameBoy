@@ -33,8 +33,8 @@ Save is Start+R and load is Start+L; bumpers alone have no action. Select+L/R
 adjusts brightness, and Start+Select+L+R opens Settings. Either the modifier or
 bumper may complete a two-button chord; held chords do not repeat. Start/Select
 are consumed through release after a shortcut. The full Settings chord wins and
-its release cannot generate shoulder actions. Hold Start+Select before adding
-the bumpers to assemble Settings without first invoking a two-button shortcut.
+its release cannot generate shoulder actions. Hold L+R before adding Start and
+Select to assemble Settings without first invoking a two-button shortcut.
 
 Native regression coverage executes the staged input/render blocks for 1,200
 controller frames with zero full-screen redraws, retains touch feedback, and
@@ -67,3 +67,22 @@ The regression test feeds the reported masks through provider acquisition,
 owner polling, snapshots and console sampling. It checks individual modifiers,
 save/load, brightness, Settings, rotation, A/B navigation and X/Y turbo. The 1.2.24 code fails
 on the first reported Start press. Updated hardware shortcut confirmation is pending.
+
+### Controller full redraw (1.2.26)
+
+In the ELF, Start+Select with neither bumper held requests the same full panel
+refresh as the hardware BOOT button: white, black, white, then reconstruction of
+the current page into both display buffers. It works on every page and resets
+the frame pacer after the clear. Ordinary controller input retains game-only
+rendering.
+
+The redraw fires once when the second modifier is pressed. Holding the chord
+or releasing its buttons in either order cannot repeat it or trigger save/load
+or brightness actions. Start+Select are consumed through release. The complete
+Settings chord has priority and can still complete after a redraw; hold L+R
+first to open Settings without a preliminary redraw.
+
+Regression tests cover HID and XInput press/release orders, redraw-to-Settings
+transitions, and the actual staged hardware/controller refresh code. The latter
+verifies the clear sequence, both panel buffers, frame-pacer reset, gameplay/menu
+routing and a single clear for simultaneous BOOT/controller requests.

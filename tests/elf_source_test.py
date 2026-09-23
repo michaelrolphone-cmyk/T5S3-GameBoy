@@ -78,21 +78,28 @@ with tempfile.TemporaryDirectory() as tmp:
     target = Path(tmp)
     stage(target)
     staged = (target / 'main.cpp').read_text()
-    input_block = staged.split('    // Poll on every page', 1)[1].split('    const bool boot_pressed', 1)[0]
+    input_block = staged.split('    // Poll on every page', 1)[1].split('    const bool touch_down', 1)[0]
     input_block = input_block[input_block.index('    const uint8_t controller_buttons'):]
     transition_block = '    if (next_page != page) {' + staged.split('    if (next_page != page) {', 1)[1].split('    bool pca_button_pressed', 1)[0]
     render_block = staged.split('        uint8_t *backbuffer = epd_video_get_backbuffer();', 1)[1].split('      pace_game_frame', 1)[0]
     render_block = '        uint8_t *backbuffer = epd_video_get_backbuffer();' + render_block.rsplit('}', 1)[0]
+    refresh_functions = staged.split('void wait_epd_idle()', 1)[1].split('void present_shutdown_page()', 1)[0]
+    refresh_functions = 'void wait_epd_idle()' + refresh_functions
+    refresh_constants = '\n'.join(line for line in staged.splitlines() if line.startswith(
+        ('constexpr uint8_t kClearWhiteFrames', 'constexpr uint8_t kClearBlackFrames',
+         'constexpr uint32_t kBootDebounceMs')))
     harness = (ROOT / 'tests/controller_frame_harness.cpp').read_text()
     source = target / 'controller_frame.cpp'
     source.write_text(harness.replace('// FRAME_INPUT', input_block)
+                      .replace('// REFRESH_CONSTANTS', refresh_constants)
+                      .replace('// REFRESH_FUNCTIONS', refresh_functions)
                       .replace('// FRAME_PAGE_TRANSITION', transition_block)
                       .replace('// FRAME_RENDER', render_block))
     binary = target / 'controller_frame'
     subprocess.run(['c++', '-std=c++11', '-Wall', '-Wextra', '-Werror',
                     '-I' + str(ROOT / 'src'), str(source), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True, timeout=10)
-print('1,200 controller frames: no full-screen repaints; touch and shortcut routing: PASS')
+print('1,200 controller frames: no incidental full-screen repaints; touch, shortcuts and hardware-equivalent redraw: PASS')
 
 # Execute the real frame pacer with an overdue emulated frame. The ELF must
 # give blocked owner/USB work and idle tasks an opportunity to run even when

@@ -1305,8 +1305,8 @@ void refresh_current_page(
     PaperboyPage page,
     bool power_on,
     const PaperboyBatteryStatus *battery) {
-  clean_panel_white_black_white("BOOT");
-  ESP_LOGI(kTag, "BOOT refresh: redrawing page=%u", static_cast<unsigned>(page));
+  clean_panel_white_black_white("Full-screen");
+  ESP_LOGI(kTag, "Full-screen refresh: redrawing page=%u", static_cast<unsigned>(page));
 
   for (uint8_t copy = 0; copy < kPanelBufferCount; ++copy) {
     wait_epd_idle();
@@ -1317,7 +1317,7 @@ void refresh_current_page(
     }
   }
   wait_epd_idle();
-  ESP_LOGI(kTag, "BOOT refresh: complete");
+  ESP_LOGI(kTag, "Full-screen refresh: complete");
 }
 
 void present_shutdown_page() {
@@ -1529,13 +1529,16 @@ void run_console(void *unused) {
     const bool boot_irq = g_boot_refresh_irq;
     const bool boot_edge = boot_pressed && !last_boot_pressed;
     bool boot_refresh_completed = false;
-    if (boot_refresh_armed && (boot_irq || boot_edge) &&
-        (millis() - last_boot_refresh_ms) >= kBootDebounceMs) {
+    const bool boot_refresh_requested = boot_refresh_armed && (boot_irq || boot_edge) &&
+        (millis() - last_boot_refresh_ms) >= kBootDebounceMs;
+    const bool controller_refresh_requested = (controller_actions & SNES_ACTION_REFRESH) &&
+        !(controller_actions & SNES_ACTION_SETTINGS);
+    if (boot_refresh_requested || controller_refresh_requested) {
       boot_refresh_armed = false;
       g_boot_refresh_irq = false;
       last_boot_refresh_ms = millis();
-      ESP_LOGI(kTag, "BOOT pressed: clean full-screen refresh page=%u",
-               static_cast<unsigned>(page));
+      ESP_LOGI(kTag, "%s requested: clean full-screen refresh page=%u",
+               boot_refresh_requested ? "BOOT" : "Controller", static_cast<unsigned>(page));
       refresh_current_page(
           page,
           power_on,

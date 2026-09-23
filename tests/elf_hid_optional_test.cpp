@@ -148,8 +148,9 @@ static void reported_receiver_test() {
   sample(0xA0, 0, SNES_ACTION_SAVE); sample(0xA0, 0, 0);
   sample(0x80, 0, 0);
   sample(0x90, 0, SNES_ACTION_LOAD); sample(0, 0, 0);
-  sample(0xC0, GBEMU_INPUT_START | GBEMU_INPUT_SELECT, 0);
-  sample(0xD0, GBEMU_INPUT_START | GBEMU_INPUT_SELECT, 0);
+  sample(0xC0, 0, SNES_ACTION_REFRESH);
+  sample(0xC0, 0, 0); // Holding both does not repeat the panel clear.
+  sample(0xD0, 0, 0);
   sample(0xF0, 0, SNES_ACTION_SETTINGS); sample(0xF0, 0, 0);
   sample(0xB0, 0, 0); sample(0x90, 0, 0); sample(0x10, 0, 0); sample(0, 0, 0);
   sample(0x80, GBEMU_INPUT_START, 0); sample(0, 0, 0);
@@ -254,6 +255,30 @@ int main() {
   for (bool xinput : {false, true}) {
     const unsigned select_mask = xinput ? 0x100u : 0x40u;
     const unsigned start_mask = xinput ? 0x200u : 0x80u;
+    // Redraw fires once when either modifier completes the chord. Consume
+    // both release orders, including a bumper pressed during release.
+    for (unsigned first : {select_mask, start_mask}) {
+      for (unsigned remaining : {select_mask, start_mask}) {
+        paperboy_usb_owner_end();
+        state = {}; state.connected = 1; state.hat = 8;
+        auto sample = [&](unsigned mask, uint8_t buttons, uint8_t action) {
+          state.buttons = mask; map_gamepad(state, false, xinput);
+          assert(usb_hid_gamepad_buttons() == buttons);
+          assert(usb_hid_gamepad_navigation_buttons() == 0);
+          assert(usb_hid_gamepad_take_actions() == action);
+        };
+        sample(first, first == start_mask ? GBEMU_INPUT_START : GBEMU_INPUT_SELECT, 0);
+        sample(start_mask | select_mask, 0, SNES_ACTION_REFRESH);
+        test_now += 1000;
+        sample(start_mask | select_mask, 0, 0);
+        sample(remaining, 0, 0);
+        sample(remaining | 16u, 0, 0);
+        sample(16u, 0, 0);
+        sample(0, 0, 0);
+        sample(start_mask | select_mask, 0, SNES_ACTION_REFRESH);
+        sample(0, 0, 0);
+      }
+    }
     for (unsigned modifier : {select_mask, start_mask}) {
       for (unsigned shoulder : {16u, 32u}) {
         for (bool modifier_first : {false, true}) {
@@ -307,12 +332,20 @@ int main() {
       assert(usb_hid_gamepad_buttons() == GBEMU_INPUT_SELECT);
     } while (std::next_permutation(release_order, release_order + 4));
     paperboy_usb_owner_end();
-    // Holding Start+Select reserves shoulders while assembling Settings.
+    // Settings can still complete after a redraw, without partial actions.
     const unsigned modifiers = start_mask | select_mask;
     for (unsigned mask : {modifiers, modifiers | 16u, modifiers | 48u}) {
       state.buttons = mask; map_gamepad(state, false, xinput);
+      assert(usb_hid_gamepad_buttons() == 0);
+      assert(usb_hid_gamepad_take_actions() == (mask == modifiers ? SNES_ACTION_REFRESH :
+          mask == (modifiers | 48u) ? SNES_ACTION_SETTINGS : 0));
+    }
+    paperboy_usb_owner_end();
+    // Bumpers first assemble Settings without a preliminary redraw.
+    for (unsigned mask : {48u, 48u | start_mask, 48u | modifiers}) {
+      state.buttons = mask; map_gamepad(state, false, xinput);
       usb_hid_gamepad_buttons();
-      assert(usb_hid_gamepad_take_actions() == (mask == (modifiers | 48u) ? SNES_ACTION_SETTINGS : 0));
+      assert(usb_hid_gamepad_take_actions() == (mask == (48u | modifiers) ? SNES_ACTION_SETTINGS : 0));
     }
     paperboy_usb_owner_end();
   }
@@ -324,7 +357,7 @@ int main() {
   assert(!usb_hid_gamepad_test_status().compact_buttons);
   map_gamepad(risc_usb_gamepad_state_v1{}); usb_hid_gamepad_buttons();
   paperboy_usb_owner_end();
-  puts("HID/XInput modifier shortcuts, settings priority and 24 release orders: PASS");
+  puts("HID/XInput shortcuts, one-shot redraw, settings priority and 24 release orders: PASS");
   // Arrow/Enter taps drained in one owner poll must reach menu navigation.
   for (auto usage : {0x51, 0x52, 0x28, 0x29}) {
     const uint8_t expected = usage == 0x51 ? GBEMU_INPUT_DOWN :

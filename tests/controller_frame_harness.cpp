@@ -1,6 +1,8 @@
 #include <cassert>
 #include <cstdint>
 #include <initializer_list>
+#include <vector>
+#include <utility>
 #include "gbemu.h"
 #include "paperboy_ui.h"
 #include "snes_mini_controller.h"
@@ -15,6 +17,10 @@ static uint8_t skipped_since_render, rendered_touch;
 static uint32_t menu_action, now_ms, rendered_frames, skipped_frames;
 static unsigned full_compositions, game_compositions, full_submissions, saves, loads;
 static unsigned brightness_updates, settings_requests;
+static unsigned pacer_resets;
+static bool boot_pressed, last_boot_pressed, g_boot_refresh_irq, boot_refresh_armed = true;
+static uint32_t last_boot_refresh_ms;
+static std::vector<std::pair<bool, uint8_t>> clear_frames;
 static bool touch_ok = true, power_on = true, submit_ok = true, landscape;
 static PaperboyPage page = PaperboyPage::Game;
 static PaperboyPage next_page = PaperboyPage::Game;
@@ -33,10 +39,17 @@ bool battery_read_status(PaperboyBatteryStatus &) { return true; }
 void usb_hid_gamepad_test_active(bool) {}
 static void audio_set_paused(bool paused) { audio_paused = paused; }
 void paperboy_ui_on_page_changed() { ++page_changes; }
-static void reset_game_frame_pacer(int &) {}
+static void reset_game_frame_pacer(int &) { ++pacer_resets; }
 constexpr uint8_t kPanelBufferCount = 2;
 constexpr int kGameDirtyY = PAPERBOY_LOGICAL_WIDTH - PAPERBOY_GAME_X - GBEMU_FRAME_WIDTH;
 constexpr int kGameDirtyHeight = GBEMU_FRAME_WIDTH;
+// REFRESH_CONSTANTS
+constexpr int LOW = 0;
+static int digitalRead(int) { return boot_pressed ? LOW : 1; }
+static uint32_t millis() { return now_ms; }
+static void vTaskDelay(unsigned) { assert(false); }
+static bool epd_video_submit_pending() { return false; }
+static void submit_clear_frame(bool white, uint8_t frames) { clear_frames.emplace_back(white, frames); }
 uint8_t snes_mini_controller_buttons() { return pad; }
 uint8_t snes_mini_controller_take_actions() { return shortcuts; }
 uint8_t snes_mini_controller_navigation_buttons() { return pad; }
@@ -59,6 +72,7 @@ static bool epd_video_submit(int y, int height) {
   else assert(height == int(landscape ? GBEMU_FRAME_HEIGHT : kGameDirtyHeight));
   return submit_ok;
 }
+// REFRESH_FUNCTIONS
 static uint8_t frame() {
   // FRAME_INPUT
   if (actions & PAPERBOY_ACTION_SAVE) ++saves;
@@ -105,4 +119,32 @@ int main() {
   next_page = PaperboyPage::Settings; pad = GBEMU_INPUT_A;
   assert(frame() == 0 && page == PaperboyPage::Settings && audio_paused);
   assert(page_changes == 2 && full_scene_syncs == 1);
+  // Both sources execute the actual white/black/white clear and redraw each
+  // panel buffer on any page. Simultaneous hardware/pad requests clear once.
+  menu_action = 0; pad = touch_mask = 0;
+  const std::vector<std::pair<bool, uint8_t>> expected_clear = {
+      {true, kClearWhiteFrames}, {false, kClearBlackFrames}, {true, kClearWhiteFrames}};
+  for (auto current_page : {PaperboyPage::Game, PaperboyPage::Settings}) {
+    page = next_page = current_page;
+    for (unsigned source : {1u, 2u, 3u}) {
+      shortcuts = 0; boot_pressed = false; frame(); // Release/rearm hardware.
+      now_ms += kBootDebounceMs;
+      shortcuts = (source & 1u) ? SNES_ACTION_REFRESH : 0;
+      boot_pressed = (source & 2u) != 0;
+      const unsigned compositions = full_compositions, submissions = full_submissions;
+      const unsigned resets = pacer_resets;
+      full_scene_syncs = 2; skipped_since_render = 5; clear_frames.clear();
+      frame();
+      assert(clear_frames == expected_clear);
+      assert(full_compositions == compositions + kPanelBufferCount);
+      assert(full_submissions == submissions + kPanelBufferCount);
+      assert(full_scene_syncs == 0 && skipped_since_render == 0);
+      assert(pacer_resets == resets + 1);
+      shortcuts = 0; frame(); // Held hardware also stays one-shot.
+      assert(clear_frames == expected_clear);
+    }
+  }
+  boot_pressed = false; shortcuts = 0; frame();
+  clear_frames.clear(); shortcuts = SNES_ACTION_REFRESH | SNES_ACTION_SETTINGS;
+  frame(); assert(clear_frames.empty()); // Settings has priority across sources.
 }

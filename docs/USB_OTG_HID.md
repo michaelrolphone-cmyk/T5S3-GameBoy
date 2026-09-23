@@ -47,6 +47,12 @@ The separate XInput provider has normalized Start=0x200 and
 Select=0x100; 0x40/0x80 remain triggers there. Gamepad Test retains raw hexadecimal
 readings and labels the buttons for the active ELF input protocol.
 
+In the ELF, **Start+Select** performs a full white/black/white panel clear and
+redraw of the current page, exactly like the hardware BOOT button. It triggers
+once per press and consumes both buttons until release. For Settings, hold
+**L+R** first, then add **Start+Select**; the complete four-button chord takes
+priority over redraw and other shortcuts.
+
 ## Acceptance checks
 
 Flash a PR CI firmware artifact, boot from a charged battery without a charger and connect a keyboard through the host adapter. Verify `battery: USB VBUS source verified` and `usb_input: USB keyboard active interface=...`, then use arrow/WASD, Enter/Escape in Settings and the ROM list, Z/X in-game, C/V turbo, F5/F9 save/load, F6/F7 brightness and F1/F2 settings/rotation. Check both left/right Ctrl for shortcuts, keypad and the F10/F11 alternatives. Press/release several keys, unplug while holding Up, reinsert and confirm no stuck key or repeated action. Repeat with the gamepad receiver; verify SD, touchscreen, SNES Mini and battery management remain functional. If the keyboard does not enumerate, inspect VID/PID, candidate-interface and report-protocol diagnostics before assuming a power failure. A passing CI build/test does not measure VBUS or verify specific physical keyboard hardware.
