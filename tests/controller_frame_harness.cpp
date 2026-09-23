@@ -17,11 +17,23 @@ static unsigned full_compositions, game_compositions, full_submissions, saves, l
 static unsigned brightness_updates, settings_requests;
 static bool touch_ok = true, power_on = true, submit_ok = true, landscape;
 static PaperboyPage page = PaperboyPage::Game;
+static PaperboyPage next_page = PaperboyPage::Game;
 static touch_state_t touch{};
 static PaperboyBatteryStatus battery{};
 static uint8_t buffer[1], g_game_frame[1];
 static int compose_timing, draw_timing, flip_timing;
 static struct { uint32_t draw_us; } frame_stats{};
+static int game_frame_pacer;
+static unsigned page_changes;
+static bool audio_paused;
+constexpr const char *kTag = "frame-test";
+template<typename... Args> static void test_log(Args...) {}
+#define ESP_LOGI test_log
+bool battery_read_status(PaperboyBatteryStatus &) { return true; }
+void usb_hid_gamepad_test_active(bool) {}
+static void audio_set_paused(bool paused) { audio_paused = paused; }
+void paperboy_ui_on_page_changed() { ++page_changes; }
+static void reset_game_frame_pacer(int &) {}
 constexpr uint8_t kPanelBufferCount = 2;
 constexpr int kGameDirtyY = PAPERBOY_LOGICAL_WIDTH - PAPERBOY_GAME_X - GBEMU_FRAME_WIDTH;
 constexpr int kGameDirtyHeight = GBEMU_FRAME_WIDTH;
@@ -52,6 +64,7 @@ static uint8_t frame() {
   if (actions & PAPERBOY_ACTION_SAVE) ++saves;
   if (actions & PAPERBOY_ACTION_LOAD) ++loads;
   if (actions & PAPERBOY_ACTION_SETTINGS) ++settings_requests;
+  // FRAME_PAGE_TRANSITION
   // FRAME_RENDER
   last_buttons = buttons;
   last_touch_buttons = touch_mask;
@@ -84,6 +97,12 @@ int main() {
   shortcuts = SNES_ACTION_LOAD; frame(); assert(loads == 1);
   shortcuts = SNES_ACTION_SETTINGS; frame(); assert(settings_requests == 1);
   assert(saves == 1 && loads == 1);
-  shortcuts = 0; page = PaperboyPage::Settings; menu_action = PAPERBOY_ACTION_REFRESH;
+  shortcuts = 0; page = next_page = PaperboyPage::Settings; menu_action = PAPERBOY_ACTION_REFRESH;
   assert(frame() == 0 && full_scene_syncs == 1);
+  // Menu confirmation/back keys cannot leak into gameplay on a page switch.
+  menu_action = 0; next_page = PaperboyPage::Game; pad = GBEMU_INPUT_B;
+  assert(frame() == 0 && page == PaperboyPage::Game && !audio_paused);
+  next_page = PaperboyPage::Settings; pad = GBEMU_INPUT_A;
+  assert(frame() == 0 && page == PaperboyPage::Settings && audio_paused);
+  assert(page_changes == 2 && full_scene_syncs == 1);
 }

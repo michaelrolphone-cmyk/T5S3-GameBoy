@@ -1498,7 +1498,7 @@ void run_console(void *unused) {
         snes_mini_controller_navigation_buttons(), page, now_ms);
     const uint8_t touch_buttons = page == PaperboyPage::Game && touch_ok
         ? paperboy_ui_map_buttons(&touch) : 0U;
-    const uint8_t buttons = page == PaperboyPage::Game
+    uint8_t buttons = page == PaperboyPage::Game
         ? (touch_buttons | (paperboy_ui_controller_ready() ? controller_buttons : 0U))
         : 0U;
     uint32_t actions = touch_ok ? paperboy_ui_map_actions(&touch, page) : 0U;
