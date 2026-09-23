@@ -38,6 +38,7 @@ SECTIONS
   }
   .data : ALIGN(16)
   {
+    __app_data_start = .;
     __app_init_array_start = .;
     KEEP(*(SORT_BY_INIT_PRIORITY(.init_array.*)))
     KEEP(*(.init_array))
@@ -54,7 +55,7 @@ SECTIONS
     __app_dtors_end = .;
     *(.got .got.*)
     *(.data .data.* .gnu.linkonce.d.*)
-    . = ALIGN(16);
+    . = __app_data_start + ALIGN(. - __app_data_start, 16);
   }
   .data.rel.ro : ALIGN(16)
   {
