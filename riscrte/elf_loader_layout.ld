@@ -59,8 +59,9 @@ SECTIONS
   }
   .data.rel.ro : ALIGN(16)
   {
+    __app_relro_start = .;
     *(.data.rel.ro.local* .gnu.linkonce.d.rel.ro.local.*)
     *(.data.rel.ro .data.rel.ro.* .gnu.linkonce.d.rel.ro.*)
-    . = ALIGN(16);
+    . = __app_relro_start + ALIGN(. - __app_relro_start, 16);
   }
 } INSERT BEFORE .dynamic;
