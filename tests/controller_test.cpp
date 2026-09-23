@@ -118,19 +118,4 @@ int main() {
   assert(nav(GBEMU_INPUT_A, PaperboyPage::Settings, 1760) == PAPERBOY_ACTION_SD_CARD);
   nav(GBEMU_INPUT_UP, PaperboyPage::Settings, 1770);
   assert(nav(GBEMU_INPUT_A, PaperboyPage::Settings, 1780) == PAPERBOY_ACTION_BATTERY);
-  nav(0, PaperboyPage::Settings, 1800);
-  nav(GBEMU_INPUT_UP, PaperboyPage::Settings, 1810); // Wrap to Display.
-  assert(paperboy_ui_controller_selection() == 4);
-  assert(nav(GBEMU_INPUT_A, PaperboyPage::Settings, 1820) == PAPERBOY_ACTION_DISPLAY);
-  paperboy_ui_controller_page_changed();
-  assert(nav(GBEMU_INPUT_A, PaperboyPage::Display, 1830) == 0);
-  nav(0, PaperboyPage::Display, 1840);
-  assert(nav(GBEMU_INPUT_RIGHT, PaperboyPage::Display, 1850) == PAPERBOY_ACTION_FPS_UP);
-  assert(nav(GBEMU_INPUT_RIGHT, PaperboyPage::Display, 1860) == 0);
-  nav(0, PaperboyPage::Display, 1870);
-  assert(nav(GBEMU_INPUT_LEFT, PaperboyPage::Display, 1880) == PAPERBOY_ACTION_FPS_DOWN);
-  nav(0, PaperboyPage::Display, 1890);
-  assert(nav(GBEMU_INPUT_LEFT | GBEMU_INPUT_RIGHT, PaperboyPage::Display, 1900) == 0);
-  assert(nav(GBEMU_INPUT_A, PaperboyPage::Display, 1910) == PAPERBOY_ACTION_FPS_DEFAULT);
-  assert(nav(GBEMU_INPUT_B, PaperboyPage::Display, 1920) == PAPERBOY_ACTION_BACK);
 }

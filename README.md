@@ -14,7 +14,7 @@ A portrait-mode touchscreen Game Boy emulator for the [LilyGO T5S3-4.7-e-paper-P
 - SD ROM library with sorted scanning of the card root and one subdirectory level. It recognizes `.gb` and `.gbc` files larger than 0 bytes and no larger than 4 MiB, and lists up to 64 ROMs.
 - Library controls for previous/next selection, launching a ROM, restoring the last ROM, changing the sound engine, and rescanning the card.
 - Persistent cartridge SRAM/RTC in a companion `.sav` file and a versioned full emulator snapshot in a companion `.state` file.
-- `/paperboy.cfg` on the SD card remembers the last launched ROM, selected sound engine and display FPS target.
+- `/paperboy.cfg` on the SD card remembers the last launched ROM and selected sound engine.
 - Three runtime sound modes: PCM, POLY, and MUTE. PCM and POLY use LEDC PWM on a configurable external-audio GPIO.
 - T5S3 EPD double buffering and real-time partial refresh, preserved from this project's hardware implementation.
 - BQ27220 fuel-gauge and BQ25896 charge-management pages, home-screen battery status, and a prominent low-battery warning with 3500/3600 mV hysteresis.
@@ -46,16 +46,6 @@ Open **Settings > SD Card** to use the library:
 
 The scanner is intentionally limited to 64 entries and does not recurse below the first subdirectory level. Extension checks are case-insensitive. A ROM must be larger than 0 bytes and no larger than 4 MiB (4,194,304 bytes); zero-length and oversized files are ignored and do not consume a catalog entry. A `.gbc` extension does not imply full Game Boy Color support: only ROMs that can run in DMG compatibility mode are supported. GBC-only games are not supported.
 
-## Display Frame Rate
-
-Open **Settings > Display** to choose a target of **24, 30, 36, 42 or 48 FPS**.
-The default is **24 FPS**, including existing configurations without this setting.
-Tap **- / +**, or use controller **Left / Right**, to adjust; **Default** or
-controller **A** restores 24 FPS, and **B** returns to Settings. Changes apply
-immediately and save as `display_fps` in `paperboy.cfg` when SD is available.
-The target controls display scanning; actual FPS depends on processing time.
-Higher settings allow consecutive game frames to be rendered while retaining
-normal emulation speed, the existing bus clock and three pixel-drive passes.
 ## Saves And Snapshots
 
 For an SD-loaded ROM named `game.gb` or `game.gbc`, the game-screen `SAVE` action writes files beside that ROM:

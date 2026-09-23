@@ -101,29 +101,6 @@ with tempfile.TemporaryDirectory() as tmp:
     subprocess.run([str(binary)], check=True, timeout=10)
 print('1,200 controller frames: no incidental full-screen repaints; touch, shortcuts and hardware-equivalent redraw: PASS')
 
-# Exercise runtime FPS changes, the real scan pacer and render eligibility.
-with tempfile.TemporaryDirectory() as tmp:
-    target = Path(tmp)
-    stage(target)
-    staged = (target / 'main.cpp').read_text()
-    epd = (target / 'epd_video.cpp').read_text()
-    accessors = 'uint8_t epd_video_target_fps()' + epd.split('uint8_t epd_video_target_fps()', 1)[1].split('void epd_video_shutdown()', 1)[0]
-    scan_pacer = 'void sleep_to_target_frame(' + epd.split('void sleep_to_target_frame(', 1)[1].split('void scan_task(', 1)[0]
-    render_policy = 'const bool render_due =' + staged.split('const bool render_due =', 1)[1].split('gbemu_frame_stats_t frame_stats', 1)[0]
-    setting = staged.split('    // Display setting:', 1)[1].split('    if ((actions & PAPERBOY_ACTION_SD_RESCAN)', 1)[0]
-    setting = setting[setting.index('    if (page == PaperboyPage::Display'):]
-    harness = (ROOT / 'tests/display_timing_harness.cpp').read_text()
-    source = target / 'display_timing.cpp'
-    source.write_text(harness.replace('// FPS_ACCESSORS', accessors)
-                      .replace('// SCAN_PACER', scan_pacer)
-                      .replace('// RENDER_POLICY', render_policy)
-                      .replace('// DISPLAY_SETTING', setting))
-    binary = target / 'display_timing'
-    subprocess.run(['c++', '-std=c++11', '-Wall', '-Wextra', '-Werror',
-                    '-I' + str(ROOT / 'src'), str(source), '-o', str(binary)], check=True)
-    subprocess.run([str(binary)], check=True, timeout=10)
-print('24 FPS default, live 30-48 FPS settings, rendering backpressure and scan-task yield: PASS')
-
 # Execute the real frame pacer with an overdue emulated frame. The ELF must
 # give blocked owner/USB work and idle tasks an opportunity to run even when
 # no frame time remains; standalone has its own higher-priority USB tasks.

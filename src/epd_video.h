@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <stdint.h>
-#include "paperboy_display_settings.h"
 
 class Pca9535Min;
 
@@ -16,6 +15,4 @@ bool epd_video_submit(uint16_t dirty_y, uint16_t dirty_height);
 bool epd_video_can_submit();
 bool epd_video_submit_pending();
 uint32_t epd_video_get_vsync_count();
-uint8_t epd_video_target_fps();
-bool epd_video_set_target_fps(uint8_t fps);
 void epd_video_shutdown();

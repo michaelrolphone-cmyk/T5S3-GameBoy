@@ -202,7 +202,6 @@ bool append_extension(const char *path, const char *extension, bool replace,
 
 bool valid_config(const PaperboyStorageConfig &config) {
   return config.audio_engine < PAPERBOY_STORAGE_AUDIO_ENGINE_COUNT &&
-      paperboy_display_fps_valid(config.display_fps) &&
       (config.last_rom[0] == '\0' ||
        (valid_file_path(config.last_rom) && has_rom_extension(config.last_rom)));
 }
@@ -447,11 +446,6 @@ bool paperboy_storage_read_config(PaperboyStorageConfig &config) {
         set_error(PaperboyStorageError::ConfigInvalid); return false;
       }
       parsed.audio_engine = static_cast<uint8_t>(value);
-    } else if (strncmp(line, "display_fps=", 12U) == 0) {
-      char *end = nullptr;
-      const long value = strtol(line + 12U, &end, 10);
-      parsed.display_fps = end != line + 12U && *end == '\0' && paperboy_display_fps_valid(value)
-          ? static_cast<uint8_t>(value) : PAPERBOY_DISPLAY_FPS_DEFAULT;
     }
   }
   if (!valid_config(parsed)) { set_error(PaperboyStorageError::ConfigInvalid); return false; }
@@ -462,12 +456,10 @@ bool paperboy_storage_read_config(PaperboyStorageConfig &config) {
 
 bool paperboy_storage_write_config(const PaperboyStorageConfig &config) {
   if (!require_mounted() || !valid_config(config)) { set_error(PaperboyStorageError::ConfigInvalid); return false; }
-  char content[PAPERBOY_STORAGE_PATH_MAX + 64U];
+  char content[PAPERBOY_STORAGE_PATH_MAX + 40U];
   const int count = config.last_rom[0]
-      ? snprintf(content, sizeof(content), "last_rom=%s\naudio_engine=%u\ndisplay_fps=%u\n",
-                 config.last_rom, (unsigned)config.audio_engine, (unsigned)config.display_fps)
-      : snprintf(content, sizeof(content), "audio_engine=%u\ndisplay_fps=%u\n",
-                 (unsigned)config.audio_engine, (unsigned)config.display_fps);
+      ? snprintf(content, sizeof(content), "last_rom=%s\naudio_engine=%u\n", config.last_rom, (unsigned)config.audio_engine)
+      : snprintf(content, sizeof(content), "audio_engine=%u\n", (unsigned)config.audio_engine);
   if (count < 0 || static_cast<size_t>(count) >= sizeof(content)) {
     set_error(PaperboyStorageError::ConfigInvalid); return false;
   }

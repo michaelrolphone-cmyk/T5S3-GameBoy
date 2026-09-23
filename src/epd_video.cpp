@@ -88,7 +88,6 @@ volatile bool g_drive_pending = false;
 volatile uint8_t g_front_index = 0;
 volatile uint32_t g_vsync_count = 0;
 volatile uint32_t g_submit_count = 0;
-uint8_t g_target_fps = PAPERBOY_DISPLAY_FPS_DEFAULT;
 uint16_t g_pending_dirty_start = 0;
 uint16_t g_pending_dirty_end = t5s3_epd::kActiveHeight - 1;
 
@@ -512,13 +511,11 @@ uint8_t *prepare_scan_row(
 }
 
 void sleep_to_target_frame(int64_t frame_start_us) {
-  const uint8_t target_fps = epd_video_target_fps();
-  // A faster target may use the whole scan budget. Keep core 1's idle task
-  // schedulable even when row processing cannot achieve the requested rate.
-  if (target_fps > PAPERBOY_DISPLAY_FPS_DEFAULT) vTaskDelay(1);
-  // The period fits in 32 bits; avoid an unexported signed 64-bit division
-  // helper when this source is linked as a RiscRTE ELF.
-  const int64_t target_us = 1000000U / target_fps;
+  if (TARGET_FPS <= 0) {
+    return;
+  }
+
+  const int64_t target_us = 1000000LL / TARGET_FPS;
   while (true) {
     const int64_t elapsed_us = esp_timer_get_time() - frame_start_us;
     const int64_t remaining_us = target_us - elapsed_us;
@@ -541,7 +538,7 @@ void scan_task(void *unused) {
       kTag,
       "raw scan task started on core %d, target=%d fps, active=%ux%u",
       xPortGetCoreID(),
-      epd_video_target_fps(),
+      TARGET_FPS,
       t5s3_epd::kActiveWidth,
       t5s3_epd::kActiveHeight);
 
@@ -848,21 +845,6 @@ bool epd_video_submit_pending() {
 
 uint32_t epd_video_get_vsync_count() {
   return g_vsync_count;
-}
-
-uint8_t epd_video_target_fps() {
-  portENTER_CRITICAL(&g_buffer_lock);
-  const uint8_t fps = g_target_fps;
-  portEXIT_CRITICAL(&g_buffer_lock);
-  return fps;
-}
-
-bool epd_video_set_target_fps(uint8_t fps) {
-  if (!paperboy_display_fps_valid(fps)) return false;
-  portENTER_CRITICAL(&g_buffer_lock);
-  g_target_fps = fps;
-  portEXIT_CRITICAL(&g_buffer_lock);
-  return true;
 }
 
 void epd_video_shutdown() {

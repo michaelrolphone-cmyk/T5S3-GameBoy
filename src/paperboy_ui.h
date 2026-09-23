@@ -27,10 +27,6 @@ enum {
   PAPERBOY_ACTION_SD_RESCAN = 1U << 15,
   PAPERBOY_ACTION_ROTATE = 1U << 19,
   PAPERBOY_ACTION_GAMEPAD_TEST = 1U << 20,
-  PAPERBOY_ACTION_DISPLAY = 1U << 21,
-  PAPERBOY_ACTION_FPS_DOWN = 1U << 22,
-  PAPERBOY_ACTION_FPS_UP = 1U << 23,
-  PAPERBOY_ACTION_FPS_DEFAULT = 1U << 24,
 };
 
 enum class PaperboyPage : uint8_t {
@@ -40,7 +36,6 @@ enum class PaperboyPage : uint8_t {
   SdCard,
   About,
   GamepadTest,
-  Display,
 };
 
 static constexpr uint16_t PAPERBOY_LOGICAL_WIDTH = 540;

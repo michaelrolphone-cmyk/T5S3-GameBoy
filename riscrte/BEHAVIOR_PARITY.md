@@ -86,23 +86,3 @@ Regression tests cover HID and XInput press/release orders, redraw-to-Settings
 transitions, and the actual staged hardware/controller refresh code. The latter
 verifies the clear sequence, both panel buffers, frame-pacer reset, gameplay/menu
 routing and a single clear for simultaneous BOOT/controller requests.
-
-### Adjustable display FPS (1.2.27)
-
-Settings > Display selects 24, 30, 36, 42 or 48 FPS through touch controls or
-controller Left/Right. Default/A restores 24 FPS. The setting applies immediately
-and persists in `paperboy.cfg` through the existing owner-task storage path.
-Missing or invalid FPS values select 24 without discarding the ROM/audio settings.
-
-The default preserves the existing scan pacing and alternate-frame rendering.
-Above 24, consecutive emulated frames can render whenever the display accepts
-them. Emulator clock pacing remains unchanged. The scan task blocks for one tick
-in faster modes even if processing exceeds its budget, leaving the core's idle
-task schedulable. The 26.6 MHz bus clock, row timings and three drive passes remain
-unchanged. These are target rates; achieved speed and image quality need hardware
-testing.
-
-Native tests execute the real FPS setters, scan pacer, rendering eligibility and
-Settings action handler. They cover defaults, limits, live changes, restoration,
-display backpressure and over-budget yielding. Touch/controller navigation and
-owner-task configuration tests cover all five presets and legacy/invalid values.

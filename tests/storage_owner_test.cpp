@@ -58,8 +58,6 @@ const t5_storage_api_v1 *t5_storage_get_api(uint32_t) { authorized(); return &st
 int main() {
   owner = xTaskGetCurrentTaskHandle();
   files["/sd/test.gb"] = std::vector<unsigned char>(32768, 0xA5);
-  const std::string legacy_config = "last_rom=/test.gb\naudio_engine=1\n";
-  files["/sd/paperboy.cfg"] = std::vector<unsigned char>(legacy_config.begin(), legacy_config.end());
   paperboy_storage_bind_host(); assert(paperboy_storage_begin());
   std::thread worker([] {
     assert(paperboy_storage_begin());
@@ -76,28 +74,10 @@ int main() {
       char readback[64]; assert(paperboy_storage_read_blob(path, readback, sizeof(readback), size));
       assert(size == sizeof(save) && !memcmp(save, readback, size));
     }
-    PaperboyStorageConfig config;
-    assert(config.display_fps == 24);
-    assert(paperboy_storage_read_config(config));
-    assert(config.display_fps == 24 && config.audio_engine == 1);
-    assert(!strcmp(config.last_rom, "/test.gb"));
-    for (unsigned fps : {24u, 30u, 36u, 42u, 48u}) {
-      config.display_fps = fps;
-      assert(paperboy_storage_write_config(config));
-      PaperboyStorageConfig restored; assert(paperboy_storage_read_config(restored));
-      assert(!strcmp(config.last_rom, restored.last_rom) && restored.audio_engine == 1);
-      assert(restored.display_fps == fps);
-    }
-    config.display_fps = 255;
-    assert(!paperboy_storage_write_config(config));
-    assert(paperboy_storage_last_error() == PaperboyStorageError::ConfigInvalid);
-    for (const char *value : {"0", "23", "25", "49", "256", "-1", "48junk", ""}) {
-      const std::string malformed = std::string("last_rom=/test.gb\naudio_engine=1\ndisplay_fps=") + value + "\n";
-      files["/sd/paperboy.cfg"] = std::vector<unsigned char>(malformed.begin(), malformed.end());
-      assert(paperboy_storage_read_config(config));
-      assert(config.display_fps == 24 && config.audio_engine == 1);
-      assert(!strcmp(config.last_rom, "/test.gb"));
-    }
+    PaperboyStorageConfig config; strcpy(config.last_rom, "/test.gb"); config.audio_engine = 1;
+    assert(paperboy_storage_write_config(config));
+    PaperboyStorageConfig restored; assert(paperboy_storage_read_config(restored));
+    assert(!strcmp(config.last_rom, restored.last_rom) && restored.audio_engine == 1);
     fail_write = true;
     assert(!paperboy_storage_write_blob_atomic("/test.gb.sav", save, sizeof(save)));
     assert(paperboy_storage_last_error() == PaperboyStorageError::WriteFailed);
@@ -111,7 +91,7 @@ int main() {
   // An early/unrelated notification must not finish the owner wait.
   xTaskNotifyGive(owner);
   paperboy_storage_owner_wait(); worker.join();
-  assert(save_writes == 8 && serial_writes > 0 && closes > 4 && !opened);
+  assert(save_writes == 4 && serial_writes > 0 && closes > 4 && !opened);
   const unsigned before = writes;
   for (unsigned i = 0; i < 40; ++i) paperboy_storage_hid_diagnostic("Keyboard connection state");
   assert(writes == before); // No SD transaction inside report/poll callbacks.

@@ -859,7 +859,6 @@ bool write_current_config() {
     return false;
   }
   g_storage_config.audio_engine = static_cast<uint8_t>(audio_get_engine());
-  g_storage_config.display_fps = epd_video_target_fps();
   if (current_rom_is_from_sd()) {
     copy_text(
         g_storage_config.last_rom,
@@ -1229,7 +1228,6 @@ bool rescan_storage() {
   } else {
     paperboy_storage_default_config(g_storage_config);
   }
-  (void)epd_video_set_target_fps(g_storage_config.display_fps);
   refresh_current_snapshot_availability();
   refresh_last_snapshot_availability();
 
@@ -1676,25 +1674,6 @@ void run_console(void *unused) {
           audio_engine_name(next_engine), config_written ? "" : " (CONFIG FAILED)");
       full_scene_syncs = kPanelBufferCount;
     }
-    // Display setting: preserve the current 24 FPS mode until explicitly changed.
-    if (page == PaperboyPage::Display &&
-        (actions & (PAPERBOY_ACTION_FPS_DOWN | PAPERBOY_ACTION_FPS_UP | PAPERBOY_ACTION_FPS_DEFAULT))) {
-      const uint8_t previous_fps = epd_video_target_fps();
-      int next_fps = previous_fps;
-      if (actions & PAPERBOY_ACTION_FPS_DEFAULT) next_fps = PAPERBOY_DISPLAY_FPS_DEFAULT;
-      else if ((actions & (PAPERBOY_ACTION_FPS_DOWN | PAPERBOY_ACTION_FPS_UP)) == PAPERBOY_ACTION_FPS_UP)
-        next_fps += PAPERBOY_DISPLAY_FPS_STEP;
-      else if ((actions & (PAPERBOY_ACTION_FPS_DOWN | PAPERBOY_ACTION_FPS_UP)) == PAPERBOY_ACTION_FPS_DOWN)
-        next_fps -= PAPERBOY_DISPLAY_FPS_STEP;
-      if (paperboy_display_fps_valid(next_fps) && next_fps != previous_fps &&
-          epd_video_set_target_fps(static_cast<uint8_t>(next_fps))) {
-        g_storage_config.display_fps = static_cast<uint8_t>(next_fps);
-        if (g_storage_ready && !write_current_config()) set_notice("FPS CONFIG SAVE FAILED", 4000U);
-        skipped_since_render = 0;
-        reset_game_frame_pacer(game_frame_pacer);
-        full_scene_syncs = kPanelBufferCount;
-      }
-    }
     if ((actions & PAPERBOY_ACTION_SD_RESCAN) != 0U &&
         page == PaperboyPage::SdCard) {
       (void)rescan_storage();
@@ -1746,8 +1725,6 @@ void run_console(void *unused) {
     }
     if ((actions & PAPERBOY_ACTION_GAMEPAD_TEST) != 0U && page == PaperboyPage::Settings)
       next_page = PaperboyPage::GamepadTest;
-    if ((actions & PAPERBOY_ACTION_DISPLAY) != 0U && page == PaperboyPage::Settings)
-      next_page = PaperboyPage::Display;
     if ((actions & PAPERBOY_ACTION_REFRESH) != 0U && page == PaperboyPage::Battery) {
       const bool ok = battery_read_status(battery);
       ESP_LOGI(kTag, "battery refresh %s soc=%u voltage=%u", ok ? "ok" : "failed",
@@ -1801,7 +1778,6 @@ void run_console(void *unused) {
 
       const bool render_due =
           full_scene_syncs > 0U ||
-          epd_video_target_fps() > PAPERBOY_DISPLAY_FPS_DEFAULT ||
           skipped_since_render >= kMinSkippedFramesBetweenRenders;
       const bool skip_render = !render_due || !epd_video_can_submit();
       gbemu_frame_stats_t frame_stats = {};
@@ -1999,7 +1975,6 @@ void setup() {
   } else if (!g_storage_ready) {
     copy_text(g_library_status, sizeof(g_library_status), "SD NOT MOUNTED - BUILTIN ROM");
   }
-  (void)epd_video_set_target_fps(g_storage_config.display_fps);
   audio_set_engine(static_cast<audio_engine_t>(g_storage_config.audio_engine));
   audio_init();
   refresh_last_snapshot_availability();

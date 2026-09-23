@@ -40,22 +40,13 @@ uint32_t paperboy_ui_map_controller(uint8_t buttons, PaperboyPage page, uint32_t
     move = true;
   }
   if (page == PaperboyPage::Settings) {
-    if (move) selection = (selection + (held == GBEMU_INPUT_UP ? 4U : 1U)) % 5U;
+    if (move) selection = (selection + (held == GBEMU_INPUT_UP ? 3U : 1U)) % 4U;
     if (rising & GBEMU_INPUT_A) {
       const uint32_t options[] = {PAPERBOY_ACTION_BATTERY, PAPERBOY_ACTION_SD_CARD,
-                                  PAPERBOY_ACTION_ABOUT, PAPERBOY_ACTION_GAMEPAD_TEST,
-                                  PAPERBOY_ACTION_DISPLAY};
+                                  PAPERBOY_ACTION_ABOUT, PAPERBOY_ACTION_GAMEPAD_TEST};
       return options[selection];
     }
     return move ? static_cast<uint32_t>(PAPERBOY_ACTION_REFRESH) : 0U;
-  }
-  if (page == PaperboyPage::Display) {
-    if (rising & GBEMU_INPUT_A) return PAPERBOY_ACTION_FPS_DEFAULT;
-    const uint8_t horizontal = buttons & (GBEMU_INPUT_LEFT | GBEMU_INPUT_RIGHT);
-    if (horizontal == GBEMU_INPUT_LEFT && (rising & GBEMU_INPUT_LEFT))
-      return PAPERBOY_ACTION_FPS_DOWN;
-    if (horizontal == GBEMU_INPUT_RIGHT && (rising & GBEMU_INPUT_RIGHT))
-      return PAPERBOY_ACTION_FPS_UP;
   }
   if (page == PaperboyPage::SdCard) {
     if (rising & GBEMU_INPUT_A) return PAPERBOY_ACTION_ROM_LAUNCH;
