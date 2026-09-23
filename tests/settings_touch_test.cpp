@@ -30,4 +30,18 @@ int main() {
          PAPERBOY_ACTION_GAMEPAD_TEST);
   paperboy_ui_on_page_changed();
   assert(paperboy_ui_map_actions(&touch, PaperboyPage::GamepadTest) == 0);
+  const auto tap = [&](PaperboyPage page, unsigned x, unsigned y, uint32_t action) {
+    touch.touched = false; touch.points = 0;
+    paperboy_ui_map_actions(&touch, page);
+    test_now += 150;
+    touch.touched = true; touch.points = 1; touch.x[0] = x; touch.y[0] = y;
+    assert(paperboy_ui_map_actions(&touch, page) == action);
+    assert(paperboy_ui_map_actions(&touch, page) == 0);
+  };
+  tap(PaperboyPage::Settings, 270, 770, PAPERBOY_ACTION_DISPLAY);
+  paperboy_ui_on_page_changed();
+  assert(paperboy_ui_map_actions(&touch, PaperboyPage::Display) == 0);
+  tap(PaperboyPage::Display, 140, 416, PAPERBOY_ACTION_FPS_DOWN);
+  tap(PaperboyPage::Display, 400, 416, PAPERBOY_ACTION_FPS_UP);
+  tap(PaperboyPage::Display, 270, 532, PAPERBOY_ACTION_FPS_DEFAULT);
 }

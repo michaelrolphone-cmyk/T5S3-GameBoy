@@ -425,7 +425,8 @@ void normalize_legacy_mount_path(char *path, size_t path_size) {
 }
 
 bool valid_config(const PaperboyStorageConfig &config) {
-  if (config.audio_engine >= PAPERBOY_STORAGE_AUDIO_ENGINE_COUNT) {
+  if (config.audio_engine >= PAPERBOY_STORAGE_AUDIO_ENGINE_COUNT ||
+      !paperboy_display_fps_valid(config.display_fps)) {
     return false;
   }
   return config.last_rom[0] == '\0' ||
@@ -710,6 +711,11 @@ bool paperboy_storage_read_config(PaperboyStorageConfig &config) {
         return false;
       }
       parsed.audio_engine = static_cast<uint8_t>(value);
+    } else if (strncmp(line, "display_fps=", 12U) == 0) {
+      char *end = nullptr;
+      const long value = strtol(line + 12U, &end, 10);
+      parsed.display_fps = end != line + 12U && *end == '\0' && paperboy_display_fps_valid(value)
+          ? static_cast<uint8_t>(value) : PAPERBOY_DISPLAY_FPS_DEFAULT;
     }
   }
 
@@ -732,19 +738,19 @@ bool paperboy_storage_write_config(const PaperboyStorageConfig &config) {
     return false;
   }
 
-  char content[PAPERBOY_STORAGE_PATH_MAX + 40U];
+  char content[PAPERBOY_STORAGE_PATH_MAX + 64U];
   const int written = config.last_rom[0] == '\0'
       ? snprintf(
             content,
             sizeof(content),
-            "audio_engine=%u\n",
-            static_cast<unsigned>(config.audio_engine))
+            "audio_engine=%u\ndisplay_fps=%u\n",
+            static_cast<unsigned>(config.audio_engine), static_cast<unsigned>(config.display_fps))
       : snprintf(
             content,
             sizeof(content),
-            "last_rom=%s\naudio_engine=%u\n",
+            "last_rom=%s\naudio_engine=%u\ndisplay_fps=%u\n",
             config.last_rom,
-            static_cast<unsigned>(config.audio_engine));
+            static_cast<unsigned>(config.audio_engine), static_cast<unsigned>(config.display_fps));
   if (written < 0 || static_cast<size_t>(written) >= sizeof(content)) {
     set_error(PaperboyStorageError::ConfigInvalid);
     return false;

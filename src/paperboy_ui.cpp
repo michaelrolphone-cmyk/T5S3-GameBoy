@@ -8,6 +8,7 @@
 
 #include "mono_canvas.h"
 #include "night_light.h"
+#include "epd_video.h"
 
 namespace {
 
@@ -57,6 +58,10 @@ constexpr Rect kBatteryRect = {30, 150, 480, 120};
 constexpr Rect kSdCardRect = {30, 290, 480, 120};
 constexpr Rect kAboutRect = {30, 430, 480, 120};
 constexpr Rect kGamepadRect = {30, 570, 480, 120};
+constexpr Rect kDisplayRect = {30, 710, 480, 120};
+constexpr Rect kFpsDownRect = {30, 380, 220, 72};
+constexpr Rect kFpsUpRect = {290, 380, 220, 72};
+constexpr Rect kFpsDefaultRect = {120, 500, 300, 64};
 constexpr Rect kRefreshRect = {170, 856, 200, 40};
 constexpr Rect kLightOffRect = {30, 778, 146, 56};
 constexpr Rect kLightDownRect = {196, 778, 146, 56};
@@ -82,7 +87,7 @@ constexpr int kButtonBY = 720;
 constexpr int kButtonRadius = 40;
 
 uint32_t g_last_action_mask = 0;
-uint32_t g_last_action_ms[21] = {0};
+uint32_t g_last_action_ms[25] = {0};
 bool g_ignore_actions_until_release = false;
 bool g_ignore_buttons_until_release = false;
 uint32_t g_rom_navigation_repeat_action = 0;
@@ -165,6 +170,11 @@ uint32_t current_action_mask(const touch_state_t *touch, PaperboyPage page) {
         mask |= PAPERBOY_ACTION_ABOUT;
       }
       if (point_in_rect(x, y, kGamepadRect)) mask |= PAPERBOY_ACTION_GAMEPAD_TEST;
+      if (point_in_rect(x, y, kDisplayRect)) mask |= PAPERBOY_ACTION_DISPLAY;
+    } else if (page == PaperboyPage::Display) {
+      if (point_in_rect(x, y, kFpsDownRect)) mask |= PAPERBOY_ACTION_FPS_DOWN;
+      if (point_in_rect(x, y, kFpsUpRect)) mask |= PAPERBOY_ACTION_FPS_UP;
+      if (point_in_rect(x, y, kFpsDefaultRect)) mask |= PAPERBOY_ACTION_FPS_DEFAULT;
     } else if (page == PaperboyPage::Battery) {
       if (point_in_rect(x, y, kRefreshRect)) {
         mask |= PAPERBOY_ACTION_REFRESH;
@@ -312,11 +322,27 @@ void draw_settings_menu(uint8_t *framebuffer) {
   draw_menu_item(framebuffer, kSdCardRect, "SD CARD", "ROM LIBRARY AND SAVE FILES");
   draw_menu_item(framebuffer, kAboutRect, "ABOUT SYSTEM", "DEVICE AND SOFTWARE INFO");
   draw_menu_item(framebuffer, kGamepadRect, "GAMEPAD TEST", "CONNECTION AND LIVE INPUT");
-  const Rect options[] = {kBatteryRect, kSdCardRect, kAboutRect, kGamepadRect};
+  draw_menu_item(framebuffer, kDisplayRect, "DISPLAY", "FRAME RATE");
+  const Rect options[] = {kBatteryRect, kSdCardRect, kAboutRect, kGamepadRect, kDisplayRect};
   const Rect &focus = options[paperboy_ui_controller_selection()];
   mono_draw_frame(framebuffer, kPitch, kWidth, kHeight,
                   focus.x - 7, focus.y - 7, focus.width + 14, focus.height + 14, 3, false);
-  draw_centered_text(framebuffer, 740, "UP/DOWN: SELECT   A: OPEN   B: BACK", 1);
+  draw_centered_text(framebuffer, 860, "UP/DOWN: SELECT   A: OPEN   B: BACK", 1);
+}
+
+void draw_display_page(uint8_t *framebuffer) {
+  draw_centered_text(framebuffer, 190, "TARGET FRAME RATE", 2);
+  char value[24];
+  snprintf(value, sizeof(value), "%u FPS", unsigned(epd_video_target_fps()));
+  draw_centered_text(framebuffer, 262, value, 5);
+  draw_button_box(framebuffer, kFpsDownRect, "- 6 FPS", false);
+  draw_button_box(framebuffer, kFpsUpRect, "+ 6 FPS", false);
+  draw_button_box(framebuffer, kFpsDefaultRect, "DEFAULT: 24 FPS", false);
+  draw_centered_text(framebuffer, 618, "24 / 30 / 36 / 42 / 48 FPS", 2);
+  draw_centered_text(framebuffer, 684, "CHANGES APPLY IMMEDIATELY", 1);
+  draw_centered_text(framebuffer, 716, "ACTUAL RATE DEPENDS ON DISPLAY WORK", 1);
+  draw_centered_text(framebuffer, 820, "LEFT/RIGHT: ADJUST   A: DEFAULT", 1);
+  draw_centered_text(framebuffer, 854, "B: BACK", 1);
 }
 
 void draw_gamepad_test(uint8_t *framebuffer, const UsbGamepadTestStatus *status) {
@@ -725,6 +751,10 @@ uint32_t paperboy_ui_map_actions(const touch_state_t *touch, PaperboyPage page) 
       kLightUpAction,
       PAPERBOY_ACTION_ROTATE,
       PAPERBOY_ACTION_GAMEPAD_TEST,
+      PAPERBOY_ACTION_DISPLAY,
+      PAPERBOY_ACTION_FPS_DOWN,
+      PAPERBOY_ACTION_FPS_UP,
+      PAPERBOY_ACTION_FPS_DEFAULT,
   };
   static_assert(sizeof(kActionBits) / sizeof(kActionBits[0]) ==
                     sizeof(g_last_action_ms) / sizeof(g_last_action_ms[0]),
@@ -894,6 +924,10 @@ void paperboy_ui_draw_page(
     case PaperboyPage::GamepadTest:
       draw_settings_header(framebuffer, "GAMEPAD TEST");
       draw_gamepad_test(framebuffer, gamepad);
+      break;
+    case PaperboyPage::Display:
+      draw_settings_header(framebuffer, "DISPLAY");
+      draw_display_page(framebuffer);
       break;
     case PaperboyPage::Game:
     default:

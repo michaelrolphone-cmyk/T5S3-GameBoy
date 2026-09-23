@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "paperboy_display_settings.h"
 
 static constexpr size_t PAPERBOY_STORAGE_MAX_ROMS = 64U;
 static constexpr size_t PAPERBOY_STORAGE_NAME_MAX = 128U;
@@ -45,6 +46,7 @@ struct PaperboyRomData {
 struct PaperboyStorageConfig {
   char last_rom[PAPERBOY_STORAGE_PATH_MAX] = {0};
   uint8_t audio_engine = 0;
+  uint8_t display_fps = PAPERBOY_DISPLAY_FPS_DEFAULT;
 };
 
 struct PaperboyStorageStatus {
