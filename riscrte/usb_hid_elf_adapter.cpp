@@ -285,17 +285,18 @@ void map_gamepad(const risc_usb_gamepad_state_v1 &state, bool synchronize = fals
       pad.up |= state.y < -threshold;
       pad.down |= state.y > threshold;
     }
-    pad.b = (state.buttons & (1UL << 0)) != 0;
-    pad.a = (state.buttons & (1UL << 1)) != 0;
-    pad.y = (state.buttons & (1UL << 2)) != 0;
-    pad.x = (state.buttons & (1UL << 3)) != 0;
+    // Raw receiver face buttons differ from XInput's normalized layout.
+    pad.a = (state.buttons & (xinput ? 0x02UL : 0x01UL)) != 0;
+    pad.b = (state.buttons & (xinput ? 0x01UL : 0x02UL)) != 0;
+    pad.x = (state.buttons & (xinput ? 0x08UL : 0x04UL)) != 0;
+    pad.y = (state.buttons & (xinput ? 0x04UL : 0x08UL)) != 0;
     pad.l = (state.buttons & (1UL << 4)) != 0;
     pad.r = (state.buttons & (1UL << 5)) != 0;
     // HID exposes raw Button usages. The tested eight-button receiver has
-    // Start=0x40, Select=0x80. XInput's normalized contract uses 0x200/0x100;
+    // Start=0x80, Select=0x40. XInput's normalized contract uses 0x200/0x100;
     // its 0x40/0x80 bits are triggers and must not become modifier buttons.
-    pad.start = (state.buttons & (xinput ? 0x200UL : 0x40UL)) != 0;
-    pad.select = (state.buttons & (xinput ? 0x100UL : 0x80UL)) != 0;
+    pad.start = (state.buttons & (xinput ? 0x200UL : 0x80UL)) != 0;
+    pad.select = (state.buttons & (xinput ? 0x100UL : 0x40UL)) != 0;
   }
   portENTER_CRITICAL(&g_input_lock);
   g_test.connected = state.connected;

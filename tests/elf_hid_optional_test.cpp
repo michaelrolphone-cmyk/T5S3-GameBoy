@@ -135,31 +135,40 @@ static void reported_receiver_test() {
     assert(usb_hid_gamepad_test_status().buttons == mask); // Raw display stays raw.
     assert(usb_hid_gamepad_test_status().compact_buttons);
   };
-  sample(0x40, GBEMU_INPUT_START, 0);
+  sample(0x80, GBEMU_INPUT_START, 0);
   sample(0, 0, 0);
-  sample(0x80, GBEMU_INPUT_SELECT, 0);
-  sample(0xA0, 0, SNES_ACTION_BRIGHTEN);
-  sample(0xA0, 0, 0); // No repeated brightness step while held.
-  sample(0x80, 0, 0);
-  sample(0x90, 0, SNES_ACTION_DIM);
+  sample(0x40, GBEMU_INPUT_SELECT, 0);
+  sample(0x60, 0, SNES_ACTION_BRIGHTEN);
+  sample(0x60, 0, 0); // No repeated brightness step while held.
+  sample(0x40, 0, 0);
+  sample(0x50, 0, SNES_ACTION_DIM);
   sample(0, 0, 0);
   sample(0x10, 0, 0); sample(0x20, 0, 0); sample(0, 0, 0);
-  sample(0x40, GBEMU_INPUT_START, 0);
-  sample(0x60, 0, SNES_ACTION_SAVE); sample(0x60, 0, 0);
-  sample(0x40, 0, 0);
-  sample(0x50, 0, SNES_ACTION_LOAD); sample(0, 0, 0);
+  sample(0x80, GBEMU_INPUT_START, 0);
+  sample(0xA0, 0, SNES_ACTION_SAVE); sample(0xA0, 0, 0);
+  sample(0x80, 0, 0);
+  sample(0x90, 0, SNES_ACTION_LOAD); sample(0, 0, 0);
   sample(0xC0, GBEMU_INPUT_START | GBEMU_INPUT_SELECT, 0);
   sample(0xD0, GBEMU_INPUT_START | GBEMU_INPUT_SELECT, 0);
   sample(0xF0, 0, SNES_ACTION_SETTINGS); sample(0xF0, 0, 0);
-  sample(0x70, 0, 0); sample(0x50, 0, 0); sample(0x10, 0, 0); sample(0, 0, 0);
-  sample(0x40, GBEMU_INPUT_START, 0); sample(0, 0, 0);
-  sample(0x02, GBEMU_INPUT_A, 0); sample(0, 0, 0);
-  sample(0x04, GBEMU_INPUT_B, 0); sample(0, 0, 0); // Y = turbo B.
-  sample(0x08, GBEMU_INPUT_A, 0); sample(0, 0, 0); // X = turbo A.
+  sample(0xB0, 0, 0); sample(0x90, 0, 0); sample(0x10, 0, 0); sample(0, 0, 0);
+  sample(0x80, GBEMU_INPUT_START, 0); sample(0, 0, 0);
+  sample(0x01, GBEMU_INPUT_A, 0);
+  assert(usb_hid_gamepad_navigation_buttons() == GBEMU_INPUT_A);
+  sample(0, 0, 0);
+  sample(0x02, GBEMU_INPUT_B, 0);
+  assert(usb_hid_gamepad_navigation_buttons() == GBEMU_INPUT_B);
+  sample(0, 0, 0);
+  sample(0x04, GBEMU_INPUT_A, 0); // X = turbo A, without menu navigation.
+  assert(usb_hid_gamepad_navigation_buttons() == 0);
+  sample(0, 0, 0);
+  sample(0x08, GBEMU_INPUT_B, 0); // Y = turbo B, without menu navigation.
+  assert(usb_hid_gamepad_navigation_buttons() == 0);
+  sample(0, 0, 0);
   sample(0x30, 0, SNES_ACTION_ROTATE, 2); sample(0, 0, 0);
   paperboy_usb_owner_end();
   allow_hid = false; xinput_state = {};
-  puts("Hardware-reported 40/80 Start/Select: provider snapshots and all shortcuts: PASS");
+  puts("Corrected receiver A/B, X/Y and 80/40 Start/Select: snapshots and all shortcuts: PASS");
 }
 int main() {
   reported_receiver_test();
@@ -215,13 +224,13 @@ int main() {
   risc_usb_gamepad_state_v1 state{};
   state.connected = 1; state.hat = 8;
   for (unsigned i = 0; i < 512; ++i) {
-    state.buttons = 2; map_gamepad(state);
+    state.buttons = 1; map_gamepad(state);
     state.buttons = 0; map_gamepad(state);
   }
   assert(usb_hid_gamepad_buttons() == 0);
   assert(usb_hid_gamepad_navigation_buttons() == 0);
   assert(usb_hid_gamepad_take_actions() == 0);
-  state.buttons = 2; state.hat = 2; map_gamepad(state);
+  state.buttons = 1; state.hat = 2; map_gamepad(state);
   assert(usb_hid_gamepad_buttons() == (GBEMU_INPUT_A | GBEMU_INPUT_RIGHT));
   test_now += 10000; // A held snapshot does not expire just because time passes.
   assert(usb_hid_gamepad_buttons() == (GBEMU_INPUT_A | GBEMU_INPUT_RIGHT));
@@ -233,18 +242,18 @@ int main() {
   assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
   state.buttons = 16; map_gamepad(state);
   assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
-  state.buttons = 16 | 64; map_gamepad(state);
+  state.buttons = 16 | 128; map_gamepad(state);
   assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == SNES_ACTION_LOAD);
   assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
-  state.buttons = 2; map_gamepad(state);
+  state.buttons = 1; map_gamepad(state);
   map_gamepad(risc_usb_gamepad_state_v1{});
   assert(usb_hid_gamepad_buttons() == 0);
   paperboy_usb_owner_end();
   // Exercise actual mapped HID and XInput snapshots, with each modifier
   // arriving before OR after its bumper, repeated taps, and staggered release.
   for (bool xinput : {false, true}) {
-    const unsigned select_mask = xinput ? 0x100u : 0x80u;
-    const unsigned start_mask = xinput ? 0x200u : 0x40u;
+    const unsigned select_mask = xinput ? 0x100u : 0x40u;
+    const unsigned start_mask = xinput ? 0x200u : 0x80u;
     for (unsigned modifier : {select_mask, start_mask}) {
       for (unsigned shoulder : {16u, 32u}) {
         for (bool modifier_first : {false, true}) {

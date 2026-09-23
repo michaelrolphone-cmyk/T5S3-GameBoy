@@ -15,7 +15,8 @@ struct UsbGamepadTestStatus {
   uint16_t vid, pid;
   char stage[48];
   char events[3][64];
-  // ELF HID receiver: usages 7/8 are Start/Select; other backends use 10/9.
+  // ELF HID receiver: usages 1-4 are A/B/X/Y, 7/8 are Select/Start.
+  // Other backends use B/A/Y/X and 9/10 for Select/Start.
   bool compact_buttons;
 };
 
