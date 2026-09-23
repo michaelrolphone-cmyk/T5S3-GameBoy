@@ -142,10 +142,10 @@ int main() {
   events[1] = {}; events[1].kind = 3; events[1].usage = 0x28;
   events[2] = {}; events[2].kind = 4; events[2].usage = 0x28;
   event_cursor = 0; event_count = 3;
-  fail_poll = true; // Events published before a later interface fails still count.
+  fail_poll = true; // Drain events, but never replay input from a failed poll.
   paperboy_usb_owner_poll();
-  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
-  assert(usb_hid_gamepad_navigation_buttons() & GBEMU_INPUT_A);
+  assert(usb_hid_gamepad_buttons() == 0);
+  assert(usb_hid_gamepad_navigation_buttons() == 0);
   assert(usb_hid_gamepad_buttons() == 0);
   fail_poll = false;
   events[0].kind = 2; event_cursor = 0; event_count = 1;
@@ -188,6 +188,19 @@ int main() {
   assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
   state.buttons = 0; map_gamepad(state, true);
   assert(usb_hid_gamepad_buttons() == 0);
+  // A blocked render used to replay all of these old presses over later
+  // frames. Expired transitions must catch up to the current released state.
+  for (unsigned tap = 0; tap < 8; ++tap) {
+    state.buttons = 2; map_gamepad(state);
+    state.buttons = 0; map_gamepad(state);
+  }
+  test_now += kInputQueueAgeMs;
+  assert(usb_hid_gamepad_buttons() == 0 && g_gamepad_count == 0);
+  assert(usb_hid_gamepad_take_actions() == 0);
+  state.buttons = 16; map_gamepad(state); // Old held left shoulder: no delayed load.
+  test_now += kInputQueueAgeMs;
+  assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
+  state.buttons = 0; map_gamepad(state, true);
   paperboy_usb_owner_end();
   // Arrow/Enter taps drained in one owner poll must reach menu navigation.
   for (auto usage : {0x51, 0x52, 0x28, 0x29}) {
@@ -211,6 +224,10 @@ int main() {
   assert(g_keyboard_count == 0);
   assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_DOWN);
   clear_keyboard();
+  accept_keyboard(held, true); clear_keyboard();
+  accept_keyboard(held, true); accept_keyboard(UsbHidKeyboardKeys{}, true);
+  test_now += kInputQueueAgeMs;
+  assert(usb_hid_gamepad_buttons() == 0 && g_keyboard_count == 0);
   puts("Keyboard quick menu taps, disconnect and overflow: PASS");
   allow_host = true;
   test_now = 30000;
@@ -317,10 +334,33 @@ int main() {
   // Generic HID retains its existing D-pad priority over analog movement.
   map_gamepad(xinput_events[1].state, true);
   assert(usb_hid_gamepad_buttons() == GBEMU_INPUT_RIGHT);
+  // Poll progress, not report traffic, keeps a held button alive. A quiet
+  // change-only receiver must not lose a valid hold after the watchdog period.
+  xinput_events[0] = xinput_events[1];
+  xinput_events[0].state.hat = 8; xinput_events[0].state.y = 0;
+  xinput_events[0].state.buttons = 2 | 16;
+  xinput_cursor = 0; xinput_count = 1; paperboy_usb_owner_poll();
+  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
+  assert(usb_hid_gamepad_take_actions() == SNES_ACTION_LOAD);
+  for (unsigned i = 0; i < 10; ++i) {
+    test_now += 100; paperboy_usb_owner_poll();
+    assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
+    assert(usb_hid_gamepad_take_actions() == 0);
+  }
+  test_now += kInputPollTimeoutMs; // Owner blocked; console can still sample.
+  assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
+  paperboy_usb_owner_poll();
+  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
+  assert(usb_hid_gamepad_take_actions() == 0); // Recovery is not another load.
+  xinput_poll_fail = true; // Failure with NO disconnect event still releases input.
+  paperboy_usb_owner_poll();
+  assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
+  xinput_poll_fail = false;
   paperboy_usb_owner_end(); paperboy_usb_owner_end();
   assert(xinput_unsubscriptions == 1 && releases == 2);
   puts("XInput-only grants, quick taps, HID coexistence, error disconnect and reconnect: PASS");
   puts("On-screen USB discovery, VID/PID, HID interface and stage: PASS");
   puts("Gamepad bursts, analog coalescing, disconnect and overflow recovery: PASS");
+  puts("Slow-consumer expiry, healthy quiet holds and stalled/failed polling release: PASS");
   puts("ELF absent API/denied optional HID and repeated teardown: PASS");
 }

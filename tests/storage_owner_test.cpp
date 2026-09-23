@@ -92,10 +92,12 @@ int main() {
   xTaskNotifyGive(owner);
   paperboy_storage_owner_wait(); worker.join();
   assert(save_writes == 4 && serial_writes > 0 && closes > 4 && !opened);
+  const unsigned before = writes;
   for (unsigned i = 0; i < 40; ++i) paperboy_storage_hid_diagnostic("Keyboard connection state");
-  assert(hid_writes == 32); // The short HID trace remains bounded.
+  assert(writes == before); // No SD transaction inside report/poll callbacks.
+  paperboy_storage_end(); // Final flush persists the bounded trace in one write.
+  assert(hid_writes == 1);
   assert(files["/sd/gameboy-hid.log"].size() < 4096);
   assert(files["/sd/serial.log"].size() <= 16384);
-  paperboy_storage_end();
   puts("PASS: owner-only ROM/rescan/config/save/state I/O and failure cleanup");
 }

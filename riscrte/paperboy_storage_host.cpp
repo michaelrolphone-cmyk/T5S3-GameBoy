@@ -40,6 +40,10 @@ char g_serial_log[kSerialLogBytes] = {};
 size_t g_serial_used = 0;
 bool g_serial_dirty = false;
 uint32_t g_serial_last_flush = 0;
+char g_hid_trace[4096] = {};
+size_t g_hid_used = 0;
+unsigned g_hid_entries = 0;
+bool g_hid_dirty = false;
 
 void serial_append(const char *message) {
   if (!message || !g_status.mounted || !g_storage) return;
@@ -62,11 +66,13 @@ void serial_append(const char *message) {
 }
 
 void serial_flush(bool force = false) {
-  if (!g_serial_dirty || !g_storage || !g_status.mounted ||
+  if ((!g_serial_dirty && !g_hid_dirty) || !g_storage || !g_status.mounted ||
       (!force && uint32_t(millis() - g_serial_last_flush) < 1000U)) return;
   g_serial_last_flush = millis();
-  if (g_storage->write_file_atomic("/sd/serial.log", g_serial_log, g_serial_used))
+  if (g_serial_dirty && g_storage->write_file_atomic("/sd/serial.log", g_serial_log, g_serial_used))
     g_serial_dirty = false;
+  if (g_hid_dirty && g_storage->write_file_atomic("/sd/gameboy-hid.log", g_hid_trace, g_hid_used))
+    g_hid_dirty = false;
 }
 
 template <typename Function>
@@ -506,21 +512,18 @@ bool paperboy_storage_write_blob_atomic(const char *path, const void *data, size
   return true;
 }
 
-// Called by HID only on the app owner. Keep a bounded launch trace on SD so
-// connection failures remain inspectable while the USB port holds a keyboard.
+// Called by HID only on the app owner. Buffer diagnostics here; synchronous
+// atomic SD writes between controller reports can stall delivery of releases.
+// The owner's rate-limited maintenance pass and final flush persist both logs.
 void paperboy_storage_hid_diagnostic(const char *message) {
-  static char trace[4096] = {};
-  static size_t used = 0;
-  static unsigned entries = 0;
   if (!message || !g_storage || !g_status.mounted ||
       xTaskGetCurrentTaskHandle() != g_owner_task) return;
   serial_append(message);
-  serial_flush();
-  if (entries >= 32) return;
-  const int n = snprintf(trace + used, sizeof(trace) - used, "%lu %.*s\n",
+  if (g_hid_entries >= 32) return;
+  const int n = snprintf(g_hid_trace + g_hid_used, sizeof(g_hid_trace) - g_hid_used, "%lu %.*s\n",
                          static_cast<unsigned long>(millis()), 160, message);
-  if (n <= 0 || static_cast<size_t>(n) >= sizeof(trace) - used) return;
-  used += static_cast<size_t>(n);
-  ++entries;
-  (void)g_storage->write_file_atomic("/sd/gameboy-hid.log", trace, used);
+  if (n <= 0 || static_cast<size_t>(n) >= sizeof(g_hid_trace) - g_hid_used) return;
+  g_hid_used += static_cast<size_t>(n);
+  ++g_hid_entries;
+  g_hid_dirty = true;
 }
