@@ -516,7 +516,9 @@ void sleep_to_target_frame(int64_t frame_start_us) {
   // A faster target may use the whole scan budget. Keep core 1's idle task
   // schedulable even when row processing cannot achieve the requested rate.
   if (target_fps > PAPERBOY_DISPLAY_FPS_DEFAULT) vTaskDelay(1);
-  const int64_t target_us = 1000000LL / target_fps;
+  // The period fits in 32 bits; avoid an unexported signed 64-bit division
+  // helper when this source is linked as a RiscRTE ELF.
+  const int64_t target_us = 1000000U / target_fps;
   while (true) {
     const int64_t elapsed_us = esp_timer_get_time() - frame_start_us;
     const int64_t remaining_us = target_us - elapsed_us;
