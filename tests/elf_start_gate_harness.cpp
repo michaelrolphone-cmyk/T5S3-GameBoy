@@ -29,6 +29,7 @@ static uint32_t ulTaskNotifyTake(bool, uint32_t wait) {
   return 1;
 }
 static void setup() { assert(owner_signalled && !deleted); setup_ran = true; }
+static void paperboy_serial_log(const char *) {}
 static void paperboy_storage_owner_note_console_done() { done = true; }
 static void xTaskNotifyGive(TaskHandle_t owner) {
   assert(owner);
