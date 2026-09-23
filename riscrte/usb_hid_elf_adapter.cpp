@@ -268,7 +268,7 @@ void keyboard_snapshot() {
 }
 
 void map_gamepad(const risc_usb_gamepad_state_v1 &state, bool synchronize = false,
-                 bool combine_axes = false) {
+                 bool xinput = false) {
   UsbHidGamepadState pad{};
   if (state.connected) {
     const uint8_t hat = state.hat;
@@ -278,7 +278,7 @@ void map_gamepad(const risc_usb_gamepad_state_v1 &state, bool synchronize = fals
       pad.down = hat >= 3 && hat <= 5;
       pad.left = hat >= 5 && hat <= 7;
     }
-    if (hat >= 8 || combine_axes) {
+    if (hat >= 8 || xinput) {
       constexpr int16_t threshold = 16384; // Same outer-quarter dead zone as native HID.
       pad.left |= state.x < -threshold;
       pad.right |= state.x > threshold;
@@ -291,12 +291,16 @@ void map_gamepad(const risc_usb_gamepad_state_v1 &state, bool synchronize = fals
     pad.x = (state.buttons & (1UL << 3)) != 0;
     pad.l = (state.buttons & (1UL << 4)) != 0;
     pad.r = (state.buttons & (1UL << 5)) != 0;
-    pad.select = (state.buttons & (1UL << 8)) != 0;
-    pad.start = (state.buttons & (1UL << 9)) != 0;
+    // HID exposes raw Button usages. The tested eight-button receiver has
+    // Start=0x40, Select=0x80. XInput's normalized contract uses 0x200/0x100;
+    // its 0x40/0x80 bits are triggers and must not become modifier buttons.
+    pad.start = (state.buttons & (xinput ? 0x200UL : 0x40UL)) != 0;
+    pad.select = (state.buttons & (xinput ? 0x100UL : 0x80UL)) != 0;
   }
   portENTER_CRITICAL(&g_input_lock);
   g_test.connected = state.connected;
   g_test.buttons = state.connected ? state.buttons : 0;
+  g_test.compact_buttons = !xinput;
   g_test.x = state.connected ? state.x : 0;
   g_test.y = state.connected ? state.y : 0;
   g_test.rx = state.connected ? state.rx : 0;

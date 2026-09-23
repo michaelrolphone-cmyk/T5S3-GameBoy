@@ -17,7 +17,7 @@ static bool host_diagnostic(void *, char *out, size_t capacity) {
 }
 static unsigned attempts, releases, subscriptions, unsubscriptions;
 static bool allow_keyboard, allow_host, attached, fail_poll;
-static bool allow_xinput, xbox_device, xinput_poll_fail, xbox_clone;
+static bool allow_hid, allow_xinput, xbox_device, xinput_poll_fail, xbox_clone;
 static unsigned xinput_subscriptions, xinput_unsubscriptions, xinput_cursor, xinput_count;
 static risc_usb_gamepad_event_v1 xinput_events[4];
 static risc_usb_gamepad_state_v1 xinput_state;
@@ -98,6 +98,9 @@ static bool deny(const char *name, uint32_t, t5_provider_capability_lease_t *lea
   if (allow_host && !strcmp(name, "usb.host")) {
     *lease = 9; *iface = &host_api; return true;
   }
+  if (allow_hid && !strcmp(name, "usb.hid.gamepad")) {
+    *lease = 11; *iface = &xinput_api; return true; // Shared fake snapshot transport.
+  }
   if (allow_xinput && !strcmp(name, "usb.xinput.gamepad")) {
     *lease = 10; *iface = &xinput_api; return true;
   }
@@ -115,7 +118,51 @@ static t5_provider_capability_api_v1 api = [] {
 extern "C" const t5_provider_capability_api_v1 *t5_provider_capability_get_api(uint32_t) {
   return api_present ? &api : nullptr;
 }
+static void reported_receiver_test() {
+  // Raw masks read by the user from the actual receiver in Gamepad Test.
+  // Exercise acquisition -> provider snapshot -> console -> action, not a
+  // pre-decoded pad or the old assumed Start/Select numbers.
+  api_present = allow_hid = true;
+  xinput_state = {}; xinput_state.device = 77; xinput_state.connected = 1;
+  xinput_state.hat = 8;
+  paperboy_usb_owner_begin();
+  auto sample = [](uint32_t mask, uint8_t expected_buttons, uint8_t expected_actions,
+                   uint8_t hat = 8) {
+    xinput_state.buttons = mask; xinput_state.hat = hat;
+    paperboy_usb_owner_poll();
+    assert(usb_hid_gamepad_buttons() == expected_buttons);
+    assert(usb_hid_gamepad_take_actions() == expected_actions);
+    assert(usb_hid_gamepad_test_status().buttons == mask); // Raw display stays raw.
+    assert(usb_hid_gamepad_test_status().compact_buttons);
+  };
+  sample(0x40, GBEMU_INPUT_START, 0);
+  sample(0, 0, 0);
+  sample(0x80, GBEMU_INPUT_SELECT, 0);
+  sample(0xA0, 0, SNES_ACTION_BRIGHTEN);
+  sample(0xA0, 0, 0); // No repeated brightness step while held.
+  sample(0x80, 0, 0);
+  sample(0x90, 0, SNES_ACTION_DIM);
+  sample(0, 0, 0);
+  sample(0x10, 0, 0); sample(0x20, 0, 0); sample(0, 0, 0);
+  sample(0x40, GBEMU_INPUT_START, 0);
+  sample(0x60, 0, SNES_ACTION_SAVE); sample(0x60, 0, 0);
+  sample(0x40, 0, 0);
+  sample(0x50, 0, SNES_ACTION_LOAD); sample(0, 0, 0);
+  sample(0xC0, GBEMU_INPUT_START | GBEMU_INPUT_SELECT, 0);
+  sample(0xD0, GBEMU_INPUT_START | GBEMU_INPUT_SELECT, 0);
+  sample(0xF0, 0, SNES_ACTION_SETTINGS); sample(0xF0, 0, 0);
+  sample(0x70, 0, 0); sample(0x50, 0, 0); sample(0x10, 0, 0); sample(0, 0, 0);
+  sample(0x40, GBEMU_INPUT_START, 0); sample(0, 0, 0);
+  sample(0x02, GBEMU_INPUT_A, 0); sample(0, 0, 0);
+  sample(0x04, GBEMU_INPUT_B, 0); sample(0, 0, 0); // Y = turbo B.
+  sample(0x08, GBEMU_INPUT_A, 0); sample(0, 0, 0); // X = turbo A.
+  sample(0x30, 0, SNES_ACTION_ROTATE, 2); sample(0, 0, 0);
+  paperboy_usb_owner_end();
+  allow_hid = false; xinput_state = {};
+  puts("Hardware-reported 40/80 Start/Select: provider snapshots and all shortcuts: PASS");
+}
 int main() {
+  reported_receiver_test();
   for (bool available : {false, true}) {
     api_present = available; attempts = releases = 0;
     paperboy_usb_owner_begin();
@@ -186,7 +233,7 @@ int main() {
   assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
   state.buttons = 16; map_gamepad(state);
   assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
-  state.buttons = 16 | 512; map_gamepad(state);
+  state.buttons = 16 | 64; map_gamepad(state);
   assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == SNES_ACTION_LOAD);
   assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
   state.buttons = 2; map_gamepad(state);
@@ -196,7 +243,9 @@ int main() {
   // Exercise actual mapped HID and XInput snapshots, with each modifier
   // arriving before OR after its bumper, repeated taps, and staggered release.
   for (bool xinput : {false, true}) {
-    for (unsigned modifier : {256u, 512u}) {
+    const unsigned select_mask = xinput ? 0x100u : 0x80u;
+    const unsigned start_mask = xinput ? 0x200u : 0x40u;
+    for (unsigned modifier : {select_mask, start_mask}) {
       for (unsigned shoulder : {16u, 32u}) {
         for (bool modifier_first : {false, true}) {
           paperboy_usb_owner_end();
@@ -205,7 +254,7 @@ int main() {
             state.buttons = mask; map_gamepad(state, false, xinput);
             return usb_hid_gamepad_buttons();
           };
-          const uint8_t action = modifier == 256
+          const uint8_t action = modifier == select_mask
               ? (shoulder == 16 ? SNES_ACTION_DIM : SNES_ACTION_BRIGHTEN)
               : (shoulder == 16 ? SNES_ACTION_LOAD : SNES_ACTION_SAVE);
           sample(modifier_first ? modifier : shoulder);
@@ -227,11 +276,12 @@ int main() {
     }
     // Complete settings wins over all shoulder commands and consumes every
     // release order; ordinary gameplay and shortcuts work again afterwards.
-    unsigned release_order[] = {16, 32, 256, 512};
+    unsigned release_order[] = {16, 32, start_mask, select_mask};
+    std::sort(release_order, release_order + 4);
     do {
       paperboy_usb_owner_end();
       state = {}; state.connected = 1; state.hat = 8;
-      unsigned mask = 16 | 32 | 256 | 512;
+      unsigned mask = 16 | 32 | start_mask | select_mask;
       state.buttons = mask; map_gamepad(state, false, xinput);
       assert(usb_hid_gamepad_buttons() == 0);
       assert(usb_hid_gamepad_take_actions() == SNES_ACTION_SETTINGS);
@@ -242,20 +292,29 @@ int main() {
         assert(usb_hid_gamepad_navigation_buttons() == 0);
         assert(usb_hid_gamepad_take_actions() == 0);
       }
-      state.buttons = 512; map_gamepad(state, false, xinput);
+      state.buttons = start_mask; map_gamepad(state, false, xinput);
       assert(usb_hid_gamepad_buttons() == GBEMU_INPUT_START);
-      state.buttons = 256; map_gamepad(state, false, xinput);
+      state.buttons = select_mask; map_gamepad(state, false, xinput);
       assert(usb_hid_gamepad_buttons() == GBEMU_INPUT_SELECT);
     } while (std::next_permutation(release_order, release_order + 4));
     paperboy_usb_owner_end();
     // Holding Start+Select reserves shoulders while assembling Settings.
-    for (unsigned mask : {768u, 784u, 816u}) {
+    const unsigned modifiers = start_mask | select_mask;
+    for (unsigned mask : {modifiers, modifiers | 16u, modifiers | 48u}) {
       state.buttons = mask; map_gamepad(state, false, xinput);
       usb_hid_gamepad_buttons();
-      assert(usb_hid_gamepad_take_actions() == (mask == 816 ? SNES_ACTION_SETTINGS : 0));
+      assert(usb_hid_gamepad_take_actions() == (mask == (modifiers | 48u) ? SNES_ACTION_SETTINGS : 0));
     }
     paperboy_usb_owner_end();
   }
+  // XInput publishes analog triggers in the compact receiver's modifier bits.
+  // Those triggers, alone or with bumpers, must never open Settings or save.
+  state = {}; state.connected = 1; state.hat = 8;
+  state.buttons = 0xF0; map_gamepad(state, false, true);
+  assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
+  assert(!usb_hid_gamepad_test_status().compact_buttons);
+  map_gamepad(risc_usb_gamepad_state_v1{}); usb_hid_gamepad_buttons();
+  paperboy_usb_owner_end();
   puts("HID/XInput modifier shortcuts, settings priority and 24 release orders: PASS");
   // Arrow/Enter taps drained in one owner poll must reach menu navigation.
   for (auto usage : {0x51, 0x52, 0x28, 0x29}) {

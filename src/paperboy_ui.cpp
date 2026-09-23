@@ -344,6 +344,10 @@ void draw_gamepad_test(uint8_t *framebuffer, const UsbGamepadTestStatus *status)
   row(384, line);
   const char *names[] = {"B", "A", "Y", "X", "L", "R", "7", "8",
                          "SELECT", "START", "11", "12", "13", "14", "15", "16"};
+  if (status->compact_buttons) {
+    names[6] = "START"; names[7] = "SELECT";
+    names[8] = "9"; names[9] = "10";
+  }
   int x = 34, y = 426;
   for (unsigned i = 0; i < 16; ++i) {
     if (!(status->buttons & (1UL << i))) continue;

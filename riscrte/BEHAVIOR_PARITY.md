@@ -40,3 +40,29 @@ Native regression coverage executes the staged input/render blocks for 1,200
 controller frames with zero full-screen redraws, retains touch feedback, and
 checks HID/XInput modifier combinations and every Settings release order.
 Physical frame rate and receiver behavior still require hardware confirmation.
+
+
+### Receiver button mapping (1.2.24)
+
+Hardware testing confirmed the controller performance improvement. The receiver's
+Gamepad Test readings also identify the ELF HID modifier mapping:
+
+| Button | Raw hexadecimal mask |
+| --- | --- |
+| A | 0x02 |
+| Y (turbo B) | 0x04 |
+| X (turbo A) | 0x08 |
+| L | 0x10 |
+| R | 0x20 |
+| Start | 0x40 |
+| Select | 0x80 |
+
+The ELF HID backend uses these eight-button receiver masks. Gamepad Test keeps
+showing the raw bits and labels 0x40/0x80 as Start/Select. The XInput provider
+continues using its normalized Start=0x200, Select=0x100 mapping; its 0x40/0x80
+trigger bits are not modifier aliases. Standalone USB mappings are unchanged.
+
+The regression test feeds the reported masks through provider acquisition,
+owner polling, snapshots and console sampling. It checks individual modifiers,
+save/load, brightness, Settings, rotation, A and X/Y turbo. The 1.2.23 code fails
+on the first reported Start press. Updated hardware shortcut confirmation is pending.

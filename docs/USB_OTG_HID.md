@@ -38,7 +38,14 @@ Controller chords remain available with Q/E as shoulders and Tab/Space as Select
 
 ## Gamepad compatibility
 
-USB gamepad mode requires a standard HID Generic Desktop Game Pad/Joystick application collection, compatible interrupt IN endpoint and report descriptor (DirectInput/HID, not vendor-specific XInput/XUSB). Default button usages: 1=B, 2=A, 3=Y, 4=X, 5=L, 6=R, 9=Select, 10=Start, with hat or X/Y D-pad. Exact receiver button numbering is not hardware-confirmed. Start+R saves; Start+L loads; unmodified bumpers do nothing; Select+R brightens, Select+L dims; L+R+Start+Select opens Settings and L+R+Right rotates. A/B navigate menus, X/Y turbo in-game.
+USB gamepad mode requires a standard HID Generic Desktop Game Pad/Joystick application collection, compatible interrupt IN endpoint and report descriptor (DirectInput/HID, not vendor-specific XInput/XUSB). Standalone default button usages: 1=B, 2=A, 3=Y, 4=X, 5=L, 6=R, 9=Select, 10=Start, with hat or X/Y D-pad. Start+R saves; Start+L loads; unmodified bumpers do nothing; Select+R brightens, Select+L dims; L+R+Start+Select opens Settings and L+R+Right rotates. A/B navigate menus, X/Y turbo in-game.
+
+The RiscRTE ELF HID adapter uses the hardware-reported eight-button receiver
+layout: B=0x01, A=0x02, Y=0x04, X=0x08, L=0x10, R=0x20, Start=0x40 and
+Select=0x80. The first six mappings are unchanged; Start/Select are the corrected
+modifier positions. The separate XInput provider has normalized Start=0x200 and
+Select=0x100; 0x40/0x80 remain triggers there. Gamepad Test retains raw hexadecimal
+readings and labels the modifiers for the active ELF input protocol.
 
 ## Acceptance checks
 
