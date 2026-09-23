@@ -80,7 +80,7 @@ int main() {
       assert(usb_hid_gamepad_take_actions() == 0);
     }
     paperboy_usb_owner_end(); paperboy_usb_owner_end();
-    assert(attempts == (available ? 2u : 0u));
+    assert(attempts == (available ? 3u : 0u)); // Host discovery is monitored without opening the test screen.
     assert(releases == 0);
   }
   // Actual provider path: older valid API prefix, denied launch, retry,

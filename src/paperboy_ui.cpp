@@ -371,7 +371,11 @@ void draw_gamepad_test(uint8_t *framebuffer, const UsbGamepadTestStatus *status)
   snprintf(error, sizeof(error), "%.60s", status->error[0] ? status->error : "NONE");
   mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 791, error, 1, false);
   mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 819,
+#ifdef PAPERBOY_RISCRTE_ELF
+                 "LOG: /sd/serial.log", 1, false);
+#else
                  "LOG: /sd/gameboy-hid.log", 1, false);
+#endif
   draw_centered_text(framebuffer, 859, "B OR BACK: SETTINGS", 1);
 }
 

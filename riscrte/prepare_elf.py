@@ -22,6 +22,20 @@ def stage(destination: Path) -> None:
     main = (ROOT / 'src/main.cpp').read_text(encoding='utf-8')
     main = patch_once(main, '#include "touch_gt911.h"',
                       '#include "touch_gt911.h"\n#include "elf_lifecycle.h"', 'lifecycle header')
+    main = patch_once(main, '  const bool storage_scan_ok = paperboy_storage_begin();',
+                      '  paperboy_serial_log("GameBoy setup entered");\n'
+                      '  const bool storage_scan_ok = paperboy_storage_begin();',
+                      'setup trace')
+    main = patch_once(main, '  audio_init();\n  refresh_last_snapshot_availability();',
+                      '  audio_init();\n  paperboy_serial_log("Audio initialized; reading ROM metadata");\n'
+                      '  refresh_last_snapshot_availability();',
+                      'audio trace')
+    main = patch_once(main, '  g_emu = gbemu_create();',
+                      '  paperboy_serial_log("ROM selection complete; allocating emulator");\n'
+                      '  g_emu = gbemu_create();', 'emulator trace')
+    main = patch_once(main, '  prepare_quicksave();\n\n  ESP_LOGI(',
+                      '  prepare_quicksave();\n  paperboy_serial_log("Emulator initialized; GameBoy ready");\n\n  ESP_LOGI(',
+                      'ready trace')
     main = patch_once(main, '[[noreturn]] void enter_power_off() {',
                       '#ifndef PAPERBOY_RISCRTE_ELF\n[[noreturn]] void enter_power_off() {',
                       'power-off guard start')
@@ -66,7 +80,8 @@ def stage(destination: Path) -> None:
         '  // It must remain live until the owner releases this start barrier;\n'
         '  // timing out and deleting here leaves xTaskNotifyGive a freed TCB.\n'
         '  while (ulTaskNotifyTake(pdTRUE, portMAX_DELAY) == 0) {}\n'
-        '  if (s_elf_display_bus_ready) setup();',
+        '  if (s_elf_display_bus_ready) setup();\n'
+        '  else paperboy_serial_log("ERROR display bus allocation failed; setup skipped");',
         'console waits for optional providers')
     main = patch_once(
         main,
@@ -75,6 +90,7 @@ def stage(destination: Path) -> None:
         '  } else {\n'
         '    // Wait for display resources before starting optional USB on this owner.\n'
         '    while (ulTaskNotifyTake(pdTRUE, portMAX_DELAY) == 0) {}\n'
+        '    paperboy_serial_log(s_elf_display_bus_ready ? "Display bus ready; USB provider starting" : "ERROR display bus unavailable");\n'
         '    if (s_elf_display_bus_ready) paperboy_usb_owner_begin();\n'
         '    xTaskNotifyGive(console_task);\n'
         '    paperboy_storage_owner_wait();\n'

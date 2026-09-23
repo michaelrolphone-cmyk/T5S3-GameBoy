@@ -36,8 +36,8 @@ main_file.write_text(main, encoding='utf-8')
 storage_file = SRC / 'paperboy_storage_host.cpp'
 storage = (ROOT / 'riscrte/paperboy_storage_host.cpp').read_text(encoding='utf-8')
 storage = patch_once(storage,
-                     '    } else {\n      (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));\n    }\n  }\n}\n\nvoid paperboy_storage_bind_host()',
-                     '    }\n    paperboy_usb_owner_poll();\n    if (!request) (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));\n  }\n}\n\nvoid paperboy_storage_bind_host()',
+                     '    } else {\n      (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));\n    }\n    serial_flush();\n  }',
+                     '    }\n    paperboy_usb_owner_poll();\n    serial_flush();\n    if (!request) (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));\n  }',
                      'HID polling on storage owner task')
 storage_file.write_text(storage, encoding='utf-8')
 

@@ -353,6 +353,7 @@ void decode_actions(uint16_t pressed, uint32_t now) {
 void paperboy_usb_owner_begin() {
   g_owner_active = true;
   g_last_acquire_ms = millis();
+  paperboy_storage_hid_diagnostic("USB provider acquisition started");
   if (!g_provider) g_provider = t5_provider_capability_get_api(T5_PROVIDER_CAPABILITY_API_VERSION);
   if (!g_provider || g_provider->api_version != T5_PROVIDER_CAPABILITY_API_VERSION ||
       g_provider->struct_size < offsetof(t5_provider_capability_api_v1, release) + sizeof(g_provider->release) ||
@@ -417,6 +418,10 @@ void paperboy_usb_owner_begin() {
   ESP_LOGI(kTag, "RiscRTE HID grants keyboard=%u gamepad=%u",
            static_cast<unsigned>(g_keyboard_lease != 0),
            static_cast<unsigned>(g_gamepad_lease != 0));
+  char grants[72];
+  snprintf(grants, sizeof(grants), "HID grants keyboard=%u gamepad=%u",
+           unsigned(g_keyboard_lease != 0), unsigned(g_gamepad_lease != 0));
+  paperboy_storage_hid_diagnostic(grants);
 }
 
 void paperboy_usb_owner_poll() {
@@ -505,10 +510,7 @@ void paperboy_usb_owner_poll() {
   // One bounded configuration read per second; HID/gamepad providers already
   // advance enumeration during their ordinary poll above.
   static uint32_t last_probe_ms = 0;
-  portENTER_CRITICAL(&g_input_lock);
-  const bool diagnostic_active = g_diagnostic_active;
-  portEXIT_CRITICAL(&g_input_lock);
-  if (diagnostic_active && g_provider && !g_host_probe_attempted) {
+  if (g_provider && !g_host_probe_attempted) {
     g_host_probe_attempted = true;
     const void *iface = nullptr;
     if (g_provider->acquire("usb.host", RISC_USB_HOST_API_V1, &g_host_lease, &iface)) {
@@ -529,9 +531,19 @@ void paperboy_usb_owner_poll() {
       diagnostic_stage("USB HOST DIAGNOSTIC UNAVAILABLE");
     }
   }
-  if (diagnostic_active && uint32_t(millis() - last_probe_ms) >= 1000U) {
+  if (uint32_t(millis() - last_probe_ms) >= 1000U) {
     last_probe_ms = millis();
     probe_usb_discovery();
+  }
+  static uint32_t last_heartbeat_ms = 0;
+  if (uint32_t(millis() - last_heartbeat_ms) >= 10000U) {
+    last_heartbeat_ms = millis();
+    UsbGamepadTestStatus state = usb_hid_gamepad_test_status();
+    char line[128];
+    snprintf(line, sizeof(line), "USB status stage=%s devices=%u HID=%u VID=%04X PID=%04X reports=%lu",
+             state.stage, unsigned(state.usb_devices), unsigned(state.hid_interfaces),
+             unsigned(state.vid), unsigned(state.pid), static_cast<unsigned long>(state.reports));
+    paperboy_storage_hid_diagnostic(line);
   }
 }
 

@@ -35,6 +35,39 @@ struct OwnerRequest {
 TaskHandle_t g_owner_task = nullptr;
 OwnerRequest *g_owner_request = nullptr;
 bool g_console_done = false;
+constexpr size_t kSerialLogBytes = 16384;
+char g_serial_log[kSerialLogBytes] = {};
+size_t g_serial_used = 0;
+bool g_serial_dirty = false;
+uint32_t g_serial_last_flush = 0;
+
+void serial_append(const char *message) {
+  if (!message || !g_status.mounted || !g_storage) return;
+  char line[224];
+  const int count = snprintf(line, sizeof(line), "%lu %.*s\n",
+                             static_cast<unsigned long>(millis()), 190, message);
+  if (count <= 0) return;
+  const size_t length = static_cast<size_t>(count) < sizeof(line)
+      ? static_cast<size_t>(count) : sizeof(line) - 1;
+  if (g_serial_used + length > sizeof(g_serial_log)) {
+    const size_t overflow = g_serial_used + length - sizeof(g_serial_log);
+    size_t cut = overflow;
+    while (cut < g_serial_used && g_serial_log[cut - 1] != '\n') ++cut;
+    memmove(g_serial_log, g_serial_log + cut, g_serial_used - cut);
+    g_serial_used -= cut;
+  }
+  memcpy(g_serial_log + g_serial_used, line, length);
+  g_serial_used += length;
+  g_serial_dirty = true;
+}
+
+void serial_flush(bool force = false) {
+  if (!g_serial_dirty || !g_storage || !g_status.mounted ||
+      (!force && uint32_t(millis() - g_serial_last_flush) < 1000U)) return;
+  g_serial_last_flush = millis();
+  if (g_storage->write_file_atomic("/sd/serial.log", g_serial_log, g_serial_used))
+    g_serial_dirty = false;
+}
 
 template <typename Function>
 void on_owner(Function function) {
@@ -243,7 +276,15 @@ void paperboy_storage_owner_wait() {
     } else {
       (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));
     }
+    serial_flush();
   }
+  serial_append("GameBoy console task finished");
+  serial_flush(true);
+}
+
+void paperboy_serial_log(const char *message) {
+  if (!message || !g_owner_task) return;
+  on_owner([&] { serial_append(message); serial_flush(); });
 }
 
 void paperboy_storage_bind_host() {
@@ -274,11 +315,20 @@ bool paperboy_storage_begin() {
     return false;
   }
   g_status.mounted = true;
+  g_serial_used = 0;
+  g_serial_dirty = false;
+  serial_append("GameBoy ELF launch; SD ready; bounded 16 KiB rolling trace");
+  serial_append("Firmware boot/serial output is not exposed to app ELF; this records GameBoy and USB provider state");
+  serial_flush(true);
   g_scan_ok = paperboy_storage_rescan();
+  serial_append(g_scan_ok ? "ROM catalog scan complete" : "ROM catalog scan failed");
+  serial_flush(true);
   return g_scan_ok;
 }
 
 void paperboy_storage_end() {
+  serial_append("GameBoy storage shutdown");
+  serial_flush(true);
   if (g_app && g_app->dir_close) dir_close();
   g_status = {};
   for (auto &rom : g_roms) rom = {};
@@ -463,7 +513,10 @@ void paperboy_storage_hid_diagnostic(const char *message) {
   static size_t used = 0;
   static unsigned entries = 0;
   if (!message || !g_storage || !g_status.mounted ||
-      xTaskGetCurrentTaskHandle() != g_owner_task || entries >= 32) return;
+      xTaskGetCurrentTaskHandle() != g_owner_task) return;
+  serial_append(message);
+  serial_flush();
+  if (entries >= 32) return;
   const int n = snprintf(trace + used, sizeof(trace) - used, "%lu %.*s\n",
                          static_cast<unsigned long>(millis()), 160, message);
   if (n <= 0 || static_cast<size_t>(n) >= sizeof(trace) - used) return;
