@@ -38,7 +38,7 @@ Controller chords remain available with Q/E as shoulders and Tab/Space as Select
 
 ## Gamepad compatibility
 
-USB gamepad mode requires a standard HID Generic Desktop Game Pad/Joystick application collection, compatible interrupt IN endpoint and report descriptor (DirectInput/HID, not vendor-specific XInput/XUSB). Default button usages: 1=B, 2=A, 3=Y, 4=X, 5=L, 6=R, 9=Select, 10=Start, with hat or X/Y D-pad. Exact receiver button numbering is not hardware-confirmed. R saves; L loads; Select+R brightens, Select+L dims; L+R+Start+Select opens Settings and L+R+Right rotates. A/B navigate menus, X/Y turbo in-game.
+USB gamepad mode requires a standard HID Generic Desktop Game Pad/Joystick application collection, compatible interrupt IN endpoint and report descriptor (DirectInput/HID, not vendor-specific XInput/XUSB). Default button usages: 1=B, 2=A, 3=Y, 4=X, 5=L, 6=R, 9=Select, 10=Start, with hat or X/Y D-pad. Exact receiver button numbering is not hardware-confirmed. Start+R saves; Start+L loads; unmodified bumpers do nothing; Select+R brightens, Select+L dims; L+R+Start+Select opens Settings and L+R+Right rotates. A/B navigate menus, X/Y turbo in-game.
 
 ## Acceptance checks
 

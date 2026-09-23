@@ -2,6 +2,7 @@
 #include <cassert>
 #include <initializer_list>
 #include <cstdio>
+#include <algorithm>
 void paperboy_storage_hid_diagnostic(const char *) {}
 uint32_t test_now;
 static bool api_present;
@@ -184,12 +185,78 @@ int main() {
   state.buttons = 0; map_gamepad(state);
   assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
   state.buttons = 16; map_gamepad(state);
+  assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
+  state.buttons = 16 | 512; map_gamepad(state);
   assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == SNES_ACTION_LOAD);
   assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
   state.buttons = 2; map_gamepad(state);
   map_gamepad(risc_usb_gamepad_state_v1{});
   assert(usb_hid_gamepad_buttons() == 0);
   paperboy_usb_owner_end();
+  // Exercise actual mapped HID and XInput snapshots, with each modifier
+  // arriving before OR after its bumper, repeated taps, and staggered release.
+  for (bool xinput : {false, true}) {
+    for (unsigned modifier : {256u, 512u}) {
+      for (unsigned shoulder : {16u, 32u}) {
+        for (bool modifier_first : {false, true}) {
+          paperboy_usb_owner_end();
+          state = {}; state.connected = 1; state.hat = 8;
+          auto sample = [&](unsigned mask) {
+            state.buttons = mask; map_gamepad(state, false, xinput);
+            return usb_hid_gamepad_buttons();
+          };
+          const uint8_t action = modifier == 256
+              ? (shoulder == 16 ? SNES_ACTION_DIM : SNES_ACTION_BRIGHTEN)
+              : (shoulder == 16 ? SNES_ACTION_LOAD : SNES_ACTION_SAVE);
+          sample(modifier_first ? modifier : shoulder);
+          assert(usb_hid_gamepad_take_actions() == 0);
+          assert(sample(modifier | shoulder) == 0);
+          assert(usb_hid_gamepad_take_actions() == action);
+          test_now += 1000;
+          assert(sample(modifier | shoulder) == 0);
+          assert(usb_hid_gamepad_take_actions() == 0); // Holding never repeats.
+          assert(sample(modifier) == 0); // Consumed modifier cannot pause/select.
+          assert(usb_hid_gamepad_take_actions() == 0);
+          assert(sample(modifier | shoulder) == 0);
+          assert(usb_hid_gamepad_take_actions() == action);
+          assert(sample(shoulder) == 0); // Releasing modifier first is harmless.
+          assert(usb_hid_gamepad_take_actions() == 0);
+          assert(sample(0) == 0);
+        }
+      }
+    }
+    // Complete settings wins over all shoulder commands and consumes every
+    // release order; ordinary gameplay and shortcuts work again afterwards.
+    unsigned release_order[] = {16, 32, 256, 512};
+    do {
+      paperboy_usb_owner_end();
+      state = {}; state.connected = 1; state.hat = 8;
+      unsigned mask = 16 | 32 | 256 | 512;
+      state.buttons = mask; map_gamepad(state, false, xinput);
+      assert(usb_hid_gamepad_buttons() == 0);
+      assert(usb_hid_gamepad_take_actions() == SNES_ACTION_SETTINGS);
+      assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
+      for (unsigned key : release_order) {
+        mask &= ~key; state.buttons = mask; map_gamepad(state, false, xinput);
+        assert(usb_hid_gamepad_buttons() == 0);
+        assert(usb_hid_gamepad_navigation_buttons() == 0);
+        assert(usb_hid_gamepad_take_actions() == 0);
+      }
+      state.buttons = 512; map_gamepad(state, false, xinput);
+      assert(usb_hid_gamepad_buttons() == GBEMU_INPUT_START);
+      state.buttons = 256; map_gamepad(state, false, xinput);
+      assert(usb_hid_gamepad_buttons() == GBEMU_INPUT_SELECT);
+    } while (std::next_permutation(release_order, release_order + 4));
+    paperboy_usb_owner_end();
+    // Holding Start+Select reserves shoulders while assembling Settings.
+    for (unsigned mask : {768u, 784u, 816u}) {
+      state.buttons = mask; map_gamepad(state, false, xinput);
+      usb_hid_gamepad_buttons();
+      assert(usb_hid_gamepad_take_actions() == (mask == 816 ? SNES_ACTION_SETTINGS : 0));
+    }
+    paperboy_usb_owner_end();
+  }
+  puts("HID/XInput modifier shortcuts, settings priority and 24 release orders: PASS");
   // Arrow/Enter taps drained in one owner poll must reach menu navigation.
   for (auto usage : {0x51, 0x52, 0x28, 0x29}) {
     const uint8_t expected = usage == 0x51 ? GBEMU_INPUT_DOWN :

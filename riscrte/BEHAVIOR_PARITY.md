@@ -21,3 +21,22 @@ The short-term host exception is an **exclusive whole-display handoff**: after v
 ## Definition of ready
 
 Produce a real ELF, not just a plan or an independently compiling test library. CI must build the original application sources into the ELF and test loader symbols/relocations plus ROM and save behavior. On device, verify launch, browser and multiple ROMs, high-speed display, audio, controls, save/load, clean exit and successful return to RiscRTE. Compilation is not hardware validation. Keep PR #7 draft and unmerged until tested; the owner controls merging.
+### Controller rendering and shortcuts (1.2.22)
+
+External controller and keyboard buttons feed the emulator without animating the
+on-screen touch controls. Only touch button changes invalidate their highlights;
+gamepad presses and turbo pulses retain the game-only dirty region and do not
+produce per-button INFO logs. Page, battery, notice and orientation updates still
+refresh the full scene when needed.
+
+Save is Start+R and load is Start+L; bumpers alone have no action. Select+L/R
+adjusts brightness, and Start+Select+L+R opens Settings. Either the modifier or
+bumper may complete a two-button chord; held chords do not repeat. Start/Select
+are consumed through release after a shortcut. The full Settings chord wins and
+its release cannot generate shoulder actions. Hold Start+Select before adding
+the bumpers to assemble Settings without first invoking a two-button shortcut.
+
+Native regression coverage executes the staged input/render blocks for 1,200
+controller frames with zero full-screen redraws, retains touch feedback, and
+checks HID/XInput modifier combinations and every Settings release order.
+Physical frame rate and receiver behavior still require hardware confirmation.

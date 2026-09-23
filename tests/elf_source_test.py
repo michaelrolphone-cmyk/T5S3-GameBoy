@@ -70,6 +70,27 @@ with tempfile.TemporaryDirectory() as tmp:
     assert epd_original == (ROOT / 'src/epd_video.cpp').read_text()
 print('Faithful GameBoy ELF source staging and hardware-release checks passed')
 
+# Execute the actual input and rendering decisions with a counted display.
+# Controller changes must not invalidate the full scene, even during turbo;
+# touch feedback and menu/shortcut routing must still work.
+import subprocess
+with tempfile.TemporaryDirectory() as tmp:
+    target = Path(tmp)
+    stage(target)
+    staged = (target / 'main.cpp').read_text()
+    input_block = staged.split('    // Poll on every page', 1)[1].split('    const bool boot_pressed', 1)[0]
+    input_block = input_block[input_block.index('    const uint8_t controller_buttons'):]
+    render_block = staged.split('        uint8_t *backbuffer = epd_video_get_backbuffer();', 1)[1].split('      pace_game_frame', 1)[0]
+    render_block = '        uint8_t *backbuffer = epd_video_get_backbuffer();' + render_block.rsplit('}', 1)[0]
+    harness = (ROOT / 'tests/controller_frame_harness.cpp').read_text()
+    source = target / 'controller_frame.cpp'
+    source.write_text(harness.replace('// FRAME_INPUT', input_block).replace('// FRAME_RENDER', render_block))
+    binary = target / 'controller_frame'
+    subprocess.run(['c++', '-std=c++11', '-Wall', '-Wextra', '-Werror',
+                    '-I' + str(ROOT / 'src'), str(source), '-o', str(binary)], check=True)
+    subprocess.run([str(binary)], check=True, timeout=10)
+print('1,200 controller frames: no full-screen repaints; touch and shortcut routing: PASS')
+
 # Execute the real frame pacer with an overdue emulated frame. The ELF must
 # give blocked owner/USB work and idle tasks an opportunity to run even when
 # no frame time remains; standalone has its own higher-priority USB tasks.

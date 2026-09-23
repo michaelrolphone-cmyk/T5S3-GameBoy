@@ -76,6 +76,7 @@ uint32_t g_turbo_b_started = 0;
 bool g_settings_chord = false;
 bool g_rotate_chord = false;
 bool g_select_consumed = false;
+bool g_start_consumed = false;
 
 void clear_live_keys() {
   portENTER_CRITICAL(&g_input_lock);
@@ -568,7 +569,8 @@ void decode_actions(uint16_t pressed, uint32_t now) {
   }
   if (g_settings_chord) {
     g_previous = pressed;
-    g_select_consumed = true;
+    g_select_consumed = (pressed & select) != 0;
+    g_start_consumed = (pressed & start) != 0;
     if (!(pressed & settings)) g_settings_chord = false;
     g_buttons = 0;
     return;
@@ -586,18 +588,20 @@ void decode_actions(uint16_t pressed, uint32_t now) {
   if (rising & 0x0008U) g_turbo_a_started = now;
   if (rising & 0x0020U) g_turbo_b_started = now;
   if (!(pressed & select)) g_select_consumed = false;
+  if (!(pressed & start)) g_start_consumed = false;
   if ((pressed & (start | select)) != (start | select) &&
       (pressed & select) && (pressed & (left_shoulder | right_shoulder))) {
     g_select_consumed = true;
     if ((pressed & (left_shoulder | right_shoulder)) == left_shoulder &&
-        (rising & left_shoulder)) g_actions |= SNES_ACTION_DIM;
+        (rising & (left_shoulder | select))) g_actions |= SNES_ACTION_DIM;
     if ((pressed & (left_shoulder | right_shoulder)) == right_shoulder &&
-        (rising & right_shoulder)) g_actions |= SNES_ACTION_BRIGHTEN;
-  } else if (!(pressed & select)) {
+        (rising & (right_shoulder | select))) g_actions |= SNES_ACTION_BRIGHTEN;
+  } else if ((pressed & start) && !(pressed & select)) {
+    if (pressed & (left_shoulder | right_shoulder)) g_start_consumed = true;
     if ((pressed & (left_shoulder | right_shoulder)) == left_shoulder &&
-        (rising & left_shoulder)) g_actions |= SNES_ACTION_LOAD;
+        (rising & (left_shoulder | start))) g_actions |= SNES_ACTION_LOAD;
     if ((pressed & (left_shoulder | right_shoulder)) == right_shoulder &&
-        (rising & right_shoulder)) g_actions |= SNES_ACTION_SAVE;
+        (rising & (right_shoulder | start))) g_actions |= SNES_ACTION_SAVE;
   }
   g_previous = pressed;
   if (pressed & 0x0001U) g_navigation |= GBEMU_INPUT_UP;
@@ -611,7 +615,7 @@ void decode_actions(uint16_t pressed, uint32_t now) {
     g_buttons |= GBEMU_INPUT_A;
   if ((pressed & 0x0020U) && ((now - g_turbo_b_started) / kTurboHalfMs) % 2U == 0)
     g_buttons |= GBEMU_INPUT_B;
-  if (pressed & start) g_buttons |= GBEMU_INPUT_START;
+  if ((pressed & start) && !g_start_consumed) g_buttons |= GBEMU_INPUT_START;
   if ((pressed & select) && !g_select_consumed) g_buttons |= GBEMU_INPUT_SELECT;
 }
 }  // namespace

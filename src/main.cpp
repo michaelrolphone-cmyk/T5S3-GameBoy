@@ -1384,7 +1384,7 @@ void run_console(void *unused) {
   bool power_on = true;
   PaperboyPage page = g_initial_page;
   PaperboyBatteryStatus battery = {};
-  uint8_t last_buttons = 0;
+  uint8_t last_touch_buttons = 0;
   bool last_touch_down = false;
   bool last_boot_pressed = digitalRead(t5s3_epd::kBootButton) == LOW;
   bool boot_refresh_armed = !last_boot_pressed;
@@ -1496,8 +1496,10 @@ void run_console(void *unused) {
     const uint8_t controller_actions = snes_mini_controller_take_actions();
     const uint32_t menu_actions = paperboy_ui_map_controller(
         snes_mini_controller_navigation_buttons(), page, now_ms);
-    uint8_t buttons = page == PaperboyPage::Game
-        ? ((touch_ok ? paperboy_ui_map_buttons(&touch) : 0U) | (paperboy_ui_controller_ready() ? controller_buttons : 0U))
+    const uint8_t touch_buttons = page == PaperboyPage::Game && touch_ok
+        ? paperboy_ui_map_buttons(&touch) : 0U;
+    const uint8_t buttons = page == PaperboyPage::Game
+        ? (touch_buttons | (paperboy_ui_controller_ready() ? controller_buttons : 0U))
         : 0U;
     uint32_t actions = touch_ok ? paperboy_ui_map_actions(&touch, page) : 0U;
     actions |= menu_actions;
@@ -1517,7 +1519,9 @@ void run_console(void *unused) {
           : static_cast<uint8_t>(level > 0U ? level - 1U : 0U);
       (void)night_light_set_brightness(target);
     }
-    if (buttons != last_buttons) {
+    // External controls drive the emulator without repainting the touch UI.
+    // Turbo and repeated pad presses must keep the game-only dirty region.
+    if (touch_buttons != last_touch_buttons) {
       full_scene_syncs = kPanelBufferCount;
     }
 
@@ -1560,11 +1564,11 @@ void run_console(void *unused) {
           touch.y[0]);
     }
 
-    if (buttons != last_buttons) {
-      ESP_LOGI(
+    if (touch_buttons != last_touch_buttons) {
+      ESP_LOGD(
           kTag,
           "touch buttons=0x%02X points=%u first=%u,%u",
-          buttons,
+          touch_buttons,
           touch_ok ? touch.points : 0U,
           (touch_ok && touch.points > 0U) ? touch.x[0] : 0U,
           (touch_ok && touch.points > 0U) ? touch.y[0] : 0U);
@@ -1578,7 +1582,7 @@ void run_console(void *unused) {
       reset_game_frame_pacer(game_frame_pacer);
       ESP_LOGI(kTag, "screen orientation=%u", static_cast<unsigned>(paperboy_orientation()));
       // Discard input collected against the old layout on this frame.
-      last_buttons = 0;
+      last_touch_buttons = 0;
       continue;
     }
 
@@ -1794,7 +1798,7 @@ void run_console(void *unused) {
         power_on = false;
         emu_faulted = true;
         audio_set_paused(true);
-        last_buttons = 0U;
+        last_touch_buttons = 0U;
         last_touch_down = touch_down;
         skipped_since_render = 0U;
         full_scene_syncs = kPanelBufferCount;
@@ -1823,7 +1827,7 @@ void run_console(void *unused) {
         const int64_t compose_started = esp_timer_get_time();
         const bool full_scene = full_scene_syncs > 0U;
         if (full_scene) {
-          compose_scene(backbuffer, buttons, power_on, page, &battery);
+          compose_scene(backbuffer, touch_buttons, power_on, page, &battery);
         } else {
           rotate_game_to_panel(g_game_frame, backbuffer);
         }
@@ -1852,7 +1856,7 @@ void run_console(void *unused) {
       pace_game_frame(game_frame_pacer);
     } else if (page == PaperboyPage::Game && full_scene_syncs > 0U && epd_video_can_submit()) {
       uint8_t *backbuffer = epd_video_get_backbuffer();
-      compose_scene(backbuffer, buttons, power_on, page, &battery);
+      compose_scene(backbuffer, touch_buttons, power_on, page, &battery);
       if (epd_video_submit(0, t5s3_epd::kActiveHeight)) {
         --full_scene_syncs;
       }
@@ -1868,7 +1872,7 @@ void run_console(void *unused) {
       vTaskDelay(pdMS_TO_TICKS(5));
     }
 
-    last_buttons = buttons;
+    last_touch_buttons = touch_buttons;
     last_touch_down = touch_down;
     const uint64_t now = esp_timer_get_time();
     if ((now - stats_started) >= 1000000ULL) {

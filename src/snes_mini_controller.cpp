@@ -42,6 +42,7 @@ uint16_t g_previous_pressed = 0U;
 uint32_t g_turbo_a_started_ms = 0U;
 uint32_t g_turbo_b_started_ms = 0U;
 bool g_select_consumed = false;
+bool g_start_consumed = false;
 uint32_t g_last_poll_ms = 0U;
 uint32_t g_next_probe_ms = 0U;
 
@@ -64,7 +65,7 @@ void disconnect(uint32_t now, const char *reason) {
   g_settings_chord_active = false;
   g_rotate_chord_active = false;
   g_previous_pressed = 0U;
-  g_select_consumed = false;
+  g_select_consumed = g_start_consumed = false;
   g_next_probe_ms = now + kReconnectIntervalMs;
 }
 
@@ -108,7 +109,8 @@ uint8_t decode_buttons(const uint8_t data[6], uint32_t now) {
     // Consume the whole chord until all four keys are released, regardless
     // of release order. Never turn its tail into save/load or brightness.
     g_previous_pressed = pressed;
-    g_select_consumed = true;
+    g_select_consumed = (pressed & kSelect) != 0;
+    g_start_consumed = (pressed & kStart) != 0;
     if (!(pressed & settings_chord)) g_settings_chord_active = false;
     return 0U;
   }
@@ -133,19 +135,21 @@ uint8_t decode_buttons(const uint8_t data[6], uint32_t now) {
       (((now - g_turbo_b_started_ms) / kTurboHalfPeriodMs) % 2U == 0U);
 
   if (!(pressed & kSelect)) g_select_consumed = false;
+  if (!(pressed & kStart)) g_start_consumed = false;
   if ((pressed & (kStart | kSelect)) == (kStart | kSelect)) {
     // Reserve shoulders while the Settings chord is being assembled.
   } else if ((pressed & kSelect) && (pressed & (kL | kR))) {
     g_select_consumed = true;
-    // Both shoulders together are a no-op. Require a fresh shoulder press.
-    if ((pressed & (kL | kR)) == kL && (rising & kL))
+    // Both shoulders together are a no-op. Either key may complete the chord.
+    if ((pressed & (kL | kR)) == kL && (rising & (kL | kSelect)))
       g_actions |= SNES_ACTION_DIM;
-    if ((pressed & (kL | kR)) == kR && (rising & kR))
+    if ((pressed & (kL | kR)) == kR && (rising & (kR | kSelect)))
       g_actions |= SNES_ACTION_BRIGHTEN;
-  } else if (!(pressed & kSelect)) {
-    if ((pressed & (kL | kR)) == kL && (rising & kL))
+  } else if ((pressed & kStart) && !(pressed & kSelect)) {
+    if (pressed & (kL | kR)) g_start_consumed = true;
+    if ((pressed & (kL | kR)) == kL && (rising & (kL | kStart)))
       g_actions |= SNES_ACTION_LOAD;
-    if ((pressed & (kL | kR)) == kR && (rising & kR))
+    if ((pressed & (kL | kR)) == kR && (rising & (kR | kStart)))
       g_actions |= SNES_ACTION_SAVE;
   }
   g_previous_pressed = pressed;
@@ -159,7 +163,7 @@ uint8_t decode_buttons(const uint8_t data[6], uint32_t now) {
   if (pressed & kB) g_navigation_buttons |= GBEMU_INPUT_B;
   if ((pressed & kA) || turbo_a) input |= GBEMU_INPUT_A;
   if ((pressed & kB) || turbo_b) input |= GBEMU_INPUT_B;
-  if (pressed & kStart) input |= GBEMU_INPUT_START;
+  if ((pressed & kStart) && !g_start_consumed) input |= GBEMU_INPUT_START;
   if ((pressed & kSelect) && !g_select_consumed) input |= GBEMU_INPUT_SELECT;
   return input;
 }

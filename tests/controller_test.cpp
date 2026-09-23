@@ -45,10 +45,12 @@ int main() {
   assert(poll(0x0010 | 0x0040 | 0x0400 | 0x1000) ==
          (GBEMU_INPUT_A | GBEMU_INPUT_B | GBEMU_INPUT_START | GBEMU_INPUT_SELECT));
   poll(0);
-  poll(0x0200); assert(snes_mini_controller_take_actions() == SNES_ACTION_SAVE);
+  poll(0x0200); assert(snes_mini_controller_take_actions() == 0);
+  assert(poll(0x0600) == 0); assert(snes_mini_controller_take_actions() == SNES_ACTION_SAVE);
   assert(snes_mini_controller_take_actions() == 0);
   poll(0x0200); assert(snes_mini_controller_take_actions() == 0);
-  poll(0); poll(0x2000); assert(snes_mini_controller_take_actions() == SNES_ACTION_LOAD);
+  poll(0); poll(0x2000); assert(snes_mini_controller_take_actions() == 0);
+  assert(poll(0x2400) == 0); assert(snes_mini_controller_take_actions() == SNES_ACTION_LOAD);
   poll(0);
   assert(poll(0x1000 | 0x0200) == 0);
   assert(snes_mini_controller_take_actions() == SNES_ACTION_BRIGHTEN);
@@ -75,8 +77,8 @@ int main() {
   assert(snes_mini_controller_take_actions() == 0);
   Wire.connected = true;
   assert(poll(0, 1000) == 0);
-  poll(0x0200); // A cached poll must not replay an unconsumed action.
-  poll(0x0200, 1); assert(snes_mini_controller_take_actions() == 0);
+  poll(0x0600); // A cached poll must not replay an unconsumed action.
+  poll(0x0600, 1); assert(snes_mini_controller_take_actions() == 0);
   auto nav = paperboy_ui_map_controller;
   assert(nav(GBEMU_INPUT_DOWN, PaperboyPage::Settings, 1000) == PAPERBOY_ACTION_REFRESH);
   assert(paperboy_ui_controller_selection() == 1);
