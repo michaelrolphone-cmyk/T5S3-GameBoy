@@ -16,7 +16,7 @@ static bool host_diagnostic(void *, char *out, size_t capacity) {
 }
 static unsigned attempts, releases, subscriptions, unsubscriptions;
 static bool allow_keyboard, allow_host, attached, fail_poll;
-static bool allow_xinput, xbox_device, xinput_poll_fail;
+static bool allow_xinput, xbox_device, xinput_poll_fail, xbox_clone;
 static unsigned xinput_subscriptions, xinput_unsubscriptions, xinput_cursor, xinput_count;
 static risc_usb_gamepad_event_v1 xinput_events[4];
 static risc_usb_gamepad_state_v1 xinput_state;
@@ -60,6 +60,7 @@ static bool host_configuration(void *, uint64_t device, uint8_t *out, size_t *le
   *length = sizeof(config);
   *vid = 0x1234; *pid = 0x5678;
   if (xbox_device) { *vid = 0x045e; *pid = 0x028e; out[14] = 0xff; out[15] = 0x5d; out[16] = 1; }
+  if (xbox_clone) { *vid = 0x1234; *pid = 0x9876; out[16] = 0x81; }
   return true;
 }
 static risc_usb_host_interrupt_v1 host_api = [] {
@@ -289,6 +290,11 @@ int main() {
   assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
   assert(usb_hid_gamepad_navigation_buttons() & GBEMU_INPUT_A);
   assert(usb_hid_gamepad_buttons() == 0);
+  xbox_clone = true; test_now += 1000; paperboy_usb_owner_poll();
+  const auto clone = usb_hid_gamepad_test_status();
+  assert(clone.vid == 0x1234 && clone.pid == 0x9876 && clone.hid_interfaces == 0);
+  assert(!strcmp(clone.stage, "XINPUT GAMEPAD CONNECTED"));
+  xbox_clone = false;
   xinput_events[0] = xinput_events[1]; xinput_events[0].state.buttons = 1;
   xinput_cursor = 0; xinput_count = 1; paperboy_usb_owner_poll();
   // A different HID device connecting/disconnecting cannot erase held Xbox input.
@@ -304,8 +310,13 @@ int main() {
   xinput_poll_fail = false;
   xinput_events[0].kind = 1; xinput_events[0].state.connected = 1;
   xinput_events[1] = xinput_events[0]; xinput_events[1].kind = 3; xinput_events[1].state.hat = 2;
+  xinput_events[1].state.y = -20000; // D-pad right plus stick up, as in standalone XInput.
   xinput_cursor = 0; xinput_count = 2; paperboy_usb_owner_poll();
-  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_RIGHT);
+  const uint8_t diagonal = GBEMU_INPUT_RIGHT | GBEMU_INPUT_UP;
+  assert((usb_hid_gamepad_buttons() & diagonal) == diagonal);
+  // Generic HID retains its existing D-pad priority over analog movement.
+  map_gamepad(xinput_events[1].state, true);
+  assert(usb_hid_gamepad_buttons() == GBEMU_INPUT_RIGHT);
   paperboy_usb_owner_end(); paperboy_usb_owner_end();
   assert(xinput_unsubscriptions == 1 && releases == 2);
   puts("XInput-only grants, quick taps, HID coexistence, error disconnect and reconnect: PASS");

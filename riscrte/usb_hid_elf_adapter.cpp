@@ -95,12 +95,12 @@ void capability_error(const char *fallback) {
   else gamepad_error(fallback);
 }
 
-bool enumeration_failed(const char *reason, size_t capacity) {
+template <size_t N>
+bool diagnostic_contains(const char *reason, size_t capacity, const char (&marker)[N]) {
   // strstr is not part of RiscRTE's exported ELF ABI. Keep the diagnostic
   // scan bounded and use the already supported strncmp import.
-  constexpr char marker[] = "ENUM FAIL:";
-  for (size_t at = 0; at + sizeof(marker) <= capacity && reason[at]; ++at)
-    if (strncmp(reason + at, marker, sizeof(marker) - 1) == 0) return true;
+  for (size_t at = 0; at + N <= capacity && reason[at]; ++at)
+    if (strncmp(reason + at, marker, N - 1) == 0) return true;
   return false;
 }
 
@@ -129,7 +129,7 @@ void probe_usb_discovery() {
       if (extended->diagnostic &&
           extended->diagnostic(host.host.context, reason, sizeof(reason)) && reason[0]) {
         diagnostic_stage(reason);
-        if (enumeration_failed(reason, sizeof(reason))) {
+        if (diagnostic_contains(reason, sizeof(reason), "ENUM FAIL:")) {
           portENTER_CRITICAL(&g_input_lock);
           snprintf(g_test.error, sizeof(g_test.error), "%s", reason);
           portEXIT_CRITICAL(&g_input_lock);
@@ -146,6 +146,7 @@ void probe_usb_discovery() {
     diagnostic_stage("USB CONFIGURATION UNAVAILABLE"); return;
   }
   uint8_t hid_count = 0, protocol = 0;
+  bool xinput = false;
   if (length >= 9 && length <= sizeof(g_configuration)) {
     for (size_t at = 0; at + 2 <= length;) {
       const uint8_t size = g_configuration[at];
@@ -154,6 +155,9 @@ void probe_usb_discovery() {
         if (!hid_count) protocol = g_configuration[at + 7];
         if (hid_count != UINT8_MAX) ++hid_count;
       }
+      if (g_configuration[at + 1] == 4 && size >= 9 &&
+          g_configuration[at + 5] == 0xff && g_configuration[at + 6] == 0x5d &&
+          (g_configuration[at + 7] == 1 || g_configuration[at + 7] == 0x81)) xinput = true;
       at += size;
     }
   }
@@ -171,7 +175,6 @@ void probe_usb_discovery() {
   }
   // New driver packages expose the actual class-discovery failure. The v1
   // prefix remains compatible with installed older drivers and host SDKs.
-  const bool xinput = vid == 0x045e && pid == 0x028e;
   const auto *gamepad_api = g_gamepads[xinput ? 1 : 0].api;
   if ((hid_count || xinput) && gamepad_api &&
       gamepad_api->struct_size >= sizeof(risc_usb_gamepad_diagnostics_v1)) {
@@ -180,7 +183,9 @@ void probe_usb_discovery() {
     if (extended->diagnostic &&
         extended->diagnostic(gamepad_api->context, reason, sizeof(reason)) && reason[0]) {
       diagnostic_stage(reason);
-      if (strstr(reason, "FAILED") || strstr(reason, "UNSUPPORTED") || strstr(reason, "EXHAUSTED")) {
+      if (diagnostic_contains(reason, sizeof(reason), "FAILED") ||
+          diagnostic_contains(reason, sizeof(reason), "UNSUPPORTED") ||
+          diagnostic_contains(reason, sizeof(reason), "EXHAUSTED")) {
         portENTER_CRITICAL(&g_input_lock);
         snprintf(g_test.error, sizeof(g_test.error), "%s", reason);
         portEXIT_CRITICAL(&g_input_lock);
@@ -260,7 +265,8 @@ void keyboard_snapshot() {
   accept_keyboard(keys, false);
 }
 
-void map_gamepad(const risc_usb_gamepad_state_v1 &state, bool synchronize = false) {
+void map_gamepad(const risc_usb_gamepad_state_v1 &state, bool synchronize = false,
+                 bool combine_axes = false) {
   UsbHidGamepadState pad{};
   if (state.connected) {
     const uint8_t hat = state.hat;
@@ -269,12 +275,13 @@ void map_gamepad(const risc_usb_gamepad_state_v1 &state, bool synchronize = fals
       pad.right = hat >= 1 && hat <= 3;
       pad.down = hat >= 3 && hat <= 5;
       pad.left = hat >= 5 && hat <= 7;
-    } else {
+    }
+    if (hat >= 8 || combine_axes) {
       constexpr int16_t threshold = 16384; // Same outer-quarter dead zone as native HID.
-      pad.left = state.x < -threshold;
-      pad.right = state.x > threshold;
-      pad.up = state.y < -threshold;
-      pad.down = state.y > threshold;
+      pad.left |= state.x < -threshold;
+      pad.right |= state.x > threshold;
+      pad.up |= state.y < -threshold;
+      pad.down |= state.y > threshold;
     }
     pad.b = (state.buttons & (1UL << 0)) != 0;
     pad.a = (state.buttons & (1UL << 1)) != 0;
@@ -326,14 +333,14 @@ void accept_gamepad(GamepadProvider &source, const risc_usb_gamepad_state_v1 &st
   if (source.state.connected && state.device && state.device != source.state.device) return;
   source.state = state;
   if (g_active_gamepad && g_active_gamepad->state.connected) {
-    if (g_active_gamepad == &source) map_gamepad(state, synchronize);
+    if (g_active_gamepad == &source) map_gamepad(state, synchronize, &source == &g_gamepads[1]);
     return;
   }
   g_active_gamepad = nullptr;
   for (auto &candidate : g_gamepads) {
     if (!candidate.state.connected) continue;
     g_active_gamepad = &candidate;
-    map_gamepad(candidate.state, true);
+    map_gamepad(candidate.state, true, &candidate == &g_gamepads[1]);
     return;
   }
   map_gamepad(risc_usb_gamepad_state_v1{}, true);
