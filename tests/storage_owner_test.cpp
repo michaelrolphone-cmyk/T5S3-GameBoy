@@ -89,9 +89,9 @@ int main() {
   xTaskNotifyGive(owner);
   paperboy_storage_owner_wait(); worker.join();
   assert(writes == 4 && closes > 4 && !opened);
-  for (unsigned i = 0; i < 20; ++i) paperboy_storage_hid_diagnostic("Keyboard connection state");
-  assert(writes == 16); // Four saves plus at most twelve bounded trace writes.
-  assert(files["/sd/gameboy-hid.log"].size() < 2048);
+  for (unsigned i = 0; i < 40; ++i) paperboy_storage_hid_diagnostic("Keyboard connection state");
+  assert(writes == 36); // Four saves plus at most 32 bounded trace writes.
+  assert(files["/sd/gameboy-hid.log"].size() < 4096);
   paperboy_storage_end();
   puts("PASS: owner-only ROM/rescan/config/save/state I/O and failure cleanup");
 }

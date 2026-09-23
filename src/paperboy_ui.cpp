@@ -326,37 +326,53 @@ void draw_gamepad_test(uint8_t *framebuffer, const UsbGamepadTestStatus *status)
   const auto row = [&](int y, const char *value) {
     mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, y, value, 2, false);
   };
-  row(160, status->provider_ready ? "DRIVER: READY" : "DRIVER: UNAVAILABLE");
-  row(208, status->connected ? "RECEIVER: CONNECTED" : "RECEIVER: NOT DETECTED");
-  if (status->poll_failed) row(255, "POLL: ERROR");
+  row(155, status->provider_ready ? "DRIVER: READY" : "DRIVER: UNAVAILABLE");
+  snprintf(line, sizeof(line), "USB:%u  VID:%04X PID:%04X", unsigned(status->usb_devices),
+           unsigned(status->vid), unsigned(status->pid));
+  row(192, line);
+  snprintf(line, sizeof(line), "HID:%u PROTOCOL:%u", unsigned(status->hid_interfaces),
+           unsigned(status->hid_protocol));
+  row(229, line);
+  row(266, status->connected ? "GAMEPAD: CONNECTED" : "GAMEPAD: NO REPORT");
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 302,
+                 status->stage[0] ? status->stage : "WAITING FOR USB SNAPSHOT", 1, false);
+  if (status->poll_failed) row(320, "POLL: ERROR");
   snprintf(line, sizeof(line), "REPORTS: %lu  ID: %u",
            static_cast<unsigned long>(status->reports), unsigned(status->report_id));
-  row(302, line);
+  row(347, line);
   snprintf(line, sizeof(line), "BUTTONS: %08lX", static_cast<unsigned long>(status->buttons));
-  row(351, line);
+  row(384, line);
   const char *names[] = {"B", "A", "Y", "X", "L", "R", "7", "8",
                          "SELECT", "START", "11", "12", "13", "14", "15", "16"};
-  int x = 34, y = 408;
+  int x = 34, y = 426;
   for (unsigned i = 0; i < 16; ++i) {
     if (!(status->buttons & (1UL << i))) continue;
     mono_draw_text(framebuffer, kPitch, kWidth, kHeight, x, y, names[i], 2, false);
     x += static_cast<int>(strlen(names[i]) * 12 + 20);
     if (x > 420) { x = 34; y += 36; }
   }
-  if (!status->buttons) row(408, "NO BUTTONS PRESSED");
-  snprintf(line, sizeof(line), "X:%d Y:%d HAT:%u", int(status->x), int(status->y),
-           unsigned(status->hat));
-  row(555, line);
-  snprintf(line, sizeof(line), "RX:%d RY:%d", int(status->rx), int(status->ry));
-  row(600, line);
-  row(670, "LAST ERROR:");
+  if (!status->buttons) row(426, "NO BUTTONS PRESSED");
+  if (status->connected)
+    snprintf(line, sizeof(line), "X:%d Y:%d HAT:%u", int(status->x), int(status->y),
+             unsigned(status->hat));
+  else snprintf(line, sizeof(line), "X:-- Y:-- HAT:--");
+  row(540, line);
+  if (status->connected)
+    snprintf(line, sizeof(line), "RX:%d RY:%d", int(status->rx), int(status->ry));
+  else snprintf(line, sizeof(line), "RX:-- RY:--");
+  row(578, line);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 631, "RECENT EVENTS:", 2, false);
+  for (unsigned i = 0; i < 3; ++i)
+    mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 665 + int(i) * 29,
+                   status->events[i], 1, false);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 761, "LAST ERROR:", 2, false);
   // Single clipped row keeps an unexpected provider message inside the screen.
   char error[62];
   snprintf(error, sizeof(error), "%.60s", status->error[0] ? status->error : "NONE");
-  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 712, error, 1, false);
-  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 752,
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 791, error, 1, false);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 819,
                  "LOG: /sd/gameboy-hid.log", 1, false);
-  draw_centered_text(framebuffer, 820, "B OR BACK: SETTINGS", 1);
+  draw_centered_text(framebuffer, 859, "B OR BACK: SETTINGS", 1);
 }
 
 const char *battery_state_text(const PaperboyBatteryStatus &battery) {

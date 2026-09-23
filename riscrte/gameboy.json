@@ -1,11 +1,12 @@
 {
   "min_firmware_version": "1.2.48",
-  "version": "1.2.15",
+  "version": "1.2.16",
   "display_name": "GameBoy",
   "file_name": "gameboy.elf",
   "icon": "solid:f11b",
   "optional": [
     {"capability": "usb.hid.keyboard", "api": ">=1"},
-    {"capability": "usb.hid.gamepad", "api": ">=1"}
+    {"capability": "usb.hid.gamepad", "api": ">=1"},
+    {"capability": "usb.host", "api": ">=1"}
   ]
 }

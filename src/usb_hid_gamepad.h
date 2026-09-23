@@ -11,9 +11,14 @@ struct UsbGamepadTestStatus {
   int16_t x, y, rx, ry;
   uint8_t hat, report_id;
   char error[80];
+  uint8_t usb_devices, hid_interfaces, hid_protocol;
+  uint16_t vid, pid;
+  char stage[48];
+  char events[3][64];
 };
 
 UsbGamepadTestStatus usb_hid_gamepad_test_status();
+void usb_hid_gamepad_test_active(bool active);
 
 // USB host owns the ESP32-S3 native USB PHY (GPIO19/20). The receiver must
 // present a standard HID joystick/gamepad interface in D-input mode.

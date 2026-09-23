@@ -459,11 +459,11 @@ bool paperboy_storage_write_blob_atomic(const char *path, const void *data, size
 // Called by HID only on the app owner. Keep a bounded launch trace on SD so
 // connection failures remain inspectable while the USB port holds a keyboard.
 void paperboy_storage_hid_diagnostic(const char *message) {
-  static char trace[2048] = {};
+  static char trace[4096] = {};
   static size_t used = 0;
   static unsigned entries = 0;
   if (!message || !g_storage || !g_status.mounted ||
-      xTaskGetCurrentTaskHandle() != g_owner_task || entries >= 12) return;
+      xTaskGetCurrentTaskHandle() != g_owner_task || entries >= 32) return;
   const int n = snprintf(trace + used, sizeof(trace) - used, "%lu %.*s\n",
                          static_cast<unsigned long>(millis()), 160, message);
   if (n <= 0 || static_cast<size_t>(n) >= sizeof(trace) - used) return;

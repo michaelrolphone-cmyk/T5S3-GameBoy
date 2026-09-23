@@ -101,6 +101,10 @@ void library_task(void *) {
 void on_client_event(const usb_host_client_event_msg_t *event, void *) {
   if (event->event == USB_HOST_CLIENT_EVENT_NEW_DEV) {
     ESP_LOGI(kTag, "HID device enumerated address=%u", event->new_dev.address);
+    portENTER_CRITICAL(&g_input_lock);
+    g_test.usb_devices = 1;
+    snprintf(g_test.stage, sizeof(g_test.stage), "USB DEVICE ENUMERATED");
+    portEXIT_CRITICAL(&g_input_lock);
     if (!g_device && !g_pending_address) g_pending_address = event->new_dev.address;
   } else if (event->event == USB_HOST_CLIENT_EVENT_DEV_GONE &&
              event->dev_gone.dev_hdl == g_device) {
@@ -110,6 +114,11 @@ void on_client_event(const usb_host_client_event_msg_t *event, void *) {
     portEXIT_CRITICAL(&g_input_lock);
     ESP_LOGW(kTag, "HID device removed; releasing all buttons and keys");
     g_disconnect = true;
+    portENTER_CRITICAL(&g_input_lock);
+    g_test.usb_devices = 0;
+    g_test.hid_interfaces = 0;
+    snprintf(g_test.stage, sizeof(g_test.stage), "USB DEVICE REMOVED");
+    portEXIT_CRITICAL(&g_input_lock);
     clear_input();
   }
 }
@@ -175,6 +184,11 @@ void inspect_interfaces(const usb_config_desc_t *config) {
     }
   }
   ESP_LOGI(kTag, "HID candidate interfaces=%u", g_candidates_count);
+  portENTER_CRITICAL(&g_input_lock);
+  g_test.hid_interfaces = g_candidates_count;
+  snprintf(g_test.stage, sizeof(g_test.stage), "%s",
+           g_candidates_count ? "USB HID INTERFACE FOUND" : "NO SUPPORTED HID INTERFACE");
+  portEXIT_CRITICAL(&g_input_lock);
 }
 
 void on_control(usb_transfer_t *) {
@@ -333,6 +347,8 @@ bool activate_candidate() {
   portENTER_CRITICAL(&g_input_lock);
   g_test.provider_ready = true;
   g_test.connected = !g_keyboard_active;
+  snprintf(g_test.stage, sizeof(g_test.stage), "%s",
+           g_keyboard_active ? "USB KEYBOARD ACTIVE" : "GAMEPAD REPORT CONNECTED");
   g_test.report_id = id;
   g_test.hat = 8;
   g_test.error[0] = 0;
@@ -453,6 +469,10 @@ void client_task(void *) {
       if (usb_host_get_device_descriptor(g_device, &descriptor) == ESP_OK && descriptor) {
         ESP_LOGI(kTag, "USB HID VID=%04x PID=%04x", descriptor->idVendor,
                  descriptor->idProduct);
+        portENTER_CRITICAL(&g_input_lock);
+        g_test.vid = descriptor->idVendor;
+        g_test.pid = descriptor->idProduct;
+        portEXIT_CRITICAL(&g_input_lock);
       }
       if (usb_host_get_active_config_descriptor(g_device, &config) != ESP_OK || !config) {
         g_disconnect = true;
@@ -587,3 +607,4 @@ UsbGamepadTestStatus usb_hid_gamepad_test_status() {
   portEXIT_CRITICAL(&g_input_lock);
   return result;
 }
+void usb_hid_gamepad_test_active(bool) {}

@@ -1740,6 +1740,7 @@ void run_console(void *unused) {
       }
       ESP_LOGI(kTag, "page %u -> %u", static_cast<unsigned>(page), static_cast<unsigned>(next_page));
       page = next_page;
+      usb_hid_gamepad_test_active(page == PaperboyPage::GamepadTest);
       buttons = 0U;  // Do not inject the menu activation/back key into gameplay.
       audio_set_paused(page != PaperboyPage::Game || !power_on);
       paperboy_ui_on_page_changed();

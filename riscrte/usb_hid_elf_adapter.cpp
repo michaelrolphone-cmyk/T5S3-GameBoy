@@ -12,6 +12,7 @@
 
 #include <T5ProviderCapabilityApi.h>
 #include <RiscUsbHidV1.h>
+#include <RiscUsbInterruptV1.h>
 
 #include "gbemu.h"
 #include "snes_mini_controller.h"
@@ -37,6 +38,11 @@ bool g_gamepad_poll_failed = false;
 bool g_gamepad_state_seen = false;
 bool g_keyboard_acquire_failed = false;
 bool g_gamepad_acquire_failed = false;
+bool g_host_probe_attempted = false;
+bool g_diagnostic_active = false;
+const risc_usb_host_interrupt_v1 *g_host_api = nullptr;
+t5_provider_capability_lease_t g_host_lease = 0;
+uint8_t g_configuration[RISC_USB_CONFIG_LIMIT];
 void acquire_error(const char *capability) {
   paperboy_storage_hid_diagnostic(capability);
 }
@@ -48,11 +54,87 @@ uint64_t g_keyboard_subscription = 0;
 uint64_t g_gamepad_subscription = 0;
 portMUX_TYPE g_input_lock = portMUX_INITIALIZER_UNLOCKED;
 UsbGamepadTestStatus g_test = {};
+void diagnostic_event(const char *message) {
+  portENTER_CRITICAL(&g_input_lock);
+  memcpy(g_test.events[0], g_test.events[1], sizeof(g_test.events[0]));
+  memcpy(g_test.events[1], g_test.events[2], sizeof(g_test.events[1]));
+  snprintf(g_test.events[2], sizeof(g_test.events[2]), "%s", message);
+  portEXIT_CRITICAL(&g_input_lock);
+  paperboy_storage_hid_diagnostic(message);
+}
+void diagnostic_stage(const char *stage) {
+  bool changed;
+  portENTER_CRITICAL(&g_input_lock);
+  changed = strcmp(g_test.stage, stage) != 0;
+  if (changed) snprintf(g_test.stage, sizeof(g_test.stage), "%s", stage);
+  portEXIT_CRITICAL(&g_input_lock);
+  if (changed) diagnostic_event(stage);
+}
 void gamepad_error(const char *message) {
   portENTER_CRITICAL(&g_input_lock);
   snprintf(g_test.error, sizeof(g_test.error), "%s", message);
   portEXIT_CRITICAL(&g_input_lock);
-  paperboy_storage_hid_diagnostic(message);
+  diagnostic_event(message);
+}
+void capability_error(const char *fallback) {
+  char reason[80] = {};
+  if (g_provider && g_provider->struct_size >=
+          offsetof(t5_provider_capability_api_v1, last_error) + sizeof(g_provider->last_error) &&
+      g_provider->last_error && g_provider->last_error(reason, sizeof(reason)) && reason[0])
+    gamepad_error(reason);
+  else gamepad_error(fallback);
+}
+
+// Read the already-polling host's snapshot. Never consume USB events, claim an
+// interface, or perform a transfer from this diagnostic path.
+void probe_usb_discovery() {
+  if (!g_host_api) { diagnostic_stage("USB HOST DIAGNOSTIC UNAVAILABLE"); return; }
+  const auto &host = g_host_api->discovery;
+  uint64_t devices[RISC_USB_HOST_MAX_DEVICES] = {};
+  size_t count = RISC_USB_HOST_MAX_DEVICES;
+  if (!host.devices(host.host.context, devices, &count) || count > RISC_USB_HOST_MAX_DEVICES) {
+    diagnostic_stage("USB DEVICE SNAPSHOT FAILED"); return;
+  }
+  portENTER_CRITICAL(&g_input_lock);
+  g_test.usb_devices = static_cast<uint8_t>(count);
+  g_test.hid_interfaces = 0;
+  g_test.hid_protocol = 0;
+  g_test.vid = g_test.pid = 0;
+  portEXIT_CRITICAL(&g_input_lock);
+  if (!count) { diagnostic_stage("NO USB DEVICE ENUMERATED"); return; }
+  size_t length = sizeof(g_configuration);
+  uint16_t vid = 0, pid = 0;
+  if (!host.host.configuration(host.host.context, devices[0], g_configuration,
+                               &length, &vid, &pid)) {
+    diagnostic_stage("USB CONFIGURATION UNAVAILABLE"); return;
+  }
+  uint8_t hid_count = 0, protocol = 0;
+  if (length >= 9 && length <= sizeof(g_configuration)) {
+    for (size_t at = 0; at + 2 <= length;) {
+      const uint8_t size = g_configuration[at];
+      if (size < 2 || size > length - at) break;
+      if (g_configuration[at + 1] == 4 && size >= 9 && g_configuration[at + 5] == 3) {
+        if (!hid_count) protocol = g_configuration[at + 7];
+        if (hid_count != UINT8_MAX) ++hid_count;
+      }
+      at += size;
+    }
+  }
+  const bool identity_changed = g_test.vid != vid || g_test.pid != pid;
+  portENTER_CRITICAL(&g_input_lock);
+  g_test.vid = vid; g_test.pid = pid;
+  g_test.hid_interfaces = hid_count;
+  g_test.hid_protocol = protocol;
+  portEXIT_CRITICAL(&g_input_lock);
+  if (identity_changed) {
+    char line[64];
+    snprintf(line, sizeof(line), "USB VID:%04X PID:%04X HID:%u PROTO:%u",
+             unsigned(vid), unsigned(pid), unsigned(hid_count), unsigned(protocol));
+    diagnostic_event(line);
+  }
+  diagnostic_stage(hid_count ? (g_test.connected ? "GAMEPAD REPORT CONNECTED" :
+                     "USB HID SEEN; WAITING FOR GAMEPAD") :
+                     "USB DEVICE HAS NO HID INTERFACE");
 }
 UsbHidKeyboardKeys g_keys;
 constexpr size_t kKeyboardQueueCapacity = 32;
@@ -324,7 +406,7 @@ void paperboy_usb_owner_begin() {
     }
   }
   if (!g_gamepad_lease && !g_gamepad_acquire_failed)
-    gamepad_error("Gamepad driver acquisition failed");
+    capability_error("Gamepad driver acquisition failed");
   if (!g_gamepad_lease) {
     portENTER_CRITICAL(&g_input_lock);
     g_test.provider_ready = false;
@@ -420,6 +502,37 @@ void paperboy_usb_owner_poll() {
       if (event.kind == 1 || event.kind == 3) map_gamepad(event.state);
     }
   }
+  // One bounded configuration read per second; HID/gamepad providers already
+  // advance enumeration during their ordinary poll above.
+  static uint32_t last_probe_ms = 0;
+  portENTER_CRITICAL(&g_input_lock);
+  const bool diagnostic_active = g_diagnostic_active;
+  portEXIT_CRITICAL(&g_input_lock);
+  if (diagnostic_active && g_provider && !g_host_probe_attempted) {
+    g_host_probe_attempted = true;
+    const void *iface = nullptr;
+    if (g_provider->acquire("usb.host", RISC_USB_HOST_API_V1, &g_host_lease, &iface)) {
+      const auto *api = static_cast<const risc_usb_host_interrupt_v1 *>(iface);
+      if (api && api->discovery.host.api_version == RISC_USB_HOST_API_V1 &&
+          api->discovery.host.struct_size >=
+              offsetof(risc_usb_host_discovery_v1, devices) + sizeof(api->discovery.devices) &&
+          api->discovery.devices && api->discovery.host.configuration) {
+        g_host_api = api;
+        diagnostic_event("USB host snapshot available");
+      } else {
+        (void)g_provider->release(g_host_lease);
+        g_host_lease = 0;
+      }
+    }
+    if (!g_host_api) {
+      capability_error("USB host diagnostic acquisition failed");
+      diagnostic_stage("USB HOST DIAGNOSTIC UNAVAILABLE");
+    }
+  }
+  if (diagnostic_active && uint32_t(millis() - last_probe_ms) >= 1000U) {
+    last_probe_ms = millis();
+    probe_usb_discovery();
+  }
 }
 
 void paperboy_usb_owner_end() {
@@ -433,7 +546,12 @@ void paperboy_usb_owner_end() {
   g_gamepad_api = nullptr;
   if (g_provider && g_keyboard_lease) (void)g_provider->release(g_keyboard_lease);
   if (g_provider && g_gamepad_lease) (void)g_provider->release(g_gamepad_lease);
+  if (g_provider && g_host_lease) (void)g_provider->release(g_host_lease);
   g_keyboard_lease = g_gamepad_lease = 0;
+  g_host_lease = 0;
+  g_host_api = nullptr;
+  g_host_probe_attempted = false;
+  g_diagnostic_active = false;
   g_provider = nullptr;
   portENTER_CRITICAL(&g_input_lock);
   g_test = {};
@@ -508,4 +626,9 @@ UsbGamepadTestStatus usb_hid_gamepad_test_status() {
   UsbGamepadTestStatus result = g_test;
   portEXIT_CRITICAL(&g_input_lock);
   return result;
+}
+void usb_hid_gamepad_test_active(bool active) {
+  portENTER_CRITICAL(&g_input_lock);
+  g_diagnostic_active = active;
+  portEXIT_CRITICAL(&g_input_lock);
 }

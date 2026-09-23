@@ -6,7 +6,32 @@ void paperboy_storage_hid_diagnostic(const char *) {}
 uint32_t test_now;
 static bool api_present;
 static unsigned attempts, releases, subscriptions, unsubscriptions;
-static bool allow_keyboard, fail_poll;
+static bool allow_keyboard, allow_host, attached, fail_poll;
+static bool host_devices(void *, uint64_t *out, size_t *count) {
+  const size_t n = attached ? 1u : 0u;
+  if (*count < n) return false;
+  if (n) out[0] = 55;
+  *count = n;
+  return true;
+}
+static bool host_configuration(void *, uint64_t device, uint8_t *out, size_t *length,
+                               uint16_t *vid, uint16_t *pid) {
+  assert(device == 55 && *length >= 18);
+  const uint8_t config[] = {9, 2, 18, 0, 1, 1, 0, 0x80, 50,
+                            9, 4, 0, 0, 1, 3, 0, 0, 0};
+  memcpy(out, config, sizeof(config));
+  *length = sizeof(config);
+  *vid = 0x1234; *pid = 0x5678;
+  return true;
+}
+static risc_usb_host_interrupt_v1 host_api = [] {
+  risc_usb_host_interrupt_v1 result{};
+  result.discovery.host.api_version = RISC_USB_HOST_API_V1;
+  result.discovery.host.struct_size = sizeof(result);
+  result.discovery.host.configuration = host_configuration;
+  result.discovery.devices = host_devices;
+  return result;
+}();
 static risc_usb_keyboard_event_v1 events[4];
 static unsigned event_count, event_cursor;
 static uint64_t subscribe_keyboard(void *, uint64_t filter) { assert(filter == 0); ++subscriptions; return 17; }
@@ -26,6 +51,9 @@ static bool deny(const char *name, uint32_t, t5_provider_capability_lease_t *lea
   ++attempts; *lease = 0; *iface = nullptr;
   if (allow_keyboard && !strcmp(name, "usb.hid.keyboard")) {
     *lease = 8; *iface = &keyboard_api; return true;
+  }
+  if (allow_host && !strcmp(name, "usb.host")) {
+    *lease = 9; *iface = &host_api; return true;
   }
   return false;
 }
@@ -60,6 +88,11 @@ int main() {
   api_present = true; attempts = releases = 0;
   api.struct_size = offsetof(t5_provider_capability_api_v1, release) + sizeof(api.release);
   test_now = 0; paperboy_usb_owner_begin(); assert(attempts == 2);
+  usb_hid_gamepad_test_active(true);
+  test_now = 1000; paperboy_usb_owner_poll();
+  assert(attempts == 3);
+  assert(!strcmp(usb_hid_gamepad_test_status().stage, "USB HOST DIAGNOSTIC UNAVAILABLE"));
+  usb_hid_gamepad_test_active(false);
   allow_keyboard = true;
   test_now = 4999; paperboy_usb_owner_poll(); assert(subscriptions == 0);
   test_now = 5000; paperboy_usb_owner_poll(); assert(subscriptions == 1 && releases == 0);
@@ -137,6 +170,21 @@ int main() {
   assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_DOWN);
   clear_keyboard();
   puts("Keyboard quick menu taps, disconnect and overflow: PASS");
+  allow_host = true;
+  test_now = 30000;
+  paperboy_usb_owner_begin();
+  usb_hid_gamepad_test_active(true);
+  paperboy_usb_owner_poll();
+  assert(usb_hid_gamepad_test_status().usb_devices == 0);
+  assert(!strcmp(usb_hid_gamepad_test_status().stage, "NO USB DEVICE ENUMERATED"));
+  attached = true; test_now += 1000;
+  paperboy_usb_owner_poll();
+  const auto detected = usb_hid_gamepad_test_status();
+  assert(detected.usb_devices == 1 && detected.hid_interfaces == 1);
+  assert(detected.vid == 0x1234 && detected.pid == 0x5678);
+  assert(!strcmp(detected.stage, "USB HID SEEN; WAITING FOR GAMEPAD"));
+  paperboy_usb_owner_end();
+  puts("On-screen USB discovery, VID/PID, HID interface and stage: PASS");
   puts("Gamepad bursts, analog coalescing, disconnect and overflow recovery: PASS");
   puts("ELF absent API/denied optional HID and repeated teardown: PASS");
 }
