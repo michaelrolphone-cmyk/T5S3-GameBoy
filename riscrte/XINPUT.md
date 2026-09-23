@@ -1,6 +1,6 @@
 # Xbox 360-format receiver support
 
-Gameboy 1.2.19 can use RiscRTE's independently installed
+Gameboy 1.2.20 can use RiscRTE's independently installed
 `usb-xinput-gamepad` 0.1.1 driver for a `045e:028e` receiver. This receiver
 advertises the Xbox 360 wired USB protocol even when its controller uses
 a 2.4 GHz radio. The app requests `usb.xinput.gamepad@1` alongside its optional
@@ -30,14 +30,17 @@ XInput decoding starts only after USB enumeration succeeds. Native regression
 tests cover decoding and app delivery; physical enumeration and target ELFs
 still require verification on the ESP32-S3 build/hardware.
 
-Input timing in 1.2.19: queued transitions expire after 80 ms and synchronize
-to the newest state, so slow display work cannot replay a backlog of presses.
-Short taps inside that window remain ordered. A failed provider poll or 250 ms
-without completed polling neutralizes sampled input; this timeout tracks poll
-progress, so a quiet controller can still hold a button. Recovery suppresses
-synthetic save/load/chord actions. HID diagnostics are buffered and written by
-the owner maintenance/final flush, outside report delivery.
+Gameboy 1.2.20 consumes gamepad reports as current state snapshots, matching
+the I2C and standalone USB backends. Each report replaces the previous state;
+the next console frame sees the newest buttons and directions. There is no
+app gamepad history queue, input expiry timer or artificial release watchdog.
+A completed press/release between samples is already released, just as with
+the working backends. Keyboard key events keep their separate ordered queue.
+HID diagnostics are buffered and written by the owner maintenance/final flush,
+outside report delivery.
 
 Install `usb-controller-esp32s3` 0.1.12 to keep the next interrupt-IN transfer
-armed between app polls. The controller still retains DMA until completion and
+armed between app polls. Interrupt reads pump ready events without waiting
+for future reports; the app owner yields between polling cycles. The controller
+still retains DMA until completion and
 pins failed teardown; it never retains an app buffer.

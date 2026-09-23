@@ -199,28 +199,14 @@ void probe_usb_discovery() {
                      "USB DEVICE HAS NO HID INTERFACE");
 }
 UsbHidKeyboardKeys g_keys;
-// Preserve quick taps only while they are fresh. A slow e-paper frame must
-// catch up to live input rather than replaying seconds of old button states.
-constexpr uint32_t kInputQueueAgeMs = 80;
-constexpr uint32_t kInputPollTimeoutMs = 250;
-bool g_keyboard_polled = false, g_gamepad_polled = false;
-bool g_keyboard_poll_ok = true, g_gamepad_poll_ok = true;
-uint32_t g_keyboard_poll_at = 0, g_gamepad_poll_at = 0;
-uint8_t g_sample_stale = 0;
 constexpr size_t kKeyboardQueueCapacity = 32;
 UsbHidKeyboardKeys g_keyboard_queue[kKeyboardQueueCapacity];
-uint32_t g_keyboard_received[kKeyboardQueueCapacity];
 UsbHidKeyboardKeys g_sampled_keys;
 size_t g_keyboard_head = 0, g_keyboard_count = 0;
 UsbHidGamepadState g_gamepad;
-UsbHidGamepadState g_latest_gamepad;
-// Keep digital transitions across owner-poll bursts until the console samples
-// them. Analog changes inside the same mapped direction consume no queue slots.
-constexpr size_t kGamepadQueueCapacity = 32;
-UsbHidGamepadState g_gamepad_queue[kGamepadQueueCapacity];
-uint32_t g_gamepad_received[kGamepadQueueCapacity];
-size_t g_gamepad_head = 0, g_gamepad_count = 0;
-uint32_t g_gamepad_overflows = 0;
+// Gamepad reports are full state snapshots. The console samples the newest
+// state, like the I2C and standalone USB backends; it must not replay a FIFO
+// of historical holds after their releases have already arrived.
 uint16_t pressed_mask(const UsbHidGamepadState &s);
 uint8_t g_pending_keyboard_actions = 0;
 uint8_t g_buttons = 0;
@@ -250,9 +236,7 @@ void accept_keyboard(const UsbHidKeyboardKeys &next, bool emit_actions) {
     g_keyboard_head = g_keyboard_count = 0;
     g_sampled_keys = next;
   } else if (memcmp(&g_keys, &next, sizeof(next)) != 0) {
-    const size_t tail = (g_keyboard_head + g_keyboard_count++) % kKeyboardQueueCapacity;
-    g_keyboard_queue[tail] = next;
-    g_keyboard_received[tail] = millis();
+    g_keyboard_queue[(g_keyboard_head + g_keyboard_count++) % kKeyboardQueueCapacity] = next;
   }
   g_keys = next;
   portEXIT_CRITICAL(&g_input_lock);
@@ -306,7 +290,6 @@ void map_gamepad(const risc_usb_gamepad_state_v1 &state, bool synchronize = fals
     pad.start = (state.buttons & (1UL << 9)) != 0;
   }
   portENTER_CRITICAL(&g_input_lock);
-  g_latest_gamepad = pad;
   g_test.connected = state.connected;
   g_test.buttons = state.connected ? state.buttons : 0;
   g_test.x = state.connected ? state.x : 0;
@@ -316,30 +299,8 @@ void map_gamepad(const risc_usb_gamepad_state_v1 &state, bool synchronize = fals
   g_test.hat = state.connected ? state.hat : 8;
   g_test.report_id = state.connected ? state.report_id : 0;
   if (!synchronize && state.connected && g_test.reports != UINT32_MAX) ++g_test.reports;
-  bool overflow = false;
-  if (synchronize || !state.connected) {
-    // A disconnect/GAP must clear stale presses, not replay them later.
-    g_gamepad_head = g_gamepad_count = 0;
-    g_gamepad = pad;
-  } else {
-    const auto &last = g_gamepad_count
-        ? g_gamepad_queue[(g_gamepad_head + g_gamepad_count - 1) % kGamepadQueueCapacity]
-        : g_gamepad;
-    if (pressed_mask(last) != pressed_mask(pad)) {
-      if (g_gamepad_count == kGamepadQueueCapacity) {
-        // Bound latency and recover to actual state if the console stalls.
-        g_gamepad_head = g_gamepad_count = 0;
-        g_gamepad = pad;
-        overflow = (++g_gamepad_overflows == 1);
-      } else {
-        const size_t tail = (g_gamepad_head + g_gamepad_count++) % kGamepadQueueCapacity;
-        g_gamepad_queue[tail] = pad;
-        g_gamepad_received[tail] = millis();
-      }
-    }
-  }
+  g_gamepad = pad;
   portEXIT_CRITICAL(&g_input_lock);
-  if (overflow) ESP_LOGW(kTag, "gamepad input queue overflow; synchronized to latest state");
 }
 
 void accept_gamepad(GamepadProvider &source, const risc_usb_gamepad_state_v1 &state,
@@ -608,16 +569,6 @@ void paperboy_usb_owner_poll() {
       if (event.kind == 1 || event.kind == 3) accept_gamepad(source, event.state, event.kind == 1);
     }
   }
-  // This heartbeat measures completed provider service, not input reports.
-  // A quiet but healthy controller may legitimately hold a button indefinitely.
-  portENTER_CRITICAL(&g_input_lock);
-  g_keyboard_polled = g_keyboard_api && g_keyboard_subscription;
-  g_keyboard_poll_ok = !g_keyboard_poll_failed;
-  g_keyboard_poll_at = millis();
-  g_gamepad_polled = g_active_gamepad != nullptr;
-  g_gamepad_poll_ok = !g_active_gamepad || !g_active_gamepad->poll_failed;
-  g_gamepad_poll_at = millis();
-  portEXIT_CRITICAL(&g_input_lock);
   // One bounded configuration read per second; HID/gamepad providers already
   // advance enumeration during their ordinary poll above.
   static uint32_t last_probe_ms = 0;
@@ -689,13 +640,7 @@ void paperboy_usb_owner_end() {
   g_sampled_keys = {};
   g_keyboard_head = g_keyboard_count = 0;
   g_gamepad = {};
-  g_latest_gamepad = {};
-  g_gamepad_head = g_gamepad_count = 0;
-  g_gamepad_overflows = 0;
   g_pending_keyboard_actions = 0;
-  g_keyboard_polled = g_gamepad_polled = false;
-  g_keyboard_poll_ok = g_gamepad_poll_ok = true;
-  g_sample_stale = 0;
   portEXIT_CRITICAL(&g_input_lock);
   g_buttons = g_navigation = g_actions = 0;
   g_previous = 0;
@@ -710,36 +655,15 @@ uint8_t usb_hid_gamepad_buttons() {
   UsbHidGamepadState pad;
   UsbHidKeyboardKeys keys;
   uint8_t pending;
-  const uint32_t now = millis();
-  bool synchronized = false;
   portENTER_CRITICAL(&g_input_lock);
-  const bool pad_stale = g_gamepad_polled && (!g_gamepad_poll_ok ||
-      uint32_t(now - g_gamepad_poll_at) >= kInputPollTimeoutMs);
-  const bool keys_stale = g_keyboard_polled && (!g_keyboard_poll_ok ||
-      uint32_t(now - g_keyboard_poll_at) >= kInputPollTimeoutMs);
-  if (pad_stale || (g_gamepad_count &&
-      uint32_t(now - g_gamepad_received[g_gamepad_head]) >= kInputQueueAgeMs)) {
-    g_gamepad_head = g_gamepad_count = 0;
-    g_gamepad = g_latest_gamepad;
-    synchronized = !pad_stale;
-  } else if (g_gamepad_count) {
-    g_gamepad = g_gamepad_queue[g_gamepad_head];
-    g_gamepad_head = (g_gamepad_head + 1) % kGamepadQueueCapacity;
-    --g_gamepad_count;
-  }
-  pad = pad_stale ? UsbHidGamepadState{} : g_gamepad;
-  if (keys_stale || (g_keyboard_count &&
-      uint32_t(now - g_keyboard_received[g_keyboard_head]) >= kInputQueueAgeMs)) {
-    g_keyboard_head = g_keyboard_count = 0;
-    g_sampled_keys = g_keys;
-    synchronized |= !keys_stale;
-  } else if (g_keyboard_count) {
+  pad = g_gamepad;
+  if (g_keyboard_count) {
     g_sampled_keys = g_keyboard_queue[g_keyboard_head];
     g_keyboard_head = (g_keyboard_head + 1) % kKeyboardQueueCapacity;
     --g_keyboard_count;
   }
-  keys = keys_stale ? UsbHidKeyboardKeys{} : g_sampled_keys;
-  pending = keys_stale || synchronized ? 0 : g_pending_keyboard_actions;
+  keys = g_sampled_keys;
+  pending = g_pending_keyboard_actions;
   g_pending_keyboard_actions = 0;
   portEXIT_CRITICAL(&g_input_lock);
   const UsbHidKeyboardMapping mapped = usb_hid_map_keyboard(keys, keys);
@@ -755,17 +679,7 @@ uint8_t usb_hid_gamepad_buttons() {
   pad.r |= mapped.gamepad.r;
   pad.start |= mapped.gamepad.start;
   pad.select |= mapped.gamepad.select;
-  const uint16_t pressed = pressed_mask(pad);
-  const uint8_t stale = (pad_stale ? 1U : 0U) | (keys_stale ? 2U : 0U);
-  if (synchronized || stale != g_sample_stale) {
-    // Resynchronization must not turn an old held shoulder/chord into a new
-    // save, load, rotation or settings action after a stall.
-    g_previous = pressed;
-    g_settings_chord = (pressed & 0x3600U) == 0x3600U;
-    g_rotate_chord = (pressed & 0xa200U) == 0xa200U;
-  }
-  g_sample_stale = stale;
-  decode_actions(pressed, now);
+  decode_actions(pressed_mask(pad), millis());
   g_actions |= pending;
   return g_buttons;
 }

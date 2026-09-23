@@ -142,10 +142,10 @@ int main() {
   events[1] = {}; events[1].kind = 3; events[1].usage = 0x28;
   events[2] = {}; events[2].kind = 4; events[2].usage = 0x28;
   event_cursor = 0; event_count = 3;
-  fail_poll = true; // Drain events, but never replay input from a failed poll.
+  fail_poll = true; // Events published before a later interface fails still count.
   paperboy_usb_owner_poll();
-  assert(usb_hid_gamepad_buttons() == 0);
-  assert(usb_hid_gamepad_navigation_buttons() == 0);
+  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
+  assert(usb_hid_gamepad_navigation_buttons() & GBEMU_INPUT_A);
   assert(usb_hid_gamepad_buttons() == 0);
   fail_poll = false;
   events[0].kind = 2; event_cursor = 0; event_count = 1;
@@ -159,48 +159,33 @@ int main() {
   paperboy_usb_owner_end(); assert(releases == 1 && unsubscriptions == 1);
   test_now = 20000; paperboy_usb_owner_poll(); assert(subscriptions == 1);
   puts("Provider ABI prefix, delayed acquisition, hotplug/reconnect and menu event delivery: PASS");
-  // A complete quick tap received during one owner poll survives until the
-  // emulator samples input; repeated analog noise does not create a backlog.
+  // Full gamepad states must be sampled like I2C and standalone USB: newest
+  // state wins. A press whose release has arrived cannot replay next frame.
   risc_usb_gamepad_state_v1 state{};
-  state.connected = 1; state.hat = 8; state.buttons = 2;
-  map_gamepad(state);
-  for (int i = 0; i < 100; ++i) { state.x = i; map_gamepad(state); }
-  state.buttons = 0; map_gamepad(state);
-  assert(g_gamepad_count == 2);
-  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
-  assert(!(usb_hid_gamepad_buttons() & GBEMU_INPUT_A));
-  // Separate taps remain separate, rather than collapsing into one held key.
-  for (int i = 0; i < 2; ++i) {
+  state.connected = 1; state.hat = 8;
+  for (unsigned i = 0; i < 512; ++i) {
     state.buttons = 2; map_gamepad(state);
     state.buttons = 0; map_gamepad(state);
   }
-  for (int i = 0; i < 2; ++i) {
-    assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
-    assert(usb_hid_gamepad_buttons() == 0);
-  }
+  assert(usb_hid_gamepad_buttons() == 0);
+  assert(usb_hid_gamepad_navigation_buttons() == 0);
+  assert(usb_hid_gamepad_take_actions() == 0);
+  state.buttons = 2; state.hat = 2; map_gamepad(state);
+  assert(usb_hid_gamepad_buttons() == (GBEMU_INPUT_A | GBEMU_INPUT_RIGHT));
+  test_now += 10000; // A held snapshot does not expire just because time passes.
+  assert(usb_hid_gamepad_buttons() == (GBEMU_INPUT_A | GBEMU_INPUT_RIGHT));
+  state.buttons = 0; state.hat = 8; map_gamepad(state);
+  assert(usb_hid_gamepad_buttons() == 0); // Release is visible immediately.
+  // Changes while a frame was busy cannot manufacture delayed shoulder actions.
+  state.buttons = 16; map_gamepad(state);
+  state.buttons = 0; map_gamepad(state);
+  assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
+  state.buttons = 16; map_gamepad(state);
+  assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == SNES_ACTION_LOAD);
+  assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
   state.buttons = 2; map_gamepad(state);
   map_gamepad(risc_usb_gamepad_state_v1{});
-  assert(usb_hid_gamepad_buttons() == 0 && g_gamepad_count == 0);
-  for (size_t i = 0; i <= kGamepadQueueCapacity; ++i) {
-    state.buttons = (i % 2 == 0) ? 2 : 0; map_gamepad(state);
-  }
-  assert(g_gamepad_overflows == 1 && g_gamepad_count == 0);
-  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
-  state.buttons = 0; map_gamepad(state, true);
   assert(usb_hid_gamepad_buttons() == 0);
-  // A blocked render used to replay all of these old presses over later
-  // frames. Expired transitions must catch up to the current released state.
-  for (unsigned tap = 0; tap < 8; ++tap) {
-    state.buttons = 2; map_gamepad(state);
-    state.buttons = 0; map_gamepad(state);
-  }
-  test_now += kInputQueueAgeMs;
-  assert(usb_hid_gamepad_buttons() == 0 && g_gamepad_count == 0);
-  assert(usb_hid_gamepad_take_actions() == 0);
-  state.buttons = 16; map_gamepad(state); // Old held left shoulder: no delayed load.
-  test_now += kInputQueueAgeMs;
-  assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
-  state.buttons = 0; map_gamepad(state, true);
   paperboy_usb_owner_end();
   // Arrow/Enter taps drained in one owner poll must reach menu navigation.
   for (auto usage : {0x51, 0x52, 0x28, 0x29}) {
@@ -224,10 +209,6 @@ int main() {
   assert(g_keyboard_count == 0);
   assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_DOWN);
   clear_keyboard();
-  accept_keyboard(held, true); clear_keyboard();
-  accept_keyboard(held, true); accept_keyboard(UsbHidKeyboardKeys{}, true);
-  test_now += kInputQueueAgeMs;
-  assert(usb_hid_gamepad_buttons() == 0 && g_keyboard_count == 0);
   puts("Keyboard quick menu taps, disconnect and overflow: PASS");
   allow_host = true;
   test_now = 30000;
@@ -304,9 +285,8 @@ int main() {
   const auto xbox = usb_hid_gamepad_test_status();
   assert(xbox.vid == 0x045e && xbox.pid == 0x028e && xbox.hid_interfaces == 0);
   assert(!strcmp(xbox.stage, "XINPUT GAMEPAD CONNECTED") && xbox.reports == 2);
-  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
-  assert(usb_hid_gamepad_navigation_buttons() & GBEMU_INPUT_A);
-  assert(usb_hid_gamepad_buttons() == 0);
+  assert(usb_hid_gamepad_buttons() == 0); // Provider already delivered the release.
+  assert(usb_hid_gamepad_navigation_buttons() == 0);
   xbox_clone = true; test_now += 1000; paperboy_usb_owner_poll();
   const auto clone = usb_hid_gamepad_test_status();
   assert(clone.vid == 0x1234 && clone.pid == 0x9876 && clone.hid_interfaces == 0);
@@ -334,33 +314,10 @@ int main() {
   // Generic HID retains its existing D-pad priority over analog movement.
   map_gamepad(xinput_events[1].state, true);
   assert(usb_hid_gamepad_buttons() == GBEMU_INPUT_RIGHT);
-  // Poll progress, not report traffic, keeps a held button alive. A quiet
-  // change-only receiver must not lose a valid hold after the watchdog period.
-  xinput_events[0] = xinput_events[1];
-  xinput_events[0].state.hat = 8; xinput_events[0].state.y = 0;
-  xinput_events[0].state.buttons = 2 | 16;
-  xinput_cursor = 0; xinput_count = 1; paperboy_usb_owner_poll();
-  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
-  assert(usb_hid_gamepad_take_actions() == SNES_ACTION_LOAD);
-  for (unsigned i = 0; i < 10; ++i) {
-    test_now += 100; paperboy_usb_owner_poll();
-    assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
-    assert(usb_hid_gamepad_take_actions() == 0);
-  }
-  test_now += kInputPollTimeoutMs; // Owner blocked; console can still sample.
-  assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
-  paperboy_usb_owner_poll();
-  assert(usb_hid_gamepad_buttons() & GBEMU_INPUT_A);
-  assert(usb_hid_gamepad_take_actions() == 0); // Recovery is not another load.
-  xinput_poll_fail = true; // Failure with NO disconnect event still releases input.
-  paperboy_usb_owner_poll();
-  assert(usb_hid_gamepad_buttons() == 0 && usb_hid_gamepad_take_actions() == 0);
-  xinput_poll_fail = false;
   paperboy_usb_owner_end(); paperboy_usb_owner_end();
   assert(xinput_unsubscriptions == 1 && releases == 2);
-  puts("XInput-only grants, quick taps, HID coexistence, error disconnect and reconnect: PASS");
+  puts("XInput-only grants, current snapshots, HID coexistence, error disconnect and reconnect: PASS");
   puts("On-screen USB discovery, VID/PID, HID interface and stage: PASS");
-  puts("Gamepad bursts, analog coalescing, disconnect and overflow recovery: PASS");
-  puts("Slow-consumer expiry, healthy quiet holds and stalled/failed polling release: PASS");
+  puts("Gamepad latest state, immediate releases, long holds and no historical replay: PASS");
   puts("ELF absent API/denied optional HID and repeated teardown: PASS");
 }
