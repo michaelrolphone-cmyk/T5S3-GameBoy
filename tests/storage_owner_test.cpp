@@ -18,7 +18,7 @@ static std::map<std::string, std::vector<unsigned char>> files;
 static std::vector<unsigned char> *opened;
 static size_t offset, cursor;
 static bool directory, fail_write, fail_read;
-static unsigned writes, closes;
+static unsigned writes, closes, save_writes, hid_writes, serial_writes;
 static void authorized() { assert(xTaskGetCurrentTaskHandle() == owner); }
 static bool dir_open(const char *path) { authorized(); assert(!directory); directory = !strcmp(path, "/sd"); cursor = 0; return directory; }
 static bool dir_next(t5_app_dirent_t *entry) {
@@ -31,6 +31,9 @@ static bool exists(const char *path) { authorized(); return files.count(path); }
 static bool read_file(const char *, void *, size_t, size_t *) { authorized(); return false; }
 static bool write_file(const char *path, const void *data, size_t size) {
   authorized(); ++writes;
+  if (!strcmp(path, "/sd/serial.log")) ++serial_writes;
+  else if (!strcmp(path, "/sd/gameboy-hid.log")) ++hid_writes;
+  else ++save_writes;
   if (fail_write) return false;
   const auto *bytes = static_cast<const unsigned char *>(data);
   files[path] = std::vector<unsigned char>(bytes, bytes + size); return true;
@@ -88,10 +91,11 @@ int main() {
   // An early/unrelated notification must not finish the owner wait.
   xTaskNotifyGive(owner);
   paperboy_storage_owner_wait(); worker.join();
-  assert(writes == 4 && closes > 4 && !opened);
+  assert(save_writes == 4 && serial_writes > 0 && closes > 4 && !opened);
   for (unsigned i = 0; i < 40; ++i) paperboy_storage_hid_diagnostic("Keyboard connection state");
-  assert(writes == 36); // Four saves plus at most 32 bounded trace writes.
+  assert(hid_writes == 32); // The short HID trace remains bounded.
   assert(files["/sd/gameboy-hid.log"].size() < 4096);
+  assert(files["/sd/serial.log"].size() <= 16384);
   paperboy_storage_end();
   puts("PASS: owner-only ROM/rescan/config/save/state I/O and failure cleanup");
 }
