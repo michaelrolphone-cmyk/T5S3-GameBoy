@@ -95,6 +95,15 @@ void capability_error(const char *fallback) {
   else gamepad_error(fallback);
 }
 
+bool enumeration_failed(const char *reason, size_t capacity) {
+  // strstr is not part of RiscRTE's exported ELF ABI. Keep the diagnostic
+  // scan bounded and use the already supported strncmp import.
+  constexpr char marker[] = "ENUM FAIL:";
+  for (size_t at = 0; at + sizeof(marker) <= capacity && reason[at]; ++at)
+    if (strncmp(reason + at, marker, sizeof(marker) - 1) == 0) return true;
+  return false;
+}
+
 // Read the already-polling host's snapshot. Never consume USB events, claim an
 // interface, or perform a transfer from this diagnostic path.
 void probe_usb_discovery() {
@@ -120,7 +129,7 @@ void probe_usb_discovery() {
       if (extended->diagnostic &&
           extended->diagnostic(host.host.context, reason, sizeof(reason)) && reason[0]) {
         diagnostic_stage(reason);
-        if (strstr(reason, "ENUM FAIL:")) {
+        if (enumeration_failed(reason, sizeof(reason))) {
           portENTER_CRITICAL(&g_input_lock);
           snprintf(g_test.error, sizeof(g_test.error), "%s", reason);
           portEXIT_CRITICAL(&g_input_lock);
