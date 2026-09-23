@@ -26,12 +26,15 @@ SECTIONS
   }
   .rodata : ALIGN(16)
   {
+    __app_rodata_start = .;
     *(.rodata .rodata.* .gnu.linkonce.r.*)
     *(.got.loc)
     *(.eh_frame .eh_frame.*)
     *(.gcc_except_table .gcc_except_table.*)
     /* Loader packs DATA, RODATA, DRLRO, BSS without inter-section padding. */
-    . = ALIGN(16);
+    /* The firmware packs sections by size. Absolute ALIGN can leave the
+     * section size 4 mod 8 when the linker chooses a shifted VMA. */
+    . = __app_rodata_start + ALIGN(. - __app_rodata_start, 16);
   }
   .data : ALIGN(16)
   {
