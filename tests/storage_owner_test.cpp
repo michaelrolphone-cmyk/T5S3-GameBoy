@@ -20,6 +20,7 @@ static size_t offset, cursor;
 static bool directory, fail_write, fail_read;
 static unsigned writes, closes, save_writes, hid_writes, serial_writes;
 static void authorized() { assert(xTaskGetCurrentTaskHandle() == owner); }
+void paperboy_usb_owner_poll() { authorized(); }
 static bool dir_open(const char *path) { authorized(); assert(!directory); directory = !strcmp(path, "/sd"); cursor = 0; return directory; }
 static bool dir_next(t5_app_dirent_t *entry) {
   authorized(); assert(directory);

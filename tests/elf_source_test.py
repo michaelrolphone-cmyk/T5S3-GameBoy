@@ -101,32 +101,39 @@ with tempfile.TemporaryDirectory() as tmp:
     subprocess.run([str(binary)], check=True, timeout=10)
 print('1,200 controller frames: no incidental full-screen repaints; touch, shortcuts and hardware-equivalent redraw: PASS')
 
-# Execute the real frame pacer with an overdue emulated frame. The ELF must
-# give blocked owner/USB work and idle tasks an opportunity to run even when
-# no frame time remains; standalone has its own higher-priority USB tasks.
-import subprocess
+# Exercise the actual staged frame timing and owner scheduling at both 1 ms
+# and 10 ms ticks. No simulated USB call may replace a provider-facing input
+# path; the separate adapter tests cover snapshots and all controller chords.
 with tempfile.TemporaryDirectory() as tmp:
     target = Path(tmp)
     stage(target)
     staged = (target / 'main.cpp').read_text()
     constants = original[original.index('constexpr uint32_t kDmgClockHz'):]
     constants = constants[:constants.index(';', constants.index('constexpr int64_t kGameFramePeriodCeilingUs')) + 1]
-    frame = original[original.index('struct GameFramePacer {'):].split('};', 1)[0] + '};'
-    for name, code, must_yield in [('elf', staged, True), ('standalone', original, False)]:
-        functions = code[code.index('void reset_game_frame_pacer('):code.index('void compose_scene(')]
-        source = target / f'{name}_pacer.cpp'
-        source.write_text('''#include <cstdint>
-static int64_t now = 100000;
-static unsigned delays;
-static int64_t esp_timer_get_time() { return now; }
-static void vTaskDelay(unsigned ticks) { delays += ticks; now += ticks * 1000; }
-static void delayMicroseconds(unsigned us) { now += us; }
-''' + constants + frame + functions + '\nint main() { GameFramePacer p{}; pace_game_frame(p); return ' +
-                          ('delays == 0' if must_yield else 'delays != 0') + '; }\n')
-        binary = target / f'{name}_pacer'
-        subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror', str(source), '-o', str(binary)], check=True)
+    pacer_harness = (ROOT / 'tests/elf_frame_pacer_harness.cpp').read_text()
+    storage = (ROOT / 'riscrte/paperboy_storage_host.cpp').read_text()
+    owner_loop = storage[storage.index('void paperboy_storage_owner_wait()'):storage.index('void paperboy_serial_log(')]
+    owner_harness = (ROOT / 'tests/elf_owner_poll_harness.cpp').read_text()
+    for tick_ms in (1, 10):
+        for name, code in [('elf', staged), ('standalone', original)]:
+            frame = code[code.index('struct GameFramePacer {'):].split('};', 1)[0] + '};'
+            functions = code[code.index('void reset_game_frame_pacer('):code.index('void compose_scene(')]
+            source = target / f'{name}_pacer.cpp'
+            source.write_text(pacer_harness.replace('// PACER_CONSTANTS', constants)
+                              .replace('// PACER_STATE', frame)
+                              .replace('// PACER_FUNCTIONS', functions))
+            binary = target / f'{name}_pacer'
+            subprocess.run(['c++', '-std=c++11', '-Wall', '-Wextra', '-Werror',
+                            f'-DTICK_MS={tick_ms}', f'-DELF_PACER={int(name == "elf")}',
+                            str(source), '-o', str(binary)], check=True)
+            subprocess.run([str(binary)], check=True, timeout=10)
+        source = target / 'owner_poll.cpp'
+        source.write_text(owner_harness.replace('// OWNER_LOOP', owner_loop))
+        binary = target / 'owner_poll'
+        subprocess.run(['c++', '-std=c++11', '-Wall', '-Wextra', '-Werror',
+                        f'-DTICK_MS={tick_ms}', str(source), '-o', str(binary)], check=True)
         subprocess.run([str(binary)], check=True, timeout=10)
-print('Overdue ELF frames yield; standalone frame pacing remains unchanged: PASS')
+print('ELF loaded-frame throughput, DMG pacing and bounded owner USB polling: PASS')
 
 # Execute the staged worker itself against a deterministic scheduler shim.
 # A provider can finish after the old 15-second timeout, with or without a HID

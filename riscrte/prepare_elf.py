@@ -67,10 +67,29 @@ def stage(destination: Path) -> None:
     main = patch_once(main, task_block,
                       '  // Console work stays on the dedicated ELF worker created by app_main.\n'
                       '  run_console(nullptr);', 'synchronous console')
-    main = patch_once(main, '    if (remaining_us <= 0) {',
-                      '    if (remaining_us <= 0) {\n'
-                      '      // An overloaded ELF must still let USB and idle tasks run.\n'
-                      '      vTaskDelay(1);', 'overdue frame cooperation')
+    main = patch_once(main, 'struct GameFramePacer {',
+                      'struct GameFramePacer {\n'
+                      '  int64_t last_yield_us = 0;', 'ELF cooperation timestamp')
+    main = patch_once(main, '  pacer.next_frame_us = esp_timer_get_time();',
+                      '  pacer.next_frame_us = esp_timer_get_time();\n'
+                      '  pacer.last_yield_us = pacer.next_frame_us;', 'reset cooperation timestamp')
+    main = patch_once(main, '    const int64_t now = esp_timer_get_time();\n'
+                      '    const int64_t remaining_us = pacer.next_frame_us - now;',
+                      '    int64_t now = esp_timer_get_time();\n'
+                      '    // Equal-priority USB already gets scheduler time. Only force an\n'
+                      '    // idle-task break after 50 ms without a normal pacing wait;\n'
+                      '    // sleeping on every late frame reduces emulation throughput.\n'
+                      '    if (now - pacer.last_yield_us >= 50000) {\n'
+                      '      vTaskDelay(1);\n'
+                      '      now = esp_timer_get_time();\n'
+                      '      pacer.last_yield_us = now;\n'
+                      '    }\n'
+                      '    const int64_t remaining_us = pacer.next_frame_us - now;',
+                      'bounded overdue frame cooperation')
+    main = patch_once(main, '    if (remaining_us > 2000) {\n      vTaskDelay(1);',
+                      '    if (remaining_us > 2000) {\n      vTaskDelay(1);\n'
+                      '      pacer.last_yield_us = esp_timer_get_time();',
+                      'normal pacing counts as cooperation')
     main += '''\n\n#ifdef PAPERBOY_RISCRTE_ELF\nnamespace {\nvolatile bool s_elf_exit_requested = false;\nbool s_elf_boot_interrupt_attached = false;\nTaskHandle_t s_elf_owner_task = nullptr;\n}\nvoid paperboy_elf_request_exit() { s_elf_exit_requested = true; }\nbool paperboy_elf_exit_requested() { return s_elf_exit_requested; }\nvoid paperboy_elf_note_boot_interrupt_attached() { s_elf_boot_interrupt_attached = true; }\n\nextern "C" __attribute__((visibility("default"))) uint32_t app_hardware_takeover() {\n  return T5_HARDWARE_TAKEOVER_DISPLAY;\n}\n\nusing PaperboyInitFunction = void (*)();\nextern "C" PaperboyInitFunction __app_init_array_start[];\nextern "C" PaperboyInitFunction __app_init_array_end[];\nextern "C" PaperboyInitFunction __app_ctors_start[];\nextern "C" PaperboyInitFunction __app_ctors_end[];\nextern "C" PaperboyInitFunction __app_fini_array_start[];\nextern "C" PaperboyInitFunction __app_fini_array_end[];\nextern "C" PaperboyInitFunction __app_dtors_start[];\nextern "C" PaperboyInitFunction __app_dtors_end[];\n\nextern "C" __attribute__((visibility("default"))) int app_module_init() {\n  for (PaperboyInitFunction *fn = __app_init_array_start; fn != __app_init_array_end; ++fn) {\n    if (*fn != nullptr) (*fn)();\n  }\n  for (PaperboyInitFunction *fn = __app_ctors_end; fn != __app_ctors_start;) {\n    --fn;\n    if (*fn != nullptr) (*fn)();\n  }\n  return 0;\n}\n\nextern "C" __attribute__((visibility("default"))) void app_module_fini() {\n  for (PaperboyInitFunction *fn = __app_dtors_start; fn != __app_dtors_end; ++fn) {\n    if (*fn != nullptr) (*fn)();\n  }\n  for (PaperboyInitFunction *fn = __app_fini_array_end; fn != __app_fini_array_start;) {\n    --fn;\n    if (*fn != nullptr) (*fn)();\n  }\n}\n\nextern "C" void paperboy_elf_console_task(void *unused) {\n  (void)unused;\n  setup();\n  TaskHandle_t owner = s_elf_owner_task;\n  s_elf_owner_task = nullptr;\n  paperboy_storage_owner_note_console_done();\n  if (owner != nullptr) {\n    xTaskNotifyGive(owner);\n  }\n  vTaskDelete(nullptr);\n}\n\nextern "C" __attribute__((visibility("default"))) void app_main() {\n  s_elf_exit_requested = false;\n  s_elf_boot_interrupt_attached = false;\n  paperboy_storage_bind_host();\n  (void)paperboy_storage_begin();\n  s_elf_owner_task = xTaskGetCurrentTaskHandle();\n  TaskHandle_t console_task = nullptr;\n  const BaseType_t task_result = xTaskCreatePinnedToCore(\n      paperboy_elf_console_task,\n      "gameboy_console",\n      32768,\n      nullptr,\n      1, // Same priority as the RiscRTE owner; emulation must not starve USB.\n      &console_task,\n      0);\n  if (task_result != pdPASS) {\n    s_elf_owner_task = nullptr;\n    ESP_LOGE(kTag, "ELF console task creation failed");\n  } else {\n    paperboy_storage_owner_wait();\n  }\n  if (s_elf_boot_interrupt_attached) {\n    detachInterrupt(digitalPinToInterrupt(t5s3_epd::kBootButton));\n    s_elf_boot_interrupt_attached = false;\n  }\n  night_light_shutdown();\n  audio_deinit();\n  paperboy_storage_end();\n  epd_video_shutdown();\n  if (g_emu != nullptr) { gbemu_destroy(g_emu); g_emu = nullptr; }\n  paperboy_storage_free_rom(g_sd_rom);\n  release_quicksave();\n  if (g_background != nullptr) { heap_caps_free(g_background); g_background = nullptr; }\n  if (g_scene != nullptr) { heap_caps_free(g_scene); g_scene = nullptr; }\n  if (g_game_frame != nullptr) { heap_caps_free(g_game_frame); g_game_frame = nullptr; }\n  g_idle_reason = nullptr;\n  g_storage_ready = false;\n  g_current_rom_path[0] = '\\0';\n}\n#endif\n'''
     main = patch_once(
         main,

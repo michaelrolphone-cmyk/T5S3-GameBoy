@@ -16,7 +16,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'riscrte'))
-from prepare_elf import stage, patch_once
+from prepare_elf import stage
 from stage_core import stage_core
 
 OUT = ROOT / 'dist/riscrte'
@@ -27,18 +27,9 @@ SRC.mkdir(parents=True, exist_ok=True)
 stage(SRC)
 stage_core(SRC)
 
-# Patch the staged ELF only; the standalone build retains its native USB host.
-# The app owner polls current controller state and buffered keyboard events.
-main_file = SRC / 'main.cpp'
-main = main_file.read_text(encoding='utf-8')
-main_file.write_text(main, encoding='utf-8')
-
+# Compile the same owner/USB scheduling code exercised by the native tests.
 storage_file = SRC / 'paperboy_storage_host.cpp'
 storage = (ROOT / 'riscrte/paperboy_storage_host.cpp').read_text(encoding='utf-8')
-storage = patch_once(storage,
-                     '    } else {\n      (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));\n    }\n    serial_flush();\n  }',
-                     '    }\n    paperboy_usb_owner_poll();\n    serial_flush();\n    if (!request) (void)ulTaskNotifyTake(pdTRUE, 1);\n  }',
-                     'HID polling on storage owner task')
 storage_file.write_text(storage, encoding='utf-8')
 
 HOST_ROOT = Path(os.environ.get('RISCRTE_HOST_ROOT', ROOT / '_riscrte')).resolve()

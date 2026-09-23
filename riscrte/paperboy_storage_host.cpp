@@ -274,15 +274,30 @@ void paperboy_storage_owner_note_console_done() {
 }
 
 void paperboy_storage_owner_wait() {
+  // Poll at 250 Hz instead of rescanning every provider every RTOS tick.
+  // Storage notifications still wake this owner immediately between polls.
+  constexpr uint32_t kUsbPollIntervalMs = 4;
+  uint32_t last_usb_poll_ms = millis() - kUsbPollIntervalMs;
   while (!__atomic_load_n(&g_console_done, __ATOMIC_ACQUIRE)) {
     OwnerRequest *request = __atomic_exchange_n(&g_owner_request, nullptr, __ATOMIC_ACQUIRE);
     if (request) {
       request->execute(request->context);
       __atomic_store_n(&request->done, true, __ATOMIC_RELEASE);
-    } else {
-      (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(50));
+    }
+    const uint32_t now = millis();
+    if (uint32_t(now - last_usb_poll_ms) >= kUsbPollIntervalMs) {
+      last_usb_poll_ms = now;
+      paperboy_usb_owner_poll();
     }
     serial_flush();
+    if (!request) {
+      const uint32_t elapsed = millis() - last_usb_poll_ms;
+      const uint32_t wait_ms = elapsed < kUsbPollIntervalMs
+          ? kUsbPollIntervalMs - elapsed : 0U;
+      const uint32_t ticks = pdMS_TO_TICKS(wait_ms);
+      // Slow providers still yield; sub-tick deadlines never spin.
+      (void)ulTaskNotifyTake(pdTRUE, ticks ? ticks : 1U);
+    }
   }
   serial_append("GameBoy console task finished");
   serial_flush(true);
