@@ -9,8 +9,11 @@ constexpr int game_x = 240, game_y = PAPERBOY_LANDSCAPE_GAME_Y;
 struct Rect { int x, y, w, h; };
 constexpr Rect power{16, 10, 192, 36}, save{240, 10, 100, 36}, load{620, 10, 100, 36};
 constexpr Rect rotate{752, 10, 192, 36}, settings{404, 494, 152, 36};
+constexpr Rect fullscreen{580, 494, 152, 36};
 constexpr Rect selectBtn{40, 432, 144, 46}, start{776, 432, 144, 46};
 constexpr Rect light_down{24, 72, 80, 40}, light_up{124, 72, 80, 40};
+bool g_fullscreen = false;
+
 bool inside(int x, int y, Rect r) { return x >= r.x && y >= r.y && x < r.x+r.w && y < r.y+r.h; }
 bool circle(int x, int y, int cx, int cy, int radius) { return (x-cx)*(x-cx)+(y-cy)*(y-cy) <= radius*radius; }
 void text(uint8_t *p, int x, int y, const char *s, int scale=2) { mono_draw_text(p,pitch,width,height,x,y,s,scale,false); }
@@ -28,9 +31,70 @@ void panel_byte(uint8_t *panel, int offset, uint8_t value) {
     panel[width*height/8-1-offset] = static_cast<uint8_t>(~reverse_bits(value));
   else panel[offset] = static_cast<uint8_t>(~value);
 }
+
+void scale_row_5_4(const uint8_t *source, uint8_t *scaled) {
+  constexpr unsigned scaled_pitch = PAPERBOY_LANDSCAPE_FULLSCREEN_WIDTH / 8U;
+  memset(scaled, 0, scaled_pitch);
+  unsigned dest_bit = 0;
+  for (unsigned byte = 0; byte < GBEMU_FRAME_PITCH_BYTES; ++byte) {
+    for (unsigned half = 0; half < 2U; ++half) {
+      const uint8_t nibble = half == 0U
+          ? static_cast<uint8_t>(source[byte] >> 4U)
+          : static_cast<uint8_t>(source[byte] & 0x0FU);
+      // Expand four source pixels to five destination pixels. Repeating one
+      // pixel per four preserves the 10:9 Game Boy aspect ratio at exactly
+      // 600x540 on the 960x540 landscape panel.
+      const uint8_t expanded = static_cast<uint8_t>(((nibble & 0x08U) << 1U) | nibble);
+      for (int bit = 4; bit >= 0; --bit, ++dest_bit) {
+        if ((expanded & (1U << bit)) != 0U) {
+          scaled[dest_bit >> 3U] |= static_cast<uint8_t>(0x80U >> (dest_bit & 7U));
+        }
+      }
+    }
+  }
 }
+
+void fullscreen_game(const uint8_t *game, uint8_t *panel) {
+  constexpr unsigned scaled_pitch = PAPERBOY_LANDSCAPE_FULLSCREEN_WIDTH / 8U;
+  constexpr unsigned start_byte = PAPERBOY_LANDSCAPE_FULLSCREEN_X / 8U;
+  constexpr unsigned bit_shift = PAPERBOY_LANDSCAPE_FULLSCREEN_X & 7U;
+  static_assert(bit_shift == 4U, "fullscreen packing assumes a four-bit offset");
+
+  uint8_t scaled[scaled_pitch];
+  uint8_t logical_row[pitch];
+  unsigned panel_y = 0U;
+
+  for (unsigned source_y = 0; source_y < GBEMU_FRAME_HEIGHT; ++source_y) {
+    scale_row_5_4(game + source_y * GBEMU_FRAME_PITCH_BYTES, scaled);
+    memset(logical_row, 0xFF, sizeof(logical_row));
+
+    for (unsigned i = 0; i < scaled_pitch; ++i) {
+      logical_row[start_byte + i] = static_cast<uint8_t>(
+          (logical_row[start_byte + i] & 0xF0U) | (scaled[i] >> bit_shift));
+      logical_row[start_byte + i + 1U] = static_cast<uint8_t>(
+          (logical_row[start_byte + i + 1U] & 0x0FU) | (scaled[i] << bit_shift));
+    }
+
+    const unsigned repeats = (source_y & 3U) == 0U ? 2U : 1U;
+    for (unsigned repeat = 0; repeat < repeats; ++repeat, ++panel_y) {
+      for (unsigned byte = 0; byte < pitch; ++byte) {
+        panel_byte(panel, static_cast<int>(panel_y * pitch + byte), logical_row[byte]);
+      }
+    }
+  }
+}
+}
+
+bool paperboy_landscape_fullscreen() {
+  return g_fullscreen;
+}
+
+void paperboy_landscape_set_fullscreen(bool enabled) {
+  g_fullscreen = enabled;
+}
+
 uint8_t paperboy_landscape_buttons(const touch_state_t *touch) {
-  if (!touch || !touch->touched) return 0;
+  if (g_fullscreen || !touch || !touch->touched) return 0;
   uint8_t buttons = 0;
   for (uint8_t i=0; i<touch->points; ++i) {
     uint16_t x,y; paperboy_landscape_touch(touch->x[i],touch->y[i],x,y);
@@ -50,6 +114,7 @@ uint8_t paperboy_landscape_buttons(const touch_state_t *touch) {
 }
 uint32_t paperboy_landscape_actions(const touch_state_t *touch) {
   if (!touch || !touch->touched) return 0;
+  if (g_fullscreen) return PAPERBOY_ACTION_FULLSCREEN;
   uint32_t actions = 0;
   for (uint8_t i=0; i<touch->points; ++i) {
     uint16_t x,y; paperboy_landscape_touch(touch->x[i],touch->y[i],x,y);
@@ -58,12 +123,17 @@ uint32_t paperboy_landscape_actions(const touch_state_t *touch) {
     if (inside(x,y,load)) actions |= PAPERBOY_ACTION_LOAD;
     if (inside(x,y,rotate)) actions |= PAPERBOY_ACTION_ROTATE;
     if (inside(x,y,settings)) actions |= PAPERBOY_ACTION_SETTINGS;
+    if (inside(x,y,fullscreen)) actions |= PAPERBOY_ACTION_FULLSCREEN;
     if (inside(x,y,light_down)) actions |= 1UL<<17;
     if (inside(x,y,light_up)) actions |= 1UL<<18;
   }
   return actions;
 }
 void paperboy_landscape_game(const uint8_t *game, uint8_t *panel) {
+  if (g_fullscreen) {
+    fullscreen_game(game, panel);
+    return;
+  }
   for (unsigned y=0; y<GBEMU_FRAME_HEIGHT; ++y)
     for (unsigned x=0; x<GBEMU_FRAME_PITCH_BYTES; ++x)
       panel_byte(panel,(y+game_y)*pitch+game_x/8+x,game[y*GBEMU_FRAME_PITCH_BYTES+x]);
@@ -71,11 +141,21 @@ void paperboy_landscape_game(const uint8_t *game, uint8_t *panel) {
 void paperboy_landscape_draw(uint8_t *canvas, uint8_t *panel, const uint8_t *game,
                             uint8_t buttons, bool power_on, bool save_available,
                             const PaperboyBatteryStatus *battery, const char *notice) {
+  if (g_fullscreen) {
+    if (power_on) {
+      fullscreen_game(game, panel);
+    } else {
+      memset(panel, 0, width * height / 8);
+    }
+    return;
+  }
+
   mono_clear(canvas,width*height/8,true);
   mono_draw_frame(canvas,pitch,width,height,game_x-4,game_y-4,488,440,3,false);
   box(canvas,power,power_on?"ON/OFF":"POWER OFF"); box(canvas,save,"SAVE");
   box(canvas,load,save_available?"LOAD":"NO SAVE"); box(canvas,rotate,"ROTATE");
   box(canvas,settings,"SETTINGS");
+  box(canvas,fullscreen,"FULL");
   box(canvas,selectBtn,"SELECT",buttons & GBEMU_INPUT_SELECT);
   box(canvas,start,"START",buttons & GBEMU_INPUT_START);
   box(canvas,light_down,"-"); box(canvas,light_up,"+");
