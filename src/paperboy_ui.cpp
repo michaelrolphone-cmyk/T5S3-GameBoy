@@ -26,8 +26,6 @@ constexpr uint32_t kLightDownAction = 1UL << 17;
 constexpr uint32_t kLightUpAction = 1UL << 18;
 constexpr uint32_t kLightActions =
     kLightOffAction | kLightDownAction | kLightUpAction;
-constexpr uint8_t kLightStepPercent = 1U;
-constexpr uint8_t kLightMaxPercent = 10U;
 
 struct Rect {
   int x;
@@ -468,9 +466,11 @@ void draw_value_row(uint8_t *framebuffer, int y, const char *label, const char *
 }
 
 void draw_light_controls(uint8_t *framebuffer) {
-  const uint8_t level = night_light_brightness();
-  char title[40];
-  snprintf(title, sizeof(title), "NIGHT LIGHT %u%% (MAX 10%%)", static_cast<unsigned>(level));
+  const uint16_t level = night_light_brightness_tenths();
+  char title[48];
+  snprintf(title, sizeof(title), "NIGHT LIGHT %u.%u%% (MAX 10.0%%)",
+           static_cast<unsigned>(level / 10U),
+           static_cast<unsigned>(level % 10U));
   draw_centered_text(framebuffer, 736, title, 2);
   draw_button_box(framebuffer, kLightOffRect, "OFF", level == 0U);
   draw_button_box(framebuffer, kLightDownRect, "DIM -", false);
@@ -775,18 +775,13 @@ uint32_t paperboy_ui_map_actions(const touch_state_t *touch, PaperboyPage page) 
   g_last_action_mask = current;
   const uint32_t light_action = fired & kLightActions;
   if (light_action != 0U) {
-    const uint8_t previous = night_light_brightness();
-    uint8_t next = previous;
     if ((light_action & kLightOffAction) != 0U) {
-      next = 0U;
+      (void)night_light_set_brightness_tenths(0U);
     } else if ((light_action & kLightUpAction) != 0U) {
-      next = previous >= (kLightMaxPercent - kLightStepPercent)
-          ? kLightMaxPercent : static_cast<uint8_t>(previous + kLightStepPercent);
+      (void)night_light_adjust_brightness(true);
     } else if ((light_action & kLightDownAction) != 0U) {
-      next = previous < kLightStepPercent
-          ? 0U : static_cast<uint8_t>(previous - kLightStepPercent);
+      (void)night_light_adjust_brightness(false);
     }
-    (void)night_light_set_brightness(next);
     // The existing Battery-page REFRESH handler invalidates the scene.
     if (page == PaperboyPage::Battery) {
       fired |= PAPERBOY_ACTION_REFRESH;
