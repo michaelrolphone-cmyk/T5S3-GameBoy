@@ -554,6 +554,7 @@ void compose_scene(
   } else {
     PaperboyRomLibraryView library;
     build_rom_library_view(library);
+    const UsbGamepadTestStatus gamepad = usb_hid_gamepad_test_status();
     paperboy_ui_draw_page(
         g_scene,
         page,
@@ -561,7 +562,8 @@ void compose_scene(
         kFirmwareVersion,
         g_emu == nullptr ? nullptr : gbemu_get_rom_title(g_emu),
         g_touch_available,
-        &library);
+        &library,
+        &gamepad);
   }
   rotate_portrait_to_panel(g_scene, framebuffer);
 }
@@ -1303,8 +1305,8 @@ void refresh_current_page(
     PaperboyPage page,
     bool power_on,
     const PaperboyBatteryStatus *battery) {
-  clean_panel_white_black_white("BOOT");
-  ESP_LOGI(kTag, "BOOT refresh: redrawing page=%u", static_cast<unsigned>(page));
+  clean_panel_white_black_white("Full-screen");
+  ESP_LOGI(kTag, "Full-screen refresh: redrawing page=%u", static_cast<unsigned>(page));
 
   for (uint8_t copy = 0; copy < kPanelBufferCount; ++copy) {
     wait_epd_idle();
@@ -1315,7 +1317,7 @@ void refresh_current_page(
     }
   }
   wait_epd_idle();
-  ESP_LOGI(kTag, "BOOT refresh: complete");
+  ESP_LOGI(kTag, "Full-screen refresh: complete");
 }
 
 void present_shutdown_page() {
@@ -1382,13 +1384,15 @@ void run_console(void *unused) {
   bool power_on = true;
   PaperboyPage page = g_initial_page;
   PaperboyBatteryStatus battery = {};
-  uint8_t last_buttons = 0;
+  uint8_t last_touch_buttons = 0;
   bool last_touch_down = false;
   bool last_boot_pressed = digitalRead(t5s3_epd::kBootButton) == LOW;
   bool boot_refresh_armed = !last_boot_pressed;
   uint32_t pca_button_pressed_since_ms = 0;
   uint32_t last_boot_refresh_ms = 0;
   uint32_t last_battery_poll_ms = millis();
+  uint32_t last_gamepad_test_refresh_ms = 0;
+  UsbGamepadTestStatus last_gamepad_test_status = {};
   uint8_t full_scene_syncs = 0;
   uint8_t skipped_since_render = 0;
   uint32_t last_vsync = epd_video_get_vsync_count();
@@ -1492,8 +1496,10 @@ void run_console(void *unused) {
     const uint8_t controller_actions = snes_mini_controller_take_actions();
     const uint32_t menu_actions = paperboy_ui_map_controller(
         snes_mini_controller_navigation_buttons(), page, now_ms);
+    const uint8_t touch_buttons = page == PaperboyPage::Game && touch_ok
+        ? paperboy_ui_map_buttons(&touch) : 0U;
     uint8_t buttons = page == PaperboyPage::Game
-        ? ((touch_ok ? paperboy_ui_map_buttons(&touch) : 0U) | (paperboy_ui_controller_ready() ? controller_buttons : 0U))
+        ? (touch_buttons | (paperboy_ui_controller_ready() ? controller_buttons : 0U))
         : 0U;
     uint32_t actions = touch_ok ? paperboy_ui_map_actions(&touch, page) : 0U;
     actions |= menu_actions;
@@ -1513,7 +1519,9 @@ void run_console(void *unused) {
           : static_cast<uint8_t>(level > 0U ? level - 1U : 0U);
       (void)night_light_set_brightness(target);
     }
-    if (buttons != last_buttons) {
+    // External controls drive the emulator without repainting the touch UI.
+    // Turbo and repeated pad presses must keep the game-only dirty region.
+    if (touch_buttons != last_touch_buttons) {
       full_scene_syncs = kPanelBufferCount;
     }
 
@@ -1521,13 +1529,16 @@ void run_console(void *unused) {
     const bool boot_irq = g_boot_refresh_irq;
     const bool boot_edge = boot_pressed && !last_boot_pressed;
     bool boot_refresh_completed = false;
-    if (boot_refresh_armed && (boot_irq || boot_edge) &&
-        (millis() - last_boot_refresh_ms) >= kBootDebounceMs) {
+    const bool boot_refresh_requested = boot_refresh_armed && (boot_irq || boot_edge) &&
+        (millis() - last_boot_refresh_ms) >= kBootDebounceMs;
+    const bool controller_refresh_requested = (controller_actions & SNES_ACTION_REFRESH) &&
+        !(controller_actions & SNES_ACTION_SETTINGS);
+    if (boot_refresh_requested || controller_refresh_requested) {
       boot_refresh_armed = false;
       g_boot_refresh_irq = false;
       last_boot_refresh_ms = millis();
-      ESP_LOGI(kTag, "BOOT pressed: clean full-screen refresh page=%u",
-               static_cast<unsigned>(page));
+      ESP_LOGI(kTag, "%s requested: clean full-screen refresh page=%u",
+               boot_refresh_requested ? "BOOT" : "Controller", static_cast<unsigned>(page));
       refresh_current_page(
           page,
           power_on,
@@ -1556,11 +1567,11 @@ void run_console(void *unused) {
           touch.y[0]);
     }
 
-    if (buttons != last_buttons) {
-      ESP_LOGI(
+    if (touch_buttons != last_touch_buttons) {
+      ESP_LOGD(
           kTag,
           "touch buttons=0x%02X points=%u first=%u,%u",
-          buttons,
+          touch_buttons,
           touch_ok ? touch.points : 0U,
           (touch_ok && touch.points > 0U) ? touch.x[0] : 0U,
           (touch_ok && touch.points > 0U) ? touch.y[0] : 0U);
@@ -1574,7 +1585,7 @@ void run_console(void *unused) {
       reset_game_frame_pacer(game_frame_pacer);
       ESP_LOGI(kTag, "landscape fullscreen=%s",
                paperboy_landscape_fullscreen() ? "on" : "off");
-      last_buttons = 0U;
+      last_touch_buttons = 0U;
       continue;
     }
 
@@ -1586,7 +1597,7 @@ void run_console(void *unused) {
       reset_game_frame_pacer(game_frame_pacer);
       ESP_LOGI(kTag, "screen orientation=%u", static_cast<unsigned>(paperboy_orientation()));
       // Discard input collected against the old layout on this frame.
-      last_buttons = 0;
+      last_touch_buttons = 0;
       continue;
     }
 
@@ -1724,11 +1735,21 @@ void run_console(void *unused) {
     if ((actions & PAPERBOY_ACTION_ABOUT) != 0U && page == PaperboyPage::Settings) {
       next_page = PaperboyPage::About;
     }
+    if ((actions & PAPERBOY_ACTION_GAMEPAD_TEST) != 0U && page == PaperboyPage::Settings)
+      next_page = PaperboyPage::GamepadTest;
     if ((actions & PAPERBOY_ACTION_REFRESH) != 0U && page == PaperboyPage::Battery) {
       const bool ok = battery_read_status(battery);
       ESP_LOGI(kTag, "battery refresh %s soc=%u voltage=%u", ok ? "ok" : "failed",
                battery.soc_percent, battery.voltage_mv);
       full_scene_syncs = kPanelBufferCount;
+    }
+    if (page == PaperboyPage::GamepadTest && now_ms - last_gamepad_test_refresh_ms >= 250U) {
+      last_gamepad_test_refresh_ms = now_ms;
+      const UsbGamepadTestStatus live = usb_hid_gamepad_test_status();
+      if (memcmp(&live, &last_gamepad_test_status, sizeof(live)) != 0) {
+        last_gamepad_test_status = live;
+        full_scene_syncs = 1U;
+      }
     }
     if (next_page != page) {
       if (next_page == PaperboyPage::Battery) {
@@ -1738,6 +1759,7 @@ void run_console(void *unused) {
       }
       ESP_LOGI(kTag, "page %u -> %u", static_cast<unsigned>(page), static_cast<unsigned>(next_page));
       page = next_page;
+      usb_hid_gamepad_test_active(page == PaperboyPage::GamepadTest);
       buttons = 0U;  // Do not inject the menu activation/back key into gameplay.
       audio_set_paused(page != PaperboyPage::Game || !power_on);
       paperboy_ui_on_page_changed();
@@ -1791,7 +1813,7 @@ void run_console(void *unused) {
         power_on = false;
         emu_faulted = true;
         audio_set_paused(true);
-        last_buttons = 0U;
+        last_touch_buttons = 0U;
         last_touch_down = touch_down;
         skipped_since_render = 0U;
         full_scene_syncs = kPanelBufferCount;
@@ -1820,7 +1842,7 @@ void run_console(void *unused) {
         const int64_t compose_started = esp_timer_get_time();
         const bool full_scene = full_scene_syncs > 0U;
         if (full_scene) {
-          compose_scene(backbuffer, buttons, power_on, page, &battery);
+          compose_scene(backbuffer, touch_buttons, power_on, page, &battery);
         } else {
           rotate_game_to_panel(g_game_frame, backbuffer);
         }
@@ -1859,7 +1881,7 @@ void run_console(void *unused) {
       pace_game_frame(game_frame_pacer);
     } else if (page == PaperboyPage::Game && full_scene_syncs > 0U && epd_video_can_submit()) {
       uint8_t *backbuffer = epd_video_get_backbuffer();
-      compose_scene(backbuffer, buttons, power_on, page, &battery);
+      compose_scene(backbuffer, touch_buttons, power_on, page, &battery);
       if (epd_video_submit(0, t5s3_epd::kActiveHeight)) {
         --full_scene_syncs;
       }
@@ -1875,7 +1897,7 @@ void run_console(void *unused) {
       vTaskDelay(pdMS_TO_TICKS(5));
     }
 
-    last_buttons = buttons;
+    last_touch_buttons = touch_buttons;
     last_touch_down = touch_down;
     const uint64_t now = esp_timer_get_time();
     if ((now - stats_started) >= 1000000ULL) {

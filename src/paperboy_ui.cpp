@@ -2,6 +2,7 @@
 #include "paperboy_landscape.h"
 
 #include <Arduino.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -55,6 +56,7 @@ constexpr Rect kHomeRect = {408, 20, 112, 44};
 constexpr Rect kBatteryRect = {30, 150, 480, 120};
 constexpr Rect kSdCardRect = {30, 290, 480, 120};
 constexpr Rect kAboutRect = {30, 430, 480, 120};
+constexpr Rect kGamepadRect = {30, 570, 480, 120};
 constexpr Rect kRefreshRect = {170, 856, 200, 40};
 constexpr Rect kLightOffRect = {30, 778, 146, 56};
 constexpr Rect kLightDownRect = {196, 778, 146, 56};
@@ -80,7 +82,7 @@ constexpr int kButtonBY = 720;
 constexpr int kButtonRadius = 40;
 
 uint32_t g_last_action_mask = 0;
-uint32_t g_last_action_ms[21] = {0};
+uint32_t g_last_action_ms[22] = {0};
 bool g_ignore_actions_until_release = false;
 bool g_ignore_buttons_until_release = false;
 uint32_t g_rom_navigation_repeat_action = 0;
@@ -162,6 +164,7 @@ uint32_t current_action_mask(const touch_state_t *touch, PaperboyPage page) {
       if (point_in_rect(x, y, kAboutRect)) {
         mask |= PAPERBOY_ACTION_ABOUT;
       }
+      if (point_in_rect(x, y, kGamepadRect)) mask |= PAPERBOY_ACTION_GAMEPAD_TEST;
     } else if (page == PaperboyPage::Battery) {
       if (point_in_rect(x, y, kRefreshRect)) {
         mask |= PAPERBOY_ACTION_REFRESH;
@@ -308,11 +311,78 @@ void draw_settings_menu(uint8_t *framebuffer) {
   draw_menu_item(framebuffer, kBatteryRect, "BATTERY + LIGHT", "POWER AND BRIGHTNESS CONTROLS");
   draw_menu_item(framebuffer, kSdCardRect, "SD CARD", "ROM LIBRARY AND SAVE FILES");
   draw_menu_item(framebuffer, kAboutRect, "ABOUT SYSTEM", "DEVICE AND SOFTWARE INFO");
-  const Rect options[] = {kBatteryRect, kSdCardRect, kAboutRect};
+  draw_menu_item(framebuffer, kGamepadRect, "GAMEPAD TEST", "CONNECTION AND LIVE INPUT");
+  const Rect options[] = {kBatteryRect, kSdCardRect, kAboutRect, kGamepadRect};
   const Rect &focus = options[paperboy_ui_controller_selection()];
   mono_draw_frame(framebuffer, kPitch, kWidth, kHeight,
                   focus.x - 7, focus.y - 7, focus.width + 14, focus.height + 14, 3, false);
-  draw_centered_text(framebuffer, 650, "UP/DOWN: SELECT   A: OPEN   B: BACK", 1);
+  draw_centered_text(framebuffer, 740, "UP/DOWN: SELECT   A: OPEN   B: BACK", 1);
+}
+
+void draw_gamepad_test(uint8_t *framebuffer, const UsbGamepadTestStatus *status) {
+  UsbGamepadTestStatus empty = {};
+  if (!status) status = &empty;
+  char line[96];
+  const auto row = [&](int y, const char *value) {
+    mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, y, value, 2, false);
+  };
+  row(155, status->provider_ready ? "DRIVER: READY" : "DRIVER: UNAVAILABLE");
+  snprintf(line, sizeof(line), "USB:%u  VID:%04X PID:%04X", unsigned(status->usb_devices),
+           unsigned(status->vid), unsigned(status->pid));
+  row(192, line);
+  snprintf(line, sizeof(line), "HID:%u PROTOCOL:%u", unsigned(status->hid_interfaces),
+           unsigned(status->hid_protocol));
+  row(229, line);
+  row(266, status->connected ? "GAMEPAD: CONNECTED" : "GAMEPAD: NO REPORT");
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 302,
+                 status->stage[0] ? status->stage : "WAITING FOR USB SNAPSHOT", 1, false);
+  if (status->poll_failed) row(320, "POLL: ERROR");
+  snprintf(line, sizeof(line), "REPORTS: %lu  ID: %u",
+           static_cast<unsigned long>(status->reports), unsigned(status->report_id));
+  row(347, line);
+  snprintf(line, sizeof(line), "BUTTONS: %08lX", static_cast<unsigned long>(status->buttons));
+  row(384, line);
+  const char *names[] = {"B", "A", "Y", "X", "L", "R", "7", "8",
+                         "SELECT", "START", "11", "12", "13", "14", "15", "16"};
+  if (status->compact_buttons) {
+    names[0] = "A"; names[1] = "B";
+    names[2] = "X"; names[3] = "Y";
+    names[6] = "SELECT"; names[7] = "START";
+    names[8] = "9"; names[9] = "10";
+  }
+  int x = 34, y = 426;
+  for (unsigned i = 0; i < 16; ++i) {
+    if (!(status->buttons & (1UL << i))) continue;
+    mono_draw_text(framebuffer, kPitch, kWidth, kHeight, x, y, names[i], 2, false);
+    x += static_cast<int>(strlen(names[i]) * 12 + 20);
+    if (x > 420) { x = 34; y += 36; }
+  }
+  if (!status->buttons) row(426, "NO BUTTONS PRESSED");
+  if (status->connected)
+    snprintf(line, sizeof(line), "X:%d Y:%d HAT:%u", int(status->x), int(status->y),
+             unsigned(status->hat));
+  else snprintf(line, sizeof(line), "X:-- Y:-- HAT:--");
+  row(540, line);
+  if (status->connected)
+    snprintf(line, sizeof(line), "RX:%d RY:%d", int(status->rx), int(status->ry));
+  else snprintf(line, sizeof(line), "RX:-- RY:--");
+  row(578, line);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 631, "RECENT EVENTS:", 2, false);
+  for (unsigned i = 0; i < 3; ++i)
+    mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 665 + int(i) * 29,
+                   status->events[i], 1, false);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 761, "LAST ERROR:", 2, false);
+  // Single clipped row keeps an unexpected provider message inside the screen.
+  char error[62];
+  snprintf(error, sizeof(error), "%.60s", status->error[0] ? status->error : "NONE");
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 791, error, 1, false);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 34, 819,
+#ifdef PAPERBOY_RISCRTE_ELF
+                 "LOG: /sd/serial.log", 1, false);
+#else
+                 "LOG: /sd/gameboy-hid.log", 1, false);
+#endif
+  draw_centered_text(framebuffer, 859, "B OR BACK: SETTINGS", 1);
 }
 
 const char *battery_state_text(const PaperboyBatteryStatus &battery) {
@@ -654,11 +724,12 @@ uint32_t paperboy_ui_map_actions(const touch_state_t *touch, PaperboyPage page) 
       kLightDownAction,
       kLightUpAction,
       PAPERBOY_ACTION_ROTATE,
+      PAPERBOY_ACTION_GAMEPAD_TEST,
       PAPERBOY_ACTION_FULLSCREEN,
   };
   static_assert(sizeof(kActionBits) / sizeof(kActionBits[0]) ==
                     sizeof(g_last_action_ms) / sizeof(g_last_action_ms[0]),
-                "action debounce array must include all light actions");
+                "action debounce array must include every touch action");
   const uint32_t now = millis();
   const uint32_t raw_current = current_action_mask(touch, page);
   const uint32_t raw_navigation = raw_current & kRomNavigationActions;
@@ -796,7 +867,8 @@ void paperboy_ui_draw_page(
     const char *firmware_version,
     const char *rom_title,
     bool touch_available,
-    const PaperboyRomLibraryView *rom_library) {
+    const PaperboyRomLibraryView *rom_library,
+    const UsbGamepadTestStatus *gamepad) {
   if (framebuffer == nullptr || page == PaperboyPage::Game) {
     return;
   }
@@ -819,6 +891,10 @@ void paperboy_ui_draw_page(
     case PaperboyPage::About:
       draw_settings_header(framebuffer, "ABOUT SYSTEM");
       draw_about_page(framebuffer, firmware_version, rom_title, touch_available);
+      break;
+    case PaperboyPage::GamepadTest:
+      draw_settings_header(framebuffer, "GAMEPAD TEST");
+      draw_gamepad_test(framebuffer, gamepad);
       break;
     case PaperboyPage::Game:
     default:

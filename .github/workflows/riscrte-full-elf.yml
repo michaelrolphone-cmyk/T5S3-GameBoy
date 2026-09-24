@@ -1,0 +1,120 @@
+name: Build faithful GameBoy RiscRTE ELF
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'riscrte/**'
+      - 'lib/**'
+      - '.github/workflows/riscrte-full-elf.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  full-elf:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout current RiscRTE host ABI
+        uses: actions/checkout@v4
+        with:
+          repository: michaelrolphone-cmyk/T5S3-Reader
+          ref: master
+          path: _riscrte
+          persist-credentials: false
+      - name: Record exact RiscRTE firmware ABI commit
+        run: |
+          git -C _riscrte rev-parse HEAD
+          test -f _riscrte/sdk/driver/RiscUsbHidV1.h
+          test -f _riscrte/lib/NativeApps/include/T5ProviderCapabilityApi.h
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Match RiscRTE toolchain for the ELF build only
+        run: |
+          python - <<'PY'
+          import pathlib, re
+          host = pathlib.Path('_riscrte/platformio.ini').read_text()
+          target = pathlib.Path('platformio.ini')
+          original = target.read_text()
+          pattern = r'(?m)^platform\s*=\s*(espressif32@[^\s;]+)\s*$'
+          host_matches = re.findall(pattern, host)
+          target_matches = re.findall(pattern, original)
+          if len(host_matches) != 1 or len(target_matches) != 1:
+              raise SystemExit('Cannot identify exactly one PlatformIO platform in host and GameBoy configs')
+          host_platform = host_matches[0]
+          target.write_text(re.sub(pattern, f'platform = {host_platform}', original, count=1))
+          print(f'ELF toolchain: {target_matches[0]} -> {host_platform}; standalone config in git unchanged')
+          PY
+      - name: Cache PlatformIO toolchains
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+          key: ${{ runner.os }}-gameboy-elf-pio-${{ hashFiles('platformio.ini', 'boards/*.json') }}
+          restore-keys: |
+            ${{ runner.os }}-gameboy-elf-pio-
+      - name: Install PlatformIO
+        run: python -m pip install platformio==6.1.19
+      - name: Build the original firmware and resolve all real source dependencies
+        run: pio run -e T5S3-GameBoy
+      - name: Generate exact source compilation database
+        run: pio run -e T5S3-GameBoy -t compiledb
+      - name: Generate current RiscRTE firmware export inventory
+        run: |
+          python - <<'PY'
+          import pathlib, sys
+          sys.path.insert(0, '_riscrte/scripts')
+          from native_app_symbols import firmware_exports
+          names = firmware_exports(pathlib.Path('_riscrte'))
+          pathlib.Path('build/riscrte').mkdir(parents=True, exist_ok=True)
+          pathlib.Path('build/riscrte/host_exports.txt').write_text('\n'.join(sorted(names)) + '\n')
+          print(f'Loaded {len(names)} registered RiscRTE ELF exports')
+          PY
+      - name: Compile and link GameBoy against the provider-backed HID ABI
+        env:
+          RISCRTE_EXPORT_LIST: build/riscrte/host_exports.txt
+          RISCRTE_HOST_ROOT: _riscrte
+        run: python riscrte/build_elf.py
+      - name: Reject direct USB host imports in the ELF
+        run: |
+          python - <<'PY'
+          import json
+          names = json.load(open('dist/riscrte/imports.json'))['undefined']
+          forbidden = sorted(name for name in names if name.startswith('usb_host_'))
+          if forbidden:
+              raise SystemExit('Standalone USB host calls leaked into ELF: ' + ', '.join(forbidden))
+          if 't5_provider_capability_get_api' not in names:
+              raise SystemExit('GameBoy ELF did not import the RiscRTE provider capability API')
+          print('HID import boundary verified; no standalone USB host calls')
+          PY
+      - name: Validate ELF with the actual RiscRTE firmware validator
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror \
+            -I_riscrte/test/native_apps/stubs \
+            -I_riscrte/lib/elf_loader/include \
+            _riscrte/lib/elf_loader/src/esp_elf_validate.c \
+            _riscrte/test/native_apps/validate_test.c \
+            -o build/riscrte/validate-elf
+          build/riscrte/validate-elf dist/riscrte/gameboy.elf
+      - name: Inspect real module
+        run: |
+          READELF="$HOME/.platformio/packages/toolchain-xtensa-esp32s3/bin/xtensa-esp32s3-elf-readelf"
+          "$READELF" -h dist/riscrte/gameboy.elf
+          "$READELF" -rW dist/riscrte/gameboy.elf
+      - name: Upload only validated complete ELF
+        uses: actions/upload-artifact@v4
+        with:
+          name: gameboy-faithful-riscrte-elf
+          path: |
+            dist/riscrte/gameboy.elf
+            dist/riscrte/gameboy.json
+            dist/riscrte/imports.json
+          if-no-files-found: error

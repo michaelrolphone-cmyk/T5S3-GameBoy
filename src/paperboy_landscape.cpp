@@ -41,9 +41,6 @@ void scale_row_5_4(const uint8_t *source, uint8_t *scaled) {
       const uint8_t nibble = half == 0U
           ? static_cast<uint8_t>(source[byte] >> 4U)
           : static_cast<uint8_t>(source[byte] & 0x0FU);
-      // Expand four source pixels to five destination pixels. Repeating one
-      // pixel per four preserves the 10:9 Game Boy aspect ratio at exactly
-      // 600x540 on the 960x540 landscape panel.
       const uint8_t expanded = static_cast<uint8_t>(((nibble & 0x08U) << 1U) | nibble);
       for (int bit = 4; bit >= 0; --bit, ++dest_bit) {
         if ((expanded & (1U << bit)) != 0U) {
@@ -67,14 +64,12 @@ void fullscreen_game(const uint8_t *game, uint8_t *panel) {
   for (unsigned source_y = 0; source_y < GBEMU_FRAME_HEIGHT; ++source_y) {
     scale_row_5_4(game + source_y * GBEMU_FRAME_PITCH_BYTES, scaled);
     memset(logical_row, 0xFF, sizeof(logical_row));
-
     for (unsigned i = 0; i < scaled_pitch; ++i) {
       logical_row[start_byte + i] = static_cast<uint8_t>(
           (logical_row[start_byte + i] & 0xF0U) | (scaled[i] >> bit_shift));
       logical_row[start_byte + i + 1U] = static_cast<uint8_t>(
           (logical_row[start_byte + i + 1U] & 0x0FU) | (scaled[i] << bit_shift));
     }
-
     const unsigned repeats = (source_y & 3U) == 0U ? 2U : 1U;
     for (unsigned repeat = 0; repeat < repeats; ++repeat, ++panel_y) {
       for (unsigned byte = 0; byte < pitch; ++byte) {
@@ -85,13 +80,8 @@ void fullscreen_game(const uint8_t *game, uint8_t *panel) {
 }
 }
 
-bool paperboy_landscape_fullscreen() {
-  return g_fullscreen;
-}
-
-void paperboy_landscape_set_fullscreen(bool enabled) {
-  g_fullscreen = enabled;
-}
+bool paperboy_landscape_fullscreen() { return g_fullscreen; }
+void paperboy_landscape_set_fullscreen(bool enabled) { g_fullscreen = enabled; }
 
 uint8_t paperboy_landscape_buttons(const touch_state_t *touch) {
   if (g_fullscreen || !touch || !touch->touched) return 0;
@@ -142,14 +132,10 @@ void paperboy_landscape_draw(uint8_t *canvas, uint8_t *panel, const uint8_t *gam
                             uint8_t buttons, bool power_on, bool save_available,
                             const PaperboyBatteryStatus *battery, const char *notice) {
   if (g_fullscreen) {
-    if (power_on) {
-      fullscreen_game(game, panel);
-    } else {
-      memset(panel, 0, width * height / 8);
-    }
+    if (power_on) fullscreen_game(game, panel);
+    else memset(panel, 0, width * height / 8);
     return;
   }
-
   mono_clear(canvas,width*height/8,true);
   mono_draw_frame(canvas,pitch,width,height,game_x-4,game_y-4,488,440,3,false);
   box(canvas,power,power_on?"ON/OFF":"POWER OFF"); box(canvas,save,"SAVE");

@@ -45,7 +45,6 @@ int main() {
     auto exit_touch=point(480,270);
     assert(paperboy_landscape_buttons(&exit_touch)==0);
     assert(paperboy_landscape_actions(&exit_touch)==PAPERBOY_ACTION_FULLSCREEN);
-
     std::fill(game.begin(),game.end(),0xFF);
     game[0]=0x7F;
     std::fill(panel.begin(),panel.end(),0xCC);
@@ -59,7 +58,6 @@ int main() {
     assert(!pixel(panel,0,270));
     assert(!pixel(panel,959,270));
     for(size_t i=64800;i<panel.size();++i) assert(panel[i]==0xCC);
-
     std::fill(game.begin(),game.end(),0x00);
     paperboy_landscape_game(game.data(),panel.data());
     assert(pixel(panel,180,0));

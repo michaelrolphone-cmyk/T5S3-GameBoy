@@ -1,0 +1,38 @@
+name: RiscRTE GameBoy behavior parity
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    paths:
+      - 'riscrte/**'
+      - 'src/**'
+      - 'tests/**'
+      - '.github/workflows/riscrte-parity.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rom-catalog-and-read:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile strict ROM catalog and streaming regression suite
+        run: |
+          cc -std=c11 -O1 -g -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined \
+            -fno-omit-frame-pointer riscrte/rom_port.c tests/rom_port_test.c -o /tmp/gameboy-rom-port-test
+      - name: Verify original catalog and exact-read behavior
+        run: /tmp/gameboy-rom-port-test
+      - name: Verify original app and raw EPD driver are staged for ELF without feature loss
+        run: python3 tests/elf_source_test.py
+      - name: Verify worker storage calls execute on the host owner task
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -c riscrte/rom_port.c -o /tmp/rom-port.o
+          c++ -std=c++11 -Wall -Wextra -Werror -pthread \
+            -Itests/storage_stubs -Isrc -Iriscrte \
+            riscrte/paperboy_storage_host.cpp tests/storage_owner_test.cpp /tmp/rom-port.o \
+            -o /tmp/storage-owner-test
+          timeout 30 /tmp/storage-owner-test
