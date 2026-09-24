@@ -58,9 +58,9 @@ void night_light_init() {
   uint16_t saved_tenths = 0U;
   Preferences preferences;
   if (preferences.begin(kPreferencesNamespace, true)) {
-    const uint16_t saved_precise =
-        preferences.getUShort(kBrightnessTenthsKey, UINT16_MAX);
-    if (saved_precise != UINT16_MAX) {
+    const uint8_t saved_precise =
+        preferences.getUChar(kBrightnessTenthsKey, UINT8_MAX);
+    if (saved_precise != UINT8_MAX) {
       saved_tenths = saved_precise;
     } else {
       // Migrate the original whole-percent value on first boot after upgrade.
@@ -134,7 +134,9 @@ bool night_light_set_brightness_tenths(uint16_t tenths_percent) {
   g_brightness_tenths = tenths_percent;
   Preferences preferences;
   if (preferences.begin(kPreferencesNamespace, false)) {
-    if (preferences.putUShort(kBrightnessTenthsKey, tenths_percent) != sizeof(uint16_t)) {
+    if (preferences.putUChar(
+            kBrightnessTenthsKey,
+            static_cast<uint8_t>(tenths_percent)) != sizeof(uint8_t)) {
       ESP_LOGW(kTag, "could not persist brightness; change remains active");
     }
     preferences.end();
