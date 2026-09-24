@@ -6,6 +6,9 @@ uint32_t test_now = 1000;
 bool paperboy_is_landscape() { return false; }
 uint32_t paperboy_landscape_actions(const touch_state_t *) { return 0; }
 void night_light_init() {}
+uint16_t night_light_brightness_tenths() { return 0; }
+bool night_light_set_brightness_tenths(uint16_t) { return true; }
+bool night_light_adjust_brightness(bool) { return true; }
 uint8_t night_light_brightness() { return 0; }
 bool night_light_set_brightness(uint8_t) { return true; }
 void paperboy_ui_controller_page_changed() {}

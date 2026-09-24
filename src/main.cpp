@@ -38,6 +38,7 @@ namespace {
 constexpr const char *kTag = "T5S3-GameBoy";
 constexpr const char *kFirmwareVersion = PAPERBOY_FIRMWARE_VERSION;
 constexpr uint8_t kMinSkippedFramesBetweenRenders = 1;
+constexpr uint8_t kFullscreenSkippedFramesBetweenRenders = 2;
 constexpr uint8_t kPanelBufferCount = 2;
 constexpr uint32_t kDmgClockHz = 4194304U;
 constexpr uint32_t kDmgFrameClocks = 70224U;
@@ -1513,11 +1514,8 @@ void run_console(void *unused) {
       if (controller_actions & SNES_ACTION_LOAD) actions |= PAPERBOY_ACTION_LOAD;
     }
     if (controller_actions & (SNES_ACTION_DIM | SNES_ACTION_BRIGHTEN)) {
-      const uint8_t level = night_light_brightness();
-      const uint8_t target = (controller_actions & SNES_ACTION_BRIGHTEN)
-          ? static_cast<uint8_t>(level + 1U)
-          : static_cast<uint8_t>(level > 0U ? level - 1U : 0U);
-      (void)night_light_set_brightness(target);
+      (void)night_light_adjust_brightness(
+          (controller_actions & SNES_ACTION_BRIGHTEN) != 0U);
     }
     // External controls drive the emulator without repainting the touch UI.
     // Turbo and repeated pad presses must keep the game-only dirty region.
@@ -1575,6 +1573,18 @@ void run_console(void *unused) {
           touch_ok ? touch.points : 0U,
           (touch_ok && touch.points > 0U) ? touch.x[0] : 0U,
           (touch_ok && touch.points > 0U) ? touch.y[0] : 0U);
+    }
+
+    if ((actions & PAPERBOY_ACTION_FULLSCREEN) != 0U && paperboy_is_landscape()) {
+      paperboy_landscape_set_fullscreen(!paperboy_landscape_fullscreen());
+      paperboy_ui_on_page_changed();
+      full_scene_syncs = kPanelBufferCount;
+      skipped_since_render = 0U;
+      reset_game_frame_pacer(game_frame_pacer);
+      ESP_LOGI(kTag, "landscape fullscreen=%s",
+               paperboy_landscape_fullscreen() ? "on" : "off");
+      last_touch_buttons = 0U;
+      continue;
     }
 
     if ((actions & PAPERBOY_ACTION_ROTATE) != 0U) {
@@ -1776,9 +1786,13 @@ void run_console(void *unused) {
       }
       last_vsync = vsync_now;
 
+      const uint8_t skipped_frames_required =
+          paperboy_is_landscape() && paperboy_landscape_fullscreen()
+              ? kFullscreenSkippedFramesBetweenRenders
+              : kMinSkippedFramesBetweenRenders;
       const bool render_due =
           full_scene_syncs > 0U ||
-          skipped_since_render >= kMinSkippedFramesBetweenRenders;
+          skipped_since_render >= skipped_frames_required;
       const bool skip_render = !render_due || !epd_video_can_submit();
       gbemu_frame_stats_t frame_stats = {};
 
@@ -1840,8 +1854,18 @@ void run_console(void *unused) {
         add_sample(draw_timing, frame_stats.draw_us);
         const int64_t flip_started = esp_timer_get_time();
         const bool submitted = epd_video_submit(
-            full_scene ? 0 : (paperboy_is_landscape() ? PAPERBOY_LANDSCAPE_GAME_Y : kGameDirtyY),
-            full_scene ? t5s3_epd::kActiveHeight : (paperboy_is_landscape() ? GBEMU_FRAME_HEIGHT : kGameDirtyHeight));
+            full_scene
+                ? 0
+                : (paperboy_is_landscape()
+                    ? (paperboy_landscape_fullscreen() ? 0 : PAPERBOY_LANDSCAPE_GAME_Y)
+                    : kGameDirtyY),
+            full_scene
+                ? t5s3_epd::kActiveHeight
+                : (paperboy_is_landscape()
+                    ? (paperboy_landscape_fullscreen()
+                        ? PAPERBOY_LANDSCAPE_FULLSCREEN_HEIGHT
+                        : GBEMU_FRAME_HEIGHT)
+                    : kGameDirtyHeight));
         add_sample(flip_timing, static_cast<uint32_t>(esp_timer_get_time() - flip_started));
         if (submitted) {
           ++rendered_frames;

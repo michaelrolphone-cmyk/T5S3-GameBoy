@@ -11,7 +11,8 @@
 
 // The input/dirty-region/render blocks below come from the real staged app.
 // Count display work instead of substituting a model of its render policy.
-static uint8_t pad, touch_mask, shortcuts, light = 5;
+static uint8_t pad, touch_mask, shortcuts;
+static uint16_t light_tenths = 50;
 static uint8_t last_buttons, last_touch_buttons, full_scene_syncs;
 static uint8_t skipped_since_render, rendered_touch;
 static uint32_t menu_action, now_ms, rendered_frames, skipped_frames;
@@ -22,6 +23,7 @@ static bool boot_pressed, last_boot_pressed, g_boot_refresh_irq, boot_refresh_ar
 static uint32_t last_boot_refresh_ms;
 static std::vector<std::pair<bool, uint8_t>> clear_frames;
 static bool touch_ok = true, power_on = true, submit_ok = true, landscape;
+static bool landscape_fullscreen;
 static PaperboyPage page = PaperboyPage::Game;
 static PaperboyPage next_page = PaperboyPage::Game;
 static touch_state_t touch{};
@@ -57,8 +59,16 @@ uint32_t paperboy_ui_map_controller(uint8_t, PaperboyPage, uint32_t) { return me
 bool paperboy_ui_controller_ready() { return true; }
 uint8_t paperboy_ui_map_buttons(const touch_state_t *) { return touch_mask; }
 uint32_t paperboy_ui_map_actions(const touch_state_t *, PaperboyPage) { return 0; }
-static uint8_t night_light_brightness() { return light; }
-static bool night_light_set_brightness(uint8_t value) { light = value; ++brightness_updates; return true; }
+static bool night_light_adjust_brightness(bool brighter) {
+  if (brighter) {
+    light_tenths += light_tenths < 10U ? 1U : 10U;
+    if (light_tenths > 100U) light_tenths = 100U;
+  } else if (light_tenths > 0U) {
+    light_tenths -= light_tenths <= 10U ? 1U : 10U;
+  }
+  ++brightness_updates;
+  return true;
+}
 static uint8_t *epd_video_get_backbuffer() { return buffer; }
 static int64_t esp_timer_get_time() { return now_ms * 1000; }
 static void add_sample(int &, uint32_t) {}
@@ -67,9 +77,15 @@ static void compose_scene(uint8_t *, uint8_t buttons, bool, PaperboyPage, const 
 }
 static void rotate_game_to_panel(const uint8_t *, uint8_t *) { ++game_compositions; }
 bool paperboy_is_landscape() { return landscape; }
+bool paperboy_landscape_fullscreen() { return landscape_fullscreen; }
 static bool epd_video_submit(int y, int height) {
   if (y == 0 && height == t5s3_epd::kActiveHeight) ++full_submissions;
-  else assert(height == int(landscape ? GBEMU_FRAME_HEIGHT : kGameDirtyHeight));
+  else assert(height == int(
+      landscape
+          ? (landscape_fullscreen
+              ? PAPERBOY_LANDSCAPE_FULLSCREEN_HEIGHT
+              : GBEMU_FRAME_HEIGHT)
+          : kGameDirtyHeight));
   return submit_ok;
 }
 // REFRESH_FUNCTIONS
@@ -105,8 +121,11 @@ int main() {
   full_scene_syncs = 2; submit_ok = false; frame(); assert(full_scene_syncs == 2);
   submit_ok = true; frame(); frame(); assert(full_scene_syncs == 0);
   // The exact app input block routes shortcuts to their real UI action flags.
-  shortcuts = SNES_ACTION_BRIGHTEN; frame(); assert(light == 6);
-  shortcuts = SNES_ACTION_DIM; frame(); assert(light == 5 && brightness_updates == 2);
+  shortcuts = SNES_ACTION_BRIGHTEN; frame(); assert(light_tenths == 60);
+  shortcuts = SNES_ACTION_DIM; frame(); assert(light_tenths == 50 && brightness_updates == 2);
+  light_tenths = 10;
+  shortcuts = SNES_ACTION_DIM; frame(); assert(light_tenths == 9);
+  shortcuts = SNES_ACTION_BRIGHTEN; frame(); assert(light_tenths == 10 && brightness_updates == 4);
   shortcuts = SNES_ACTION_SAVE; frame(); assert(saves == 1);
   shortcuts = SNES_ACTION_LOAD; frame(); assert(loads == 1);
   shortcuts = SNES_ACTION_SETTINGS; frame(); assert(settings_requests == 1);

@@ -27,6 +27,7 @@ enum {
   PAPERBOY_ACTION_SD_RESCAN = 1U << 15,
   PAPERBOY_ACTION_ROTATE = 1U << 19,
   PAPERBOY_ACTION_GAMEPAD_TEST = 1U << 20,
+  PAPERBOY_ACTION_FULLSCREEN = 1U << 21,
 };
 
 enum class PaperboyPage : uint8_t {

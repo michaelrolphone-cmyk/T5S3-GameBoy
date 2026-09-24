@@ -20,10 +20,14 @@ with tempfile.TemporaryDirectory() as tmp:
                    'gbemu_run_frame(', 'audio_init()', 'audio_service_frame()',
                    'touch_read(', 'snes_mini_controller_buttons()',
                    'snes_mini_controller_take_actions()', 'night_light_init()',
-                   'night_light_set_brightness(', 'compose_scene(', 'rotate_game_to_panel(',
+                   'night_light_adjust_brightness(', 'compose_scene(', 'rotate_game_to_panel(',
                    'refresh_current_page(', 'battery_read_status('):
         assert symbol in original and symbol in staged, symbol
     assert 'run_console(nullptr);' in staged
+    assert 'kFullscreenSkippedFramesBetweenRenders = 2' in original
+    assert 'kFullscreenSkippedFramesBetweenRenders = 2' in staged
+    assert 'paperboy_is_landscape() && paperboy_landscape_fullscreen()' in original
+    assert 'skipped_since_render >= skipped_frames_required' in staged
     assert 'paperboy_elf_console_task' in staged
     assert 'xTaskCreatePinnedToCore(' in staged
     assert '32768' in staged
