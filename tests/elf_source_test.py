@@ -20,7 +20,7 @@ with tempfile.TemporaryDirectory() as tmp:
                    'gbemu_run_frame(', 'audio_init()', 'audio_service_frame()',
                    'touch_read(', 'snes_mini_controller_buttons()',
                    'snes_mini_controller_take_actions()', 'night_light_init()',
-                   'night_light_set_brightness(', 'compose_scene(', 'rotate_game_to_panel(',
+                   'night_light_adjust_brightness(', 'compose_scene(', 'rotate_game_to_panel(',
                    'refresh_current_page(', 'battery_read_status('):
         assert symbol in original and symbol in staged, symbol
     assert 'run_console(nullptr);' in staged
