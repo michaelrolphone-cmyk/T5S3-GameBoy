@@ -1566,6 +1566,18 @@ void run_console(void *unused) {
           (touch_ok && touch.points > 0U) ? touch.y[0] : 0U);
     }
 
+    if ((actions & PAPERBOY_ACTION_FULLSCREEN) != 0U && paperboy_is_landscape()) {
+      paperboy_landscape_set_fullscreen(!paperboy_landscape_fullscreen());
+      paperboy_ui_on_page_changed();
+      full_scene_syncs = kPanelBufferCount;
+      skipped_since_render = 0U;
+      reset_game_frame_pacer(game_frame_pacer);
+      ESP_LOGI(kTag, "landscape fullscreen=%s",
+               paperboy_landscape_fullscreen() ? "on" : "off");
+      last_buttons = 0U;
+      continue;
+    }
+
     if ((actions & PAPERBOY_ACTION_ROTATE) != 0U) {
       paperboy_orientation_cycle();
       paperboy_ui_on_page_changed();
@@ -1818,8 +1830,18 @@ void run_console(void *unused) {
         add_sample(draw_timing, frame_stats.draw_us);
         const int64_t flip_started = esp_timer_get_time();
         const bool submitted = epd_video_submit(
-            full_scene ? 0 : (paperboy_is_landscape() ? PAPERBOY_LANDSCAPE_GAME_Y : kGameDirtyY),
-            full_scene ? t5s3_epd::kActiveHeight : (paperboy_is_landscape() ? GBEMU_FRAME_HEIGHT : kGameDirtyHeight));
+            full_scene
+                ? 0
+                : (paperboy_is_landscape()
+                    ? (paperboy_landscape_fullscreen() ? 0 : PAPERBOY_LANDSCAPE_GAME_Y)
+                    : kGameDirtyY),
+            full_scene
+                ? t5s3_epd::kActiveHeight
+                : (paperboy_is_landscape()
+                    ? (paperboy_landscape_fullscreen()
+                        ? PAPERBOY_LANDSCAPE_FULLSCREEN_HEIGHT
+                        : GBEMU_FRAME_HEIGHT)
+                    : kGameDirtyHeight));
         add_sample(flip_timing, static_cast<uint32_t>(esp_timer_get_time() - flip_started));
         if (submitted) {
           ++rendered_frames;
