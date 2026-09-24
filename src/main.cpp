@@ -1513,11 +1513,8 @@ void run_console(void *unused) {
       if (controller_actions & SNES_ACTION_LOAD) actions |= PAPERBOY_ACTION_LOAD;
     }
     if (controller_actions & (SNES_ACTION_DIM | SNES_ACTION_BRIGHTEN)) {
-      const uint8_t level = night_light_brightness();
-      const uint8_t target = (controller_actions & SNES_ACTION_BRIGHTEN)
-          ? static_cast<uint8_t>(level + 1U)
-          : static_cast<uint8_t>(level > 0U ? level - 1U : 0U);
-      (void)night_light_set_brightness(target);
+      (void)night_light_adjust_brightness(
+          (controller_actions & SNES_ACTION_BRIGHTEN) != 0U);
     }
     // External controls drive the emulator without repainting the touch UI.
     // Turbo and repeated pad presses must keep the game-only dirty region.
