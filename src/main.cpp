@@ -38,6 +38,7 @@ namespace {
 constexpr const char *kTag = "T5S3-GameBoy";
 constexpr const char *kFirmwareVersion = PAPERBOY_FIRMWARE_VERSION;
 constexpr uint8_t kMinSkippedFramesBetweenRenders = 1;
+constexpr uint8_t kFullscreenSkippedFramesBetweenRenders = 2;
 constexpr uint8_t kPanelBufferCount = 2;
 constexpr uint32_t kDmgClockHz = 4194304U;
 constexpr uint32_t kDmgFrameClocks = 70224U;
@@ -1785,9 +1786,13 @@ void run_console(void *unused) {
       }
       last_vsync = vsync_now;
 
+      const uint8_t skipped_frames_required =
+          paperboy_is_landscape() && paperboy_landscape_fullscreen()
+              ? kFullscreenSkippedFramesBetweenRenders
+              : kMinSkippedFramesBetweenRenders;
       const bool render_due =
           full_scene_syncs > 0U ||
-          skipped_since_render >= kMinSkippedFramesBetweenRenders;
+          skipped_since_render >= skipped_frames_required;
       const bool skip_render = !render_due || !epd_video_can_submit();
       gbemu_frame_stats_t frame_stats = {};
 
