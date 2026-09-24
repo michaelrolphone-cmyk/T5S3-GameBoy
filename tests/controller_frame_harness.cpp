@@ -22,6 +22,7 @@ static bool boot_pressed, last_boot_pressed, g_boot_refresh_irq, boot_refresh_ar
 static uint32_t last_boot_refresh_ms;
 static std::vector<std::pair<bool, uint8_t>> clear_frames;
 static bool touch_ok = true, power_on = true, submit_ok = true, landscape;
+static bool landscape_fullscreen;
 static PaperboyPage page = PaperboyPage::Game;
 static PaperboyPage next_page = PaperboyPage::Game;
 static touch_state_t touch{};
@@ -67,9 +68,15 @@ static void compose_scene(uint8_t *, uint8_t buttons, bool, PaperboyPage, const 
 }
 static void rotate_game_to_panel(const uint8_t *, uint8_t *) { ++game_compositions; }
 bool paperboy_is_landscape() { return landscape; }
+bool paperboy_landscape_fullscreen() { return landscape_fullscreen; }
 static bool epd_video_submit(int y, int height) {
   if (y == 0 && height == t5s3_epd::kActiveHeight) ++full_submissions;
-  else assert(height == int(landscape ? GBEMU_FRAME_HEIGHT : kGameDirtyHeight));
+  else assert(height == int(
+      landscape
+          ? (landscape_fullscreen
+              ? PAPERBOY_LANDSCAPE_FULLSCREEN_HEIGHT
+              : GBEMU_FRAME_HEIGHT)
+          : kGameDirtyHeight));
   return submit_ok;
 }
 // REFRESH_FUNCTIONS
