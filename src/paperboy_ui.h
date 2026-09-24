@@ -6,6 +6,7 @@
 #include "battery_power.h"
 #include "touch_gt911.h"
 #include "snes_mini_controller.h"
+#include "usb_hid_gamepad.h"
 
 enum {
   PAPERBOY_ACTION_POWER = 1U << 0,
@@ -25,6 +26,7 @@ enum {
   PAPERBOY_ACTION_AUDIO_ENGINE = 1U << 14,
   PAPERBOY_ACTION_SD_RESCAN = 1U << 15,
   PAPERBOY_ACTION_ROTATE = 1U << 19,
+  PAPERBOY_ACTION_GAMEPAD_TEST = 1U << 20,
 };
 
 enum class PaperboyPage : uint8_t {
@@ -33,6 +35,7 @@ enum class PaperboyPage : uint8_t {
   Battery,
   SdCard,
   About,
+  GamepadTest,
 };
 
 static constexpr uint16_t PAPERBOY_LOGICAL_WIDTH = 540;
@@ -76,7 +79,8 @@ void paperboy_ui_draw_page(
     const char *firmware_version,
     const char *rom_title,
     bool touch_available,
-    const PaperboyRomLibraryView *rom_library);
+    const PaperboyRomLibraryView *rom_library,
+    const UsbGamepadTestStatus *gamepad);
 
 // Controller navigation uses physical keys, independently of touch and turbo.
 uint32_t paperboy_ui_map_controller(uint8_t buttons, PaperboyPage page, uint32_t now);

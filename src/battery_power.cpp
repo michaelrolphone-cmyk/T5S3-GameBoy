@@ -128,6 +128,18 @@ bool configure_charger() {
     return false;
   }
   config.i2c_addr_7bit = kBq25896Address;
+#ifdef PAPERBOY_RISCRTE_ELF
+  // RiscRTE's VBUS provider owns this chip. Bind telemetry without resetting
+  // registers, disabling OTG, or changing the provider's charger profile.
+  g_charger = {};
+  g_charger.hal = config.hal;
+  g_charger.i2c_addr_7bit = config.i2c_addr_7bit;
+  g_charger.is_initialized = true;
+  bq25896_status_t status = {};
+  g_charger_ready = BQ25896_SUCCEEDED(bq25896_read_status(&g_charger, &status));
+  return g_charger_ready;
+#else
+
   config.reset_registers_on_init = true;
   config.exit_hiz_on_init = true;
   config.adc_mode = BQ25896_ADC_MODE_CONTINUOUS;
@@ -149,6 +161,7 @@ bool configure_charger() {
            kProfile.precharge_current_ma, kProfile.termination_current_ma,
            kProfile.charge_voltage_mv, kProfile.system_min_voltage_mv);
   return true;
+#endif
 }
 bool configure_gauge() {
   if (!g_gauge.begin(i2c_bus_handle(), kBq27220Address, kI2cFrequencyHz)) return false;
@@ -327,6 +340,9 @@ bool verify_host_boost(uint32_t begun) {
 }
 
 bool start_host_boost() {
+#ifdef PAPERBOY_RISCRTE_ELF
+  return false; // USB power belongs to the installed RiscRTE provider.
+#else
   if (!g_charger_ready || g_host_boost_active || g_host_boost_fault_latched) return false;
   if (!preflight_host_boost()) return false;
   uint16_t voltage = 0, soc = 0;
@@ -360,6 +376,7 @@ bool start_host_boost() {
   ESP_LOGI(kTag, "USB VBUS boost active: 5126 mV, 1200 mA PMIC peak; BAT=%u mV SOC=%u%% cfg=0x%02x",
            voltage, soc, boost);
   return true;
+#endif
 }
 
 void update_low_battery_status(PaperboyBatteryStatus &status) {
@@ -398,6 +415,9 @@ bool battery_begin() {
 }
 
 void battery_service() {
+#ifdef PAPERBOY_RISCRTE_ELF
+  return; // Do not restore the standalone profile over the host's VBUS lease.
+#else
   if (!g_battery_init_attempted) (void)battery_begin();
   const uint32_t now = millis();
   const uint32_t interval = g_host_boost_active ? kBoostServicePeriodMs : kChargerServicePeriodMs;
@@ -449,6 +469,7 @@ void battery_service() {
              config.hiz_enabled ? 1U : 0U, config.batfet_disabled ? 1U : 0U,
              restored ? "ok" : "failed");
   }
+#endif
 }
 
 bool battery_read_status(PaperboyBatteryStatus &status) {

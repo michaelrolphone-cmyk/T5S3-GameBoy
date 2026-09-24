@@ -17,6 +17,7 @@ enum SnesControllerAction : uint8_t {
   SNES_ACTION_BRIGHTEN = 1U << 3,
   SNES_ACTION_SETTINGS = 1U << 4,
   SNES_ACTION_ROTATE = 1U << 5,
+  SNES_ACTION_REFRESH = 1U << 6,
 };
 uint8_t snes_mini_controller_take_actions();
 
