@@ -19,6 +19,7 @@
 #include "night_light.h"
 #include "snes_mini_controller.h"
 #include "paperboy_config.h"
+#include "paperboy_game_clock.h"
 #include "paperboy_storage.h"
 #include "paperboy_ui.h"
 #include "paperboy_landscape.h"
@@ -1829,6 +1830,10 @@ void run_console(void *unused) {
       }
       if (!skip_render) {
         draw_game_low_battery_overlay(g_game_frame, battery);
+        paperboy_game_clock_draw(
+            g_game_frame,
+            esp_timer_get_time(),
+            battery_is_low(battery));
       }
       audio_service_frame();
 
@@ -2006,6 +2011,7 @@ void setup() {
     g_initial_page = PaperboyPage::SdCard;
   }
   const uint32_t rtc_timestamp = read_rtc_timestamp();
+  paperboy_game_clock_sync(rtc_timestamp, esp_timer_get_time());
   ESP_LOGI(
       kTag, "storage=%s scan=%s roms=%u audio=%s rtc=%s",
       g_storage_ready ? "mounted" : "unavailable",
