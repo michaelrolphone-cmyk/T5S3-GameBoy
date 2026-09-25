@@ -128,6 +128,11 @@ jobs:
           print(f'Loaded {len(names)} registered RiscRTE ELF exports')
           PY
 
+      - name: Set RiscRTE app version from firmware release
+        env:
+          VERSION: ${{ needs.request.outputs.version }}
+        run: python scripts/bind_risc_app_version.py --version "$VERSION"
+
       - name: Compile and link installable RiscRTE GameBoy ELF
         env:
           RISCRTE_EXPORT_LIST: build/riscrte/host_exports.txt
@@ -138,11 +143,6 @@ jobs:
         env:
           VERSION: ${{ needs.request.outputs.version }}
         run: python scripts/bind_risc_app_version.py --manifest dist/riscrte/gameboy.json --version "$VERSION" --check
-
-      - name: Set RiscRTE app version from firmware release
-        env:
-          VERSION: ${{ needs.request.outputs.version }}
-        run: python scripts/bind_risc_app_version.py --version "$VERSION"
 
       - name: Verify RiscRTE capability boundary
         run: |
