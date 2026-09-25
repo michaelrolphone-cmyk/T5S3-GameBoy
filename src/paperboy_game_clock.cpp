@@ -8,7 +8,7 @@
 
 namespace {
 
-constexpr int kClockBoxWidth = 36;
+constexpr int kClockBoxWidth = 54;
 constexpr int kClockBoxHeight = 13;
 constexpr int kClockX = GBEMU_FRAME_WIDTH - kClockBoxWidth - 4;
 constexpr int kClockNormalY = 4;
@@ -17,7 +17,7 @@ constexpr int kClockLowBatteryY = 42;
 uint32_t g_rtc_epoch_seconds = 0U;
 int64_t g_sync_monotonic_us = 0;
 uint32_t g_cached_minute = UINT32_MAX;
-char g_clock_label[6] = "--:--";
+char g_clock_label[9] = "--:--";
 
 uint32_t current_epoch_seconds(int64_t monotonic_us) {
   if (g_rtc_epoch_seconds == 0U) {
@@ -45,14 +45,17 @@ void refresh_label(int64_t monotonic_us) {
   g_cached_minute = minute;
 
   const uint32_t minutes_today = minute % (24U * 60U);
-  const uint32_t hour = minutes_today / 60U;
+  const uint32_t hour24 = minutes_today / 60U;
   const uint32_t minute_of_hour = minutes_today % 60U;
+  const uint32_t hour12 = hour24 % 12U == 0U ? 12U : hour24 % 12U;
+  const char *suffix = hour24 < 12U ? "AM" : "PM";
   snprintf(
       g_clock_label,
       sizeof(g_clock_label),
-      "%02lu:%02lu",
-      static_cast<unsigned long>(hour),
-      static_cast<unsigned long>(minute_of_hour));
+      "%02lu:%02lu %s",
+      static_cast<unsigned long>(hour12),
+      static_cast<unsigned long>(minute_of_hour),
+      suffix);
 }
 
 }  // namespace
