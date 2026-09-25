@@ -134,6 +134,13 @@ jobs:
           RISCRTE_HOST_ROOT: _riscrte
         run: python riscrte/build_elf.py
 
+      - name: Verify RiscRTE app version matches firmware release
+        env:
+          VERSION: ${{ needs.request.outputs.version }}
+        run: |
+          python scripts/bind_risc_app_version.py --version "$VERSION"
+          python scripts/bind_risc_app_version.py --manifest dist/riscrte/gameboy.json --version "$VERSION" --check
+
       - name: Verify RiscRTE capability boundary
         run: |
           python - <<'PY'
@@ -158,6 +165,8 @@ jobs:
           build/riscrte/validate-elf dist/riscrte/gameboy.elf
 
       - name: Stage installable RiscRTE assets and combined checksums
+        env:
+          VERSION: ${{ needs.request.outputs.version }}
         run: |
           cp dist/riscrte/gameboy.elf dist/gameboy.elf
           cp dist/riscrte/gameboy.json dist/gameboy.json
@@ -172,6 +181,8 @@ jobs:
           payload = elf.read_bytes()
           if manifest.get('file_name') != elf.name:
               raise SystemExit('RiscRTE manifest filename does not match release ELF asset')
+          if manifest.get('version') != __import__('os').environ['VERSION']:
+              raise SystemExit('RiscRTE app version does not match firmware release version')
           if manifest.get('size_bytes') != len(payload):
               raise SystemExit('RiscRTE manifest size does not match release ELF asset')
           if manifest.get('sha256') != hashlib.sha256(payload).hexdigest():
