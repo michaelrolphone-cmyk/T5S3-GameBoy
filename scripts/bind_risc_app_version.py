@@ -7,7 +7,7 @@ import json
 import re
 from pathlib import Path
 
-VERSION_RE = re.compile(r"(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\Z")
+VERSION_RE = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\Z")
 
 
 def bind_version(manifest_path: Path, version: str, *, check: bool = False) -> None:
@@ -22,7 +22,7 @@ def bind_version(manifest_path: Path, version: str, *, check: bool = False) -> N
             raise ValueError(f"RiscRTE app version {current!r} does not match firmware release {version}")
         return
     manifest["version"] = version
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\\n", encoding="utf-8")
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
 def main() -> None:
