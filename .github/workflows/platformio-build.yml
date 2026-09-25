@@ -29,6 +29,9 @@ jobs:
       - name: Test release-tag validation
         run: python -m unittest discover -s tests -p 'test_release_request.py' -v
 
+      - name: Test RiscRTE app release version binding
+        run: python -m unittest discover -s tests -p 'test_bind_risc_app_version.py' -v
+
       - name: Test landscape rendering and touch mapping
         run: |
           c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc \
