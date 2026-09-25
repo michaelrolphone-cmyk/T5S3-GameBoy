@@ -5,7 +5,7 @@ The repository produces two deliverables from the same GameBoy source tree:
 - standalone firmware for the LilyGO T5S3-4.7 E-Paper Pro; and
 - an installable RiscRTE ELF app with its manifest.
 
-The standalone PlatformIO target is `T5S3-GameBoy` and uses the custom `boards/T5-ePaper-S3.json`. Its release version comes from `[version]` in `platformio.ini`. The RiscRTE app carries its own app version in `riscrte/gameboy.json`.
+The standalone PlatformIO target is `T5S3-GameBoy` and uses the custom `boards/T5-ePaper-S3.json`. Its release version comes from `[version]` in `platformio.ini`. Every published RiscRTE app uses that same version: the release workflow binds `riscrte/gameboy.json` to the validated firmware release version and checks the generated sidecar before publishing.
 
 ## Download a development build
 
