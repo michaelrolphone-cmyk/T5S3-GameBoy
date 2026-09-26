@@ -1,5 +1,5 @@
 {
-  "min_firmware_version": "1.2.48",
+  "min_firmware_version": "1.2.100",
   "display_name": "GameBoy",
   "file_name": "gameboy.elf",
   "icon": "solid:f11b",
@@ -18,6 +18,10 @@
     },
     {
       "capability": "usb.host",
+      "api": ">=1"
+    },
+    {
+      "capability": "input.touch.raw",
       "api": ">=1"
     }
   ],

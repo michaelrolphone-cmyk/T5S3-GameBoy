@@ -31,6 +31,7 @@ static void paperboy_usb_owner_poll() {
   polls.push_back(elapsed);
   advance(poll_cost);
 }
+static void paperboy_touch_owner_poll() {}
 static void serial_flush(bool = false) {}
 static void serial_append(const char *) {}
 

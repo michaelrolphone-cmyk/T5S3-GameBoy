@@ -50,8 +50,21 @@ subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
     str(ROOT / 'src/usb_hid_keyboard.cpp'), '-o', str(optional_test)], check=True)
 subprocess.run([str(optional_test)], check=True)
 
-if not HOST_INCLUDE.joinpath('T5StorageApi.h').exists() or not HOST_INCLUDE.joinpath('T5ProviderCapabilityApi.h').exists() or not HOST_DRIVER_INCLUDE.joinpath('RiscUsbHidV1.h').exists():
-    raise SystemExit(f'Experimental RiscRTE USB HID ABI not found under {HOST_ROOT}')
+touch_test = BUILD / 'touch-provider-test'
+subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
+    '-I' + str(ROOT / 'tests/elf_hid_stubs'),
+    '-I' + str(ROOT / 'tests/controller_stubs'), '-I' + str(ROOT / 'src'),
+    '-I' + str(ROOT / 'riscrte'), '-I' + str(HOST_INCLUDE),
+    '-I' + str(HOST_DRIVER_INCLUDE),
+    str(ROOT / 'tests/elf_touch_provider_test.cpp'),
+    str(ROOT / 'riscrte/touch_provider_adapter.cpp'),
+    '-o', str(touch_test)], check=True)
+subprocess.run([str(touch_test)], check=True)
+
+if (not HOST_INCLUDE.joinpath('T5StorageApi.h').exists() or
+        not HOST_INCLUDE.joinpath('T5ProviderCapabilityApi.h').exists() or
+        not HOST_DRIVER_INCLUDE.joinpath('RiscUsbHidV1.h').exists()):
+    raise SystemExit(f'Experimental RiscRTE input provider ABI not found under {HOST_ROOT}')
 
 
 def run(cmd):
@@ -85,7 +98,7 @@ if missing:
     print('Unused by standalone build:', *(str(p.relative_to(ROOT)) for p in missing))
 for required in ('src/main.cpp', 'src/epd_video.cpp', 'src/gbemu.c',
                  'src/paperboy_storage.cpp', 'src/paperboy_ui.cpp', 'src/audio.c',
-                 'src/usb_hid_gamepad.cpp'):
+                 'src/usb_hid_gamepad.cpp', 'src/touch_gt911.cpp'):
     if ROOT.joinpath(required).resolve() not in commands:
         raise SystemExit(f'Compilation database lacks original {required}')
 
@@ -106,6 +119,7 @@ for source, entry in sorted(commands.items()):
         'src/gbemu.c': SRC / 'gbemu.c',
         'src/paperboy_storage.cpp': SRC / 'paperboy_storage_host.cpp',
         'src/usb_hid_gamepad.cpp': ROOT / 'riscrte/usb_hid_elf_adapter.cpp',
+        'src/touch_gt911.cpp': ROOT / 'riscrte/touch_provider_adapter.cpp',
     }.get(relative.as_posix(), source)
     obj = BUILD / 'objects' / relative.with_suffix(relative.suffix + '.o')
     obj.parent.mkdir(parents=True, exist_ok=True)
