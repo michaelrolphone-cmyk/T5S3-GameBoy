@@ -86,3 +86,28 @@ Regression tests cover HID and XInput press/release orders, redraw-to-Settings
 transitions, and the actual staged hardware/controller refresh code. The latter
 verifies the clear sequence, both panel buffers, frame-pacer reset, gameplay/menu
 routing and a single clear for simultaneous BOOT/controller requests.
+
+
+### RiscRTE System ROM and save storage (1.3.2)
+
+The RiscRTE ELF preserves legacy SD root/first-level ROM discovery and adds two
+explicit application-state roots:
+
+- `/System/State/Applications/gameboy/` for GameBoy-owned ROMs, battery saves
+  and full emulator state snapshots;
+- `/System/State/Applications/Rom Manager/` as an additional ROM source for
+  the future Rom Manager app.
+
+Both roots accept case-insensitive `.gb`/`.gbc` ROMs and one child-directory
+level, while `.sav` and `.state` files are never added to the ROM catalog.
+New RiscRTE battery saves and snapshots are always written to GameBoy's own
+state directory using the ROM filename, even when the ROM itself was discovered
+under Rom Manager. For example, a ROM at
+`/System/State/Applications/Rom Manager/Tetris.gb` writes
+`/System/State/Applications/gameboy/Tetris.gb.sav` and
+`Tetris.gb.state`.
+
+Existing adjacent `ROM.gb.sav`/`ROM.gb.state` and older
+`ROM.sav`/`ROM.state` paths remain read-compatible so this storage change
+does not strand previously created saves. The standalone firmware keeps its
+existing SD-root/adjacent-sidecar behavior.

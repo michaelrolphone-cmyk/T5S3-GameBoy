@@ -200,6 +200,49 @@ bool append_extension(const char *path, const char *extension, bool replace,
   return true;
 }
 
+bool make_system_sidecar_path(const char *rom_path, const char *extension,
+                              char *out, size_t capacity) {
+  if (!valid_file_path(rom_path) || !has_rom_extension(rom_path) ||
+      !extension || !out || !capacity) {
+    set_error(PaperboyStorageError::InvalidArgument);
+    return false;
+  }
+  const char *slash = strrchr(rom_path, '/');
+  const char *filename = slash ? slash + 1 : rom_path;
+  if (!filename[0]) {
+    set_error(PaperboyStorageError::InvalidArgument);
+    return false;
+  }
+  const size_t root_length = strlen(GAMEBOY_STATE_ROM_DIRECTORY);
+  const size_t name_length = strlen(filename);
+  const size_t extension_length = strlen(extension);
+  const size_t total = root_length + 1U + name_length + extension_length;
+  if (total >= capacity || total >= PAPERBOY_STORAGE_PATH_MAX) {
+    set_error(PaperboyStorageError::PathTooLong);
+    return false;
+  }
+  memcpy(out, GAMEBOY_STATE_ROM_DIRECTORY, root_length);
+  out[root_length] = '/';
+  memcpy(out + root_length + 1U, filename, name_length);
+  memcpy(out + root_length + 1U + name_length, extension, extension_length + 1U);
+  set_error(PaperboyStorageError::None);
+  return true;
+}
+
+bool make_legacy_sidecar_path(const char *rom_path, const char *extension,
+                              char *out, size_t capacity) {
+  char appended[PAPERBOY_STORAGE_PATH_MAX];
+  if (append_extension(rom_path, extension, false, appended, sizeof(appended))) {
+    char translated[PAPERBOY_STORAGE_PATH_MAX + 4U];
+    if (host_path(appended, translated, sizeof(translated)) && host_exists(translated)) {
+      return copy_string(out, capacity, appended);
+    }
+  } else if (paperboy_storage_last_error() != PaperboyStorageError::PathTooLong) {
+    return false;
+  }
+  return append_extension(rom_path, extension, true, out, capacity);
+}
+
 bool valid_config(const PaperboyStorageConfig &config) {
   return config.audio_engine < PAPERBOY_STORAGE_AUDIO_ENGINE_COUNT &&
       (config.last_rom[0] == '\0' ||
@@ -242,7 +285,7 @@ void stream_close(gameboy_stream_t stream) {
 }
 
 const gameboy_rom_host_t kRomHost = {
-    dir_open, dir_next, dir_close, stream_open, stream_read, stream_close, nullptr};
+    dir_open, dir_next, dir_close, stream_open, stream_read, stream_close, nullptr, host_exists};
 
 bool read_host_file(const char *path, void *buffer, size_t capacity, size_t &size_out) {
   size_out = 0U;
@@ -481,10 +524,18 @@ bool paperboy_storage_write_config(const PaperboyStorageConfig &config) {
   return paperboy_storage_write_blob_atomic(kConfigPath, content, static_cast<size_t>(count));
 }
 
-bool paperboy_storage_make_save_path(const char *p, char *o, size_t n) { return append_extension(p, ".sav", false, o, n); }
-bool paperboy_storage_make_state_path(const char *p, char *o, size_t n) { return append_extension(p, ".state", false, o, n); }
-bool paperboy_storage_make_legacy_save_path(const char *p, char *o, size_t n) { return append_extension(p, ".sav", true, o, n); }
-bool paperboy_storage_make_legacy_state_path(const char *p, char *o, size_t n) { return append_extension(p, ".state", true, o, n); }
+bool paperboy_storage_make_save_path(const char *p, char *o, size_t n) {
+  return make_system_sidecar_path(p, ".sav", o, n);
+}
+bool paperboy_storage_make_state_path(const char *p, char *o, size_t n) {
+  return make_system_sidecar_path(p, ".state", o, n);
+}
+bool paperboy_storage_make_legacy_save_path(const char *p, char *o, size_t n) {
+  return make_legacy_sidecar_path(p, ".sav", o, n);
+}
+bool paperboy_storage_make_legacy_state_path(const char *p, char *o, size_t n) {
+  return make_legacy_sidecar_path(p, ".state", o, n);
+}
 
 bool paperboy_storage_file_exists(const char *path) {
   if (!require_mounted()) return false;
