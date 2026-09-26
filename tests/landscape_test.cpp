@@ -28,7 +28,7 @@ int main() {
     auto full=point(620,512); assert(paperboy_landscape_actions(&full)==PAPERBOY_ACTION_FULLSCREEN);
     std::vector<uint8_t> game(GBEMU_FRAMEBUFFER_SIZE,255),canvas(65280+16,0xCC),panel(64800+16,0xCC);
     game[0]=0x7F; // one black game pixel at top left
-    paperboy_landscape_draw(canvas.data(),panel.data(),game.data(),0,true,false,nullptr,nullptr);
+    paperboy_landscape_draw(canvas.data(),panel.data(),game.data(),0,true,false,nullptr,nullptr,0);
     int x=240,y=54; if(mode) {x=959-x;y=539-y;}
     assert(pixel(panel,x,y));
     for(size_t i=64800;i<panel.size();++i) assert(panel[i]==0xCC);
@@ -48,7 +48,7 @@ int main() {
     std::fill(game.begin(),game.end(),0xFF);
     game[0]=0x7F;
     std::fill(panel.begin(),panel.end(),0xCC);
-    paperboy_landscape_draw(canvas.data(),panel.data(),game.data(),0,true,false,nullptr,nullptr);
+    paperboy_landscape_draw(canvas.data(),panel.data(),game.data(),0,true,false,nullptr,nullptr,0);
     int black_x=180, black_y=0;
     if(mode) {black_x=959-black_x;black_y=539-black_y;}
     assert(pixel(panel,black_x,black_y));

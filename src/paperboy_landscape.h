@@ -10,7 +10,8 @@ bool paperboy_landscape_fullscreen();
 void paperboy_landscape_set_fullscreen(bool enabled);
 void paperboy_landscape_draw(uint8_t *canvas, uint8_t *panel, const uint8_t *game,
                             uint8_t buttons, bool power_on, bool save_available,
-                            const PaperboyBatteryStatus *battery, const char *notice);
+                            const PaperboyBatteryStatus *battery, const char *notice,
+                            int64_t monotonic_us);
 void paperboy_landscape_game(const uint8_t *game, uint8_t *panel);
 uint8_t paperboy_landscape_buttons(const touch_state_t *touch);
 uint32_t paperboy_landscape_actions(const touch_state_t *touch);

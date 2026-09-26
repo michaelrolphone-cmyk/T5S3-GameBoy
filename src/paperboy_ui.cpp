@@ -46,7 +46,7 @@ constexpr Rect kMainBatteryRect = {20, 902, 130, 42};
 constexpr Rect kSettingsTouchRect = {320, 876, 220, 80};
 // These occupy the right side of the existing black brand bar. They are
 // outside the Game Boy playfield and do not inject A/B/D-pad input.
-constexpr Rect kGameLightDownRect = {328, 534, 76, 40};
+constexpr Rect kGameLightDownRect = {344, 534, 72, 40};
 constexpr Rect kGameLightUpRect = {432, 534, 76, 40};
 
 constexpr Rect kBackRect = {20, 20, 112, 44};
@@ -124,7 +124,7 @@ uint32_t current_action_mask(const touch_state_t *touch, PaperboyPage page) {
     const uint16_t x = touch->x[i];
     const uint16_t y = touch->y[i];
     if (page == PaperboyPage::Game) {
-      if (point_in_rect(x, y, Rect{24, 534, 250, 40})) mask |= PAPERBOY_ACTION_ROTATE;
+      if (point_in_rect(x, y, Rect{24, 534, 150, 40})) mask |= PAPERBOY_ACTION_ROTATE;
       if (point_in_rect(x, y, kPowerRect)) {
         mask |= PAPERBOY_ACTION_POWER;
       }
@@ -801,11 +801,13 @@ void paperboy_ui_draw_static(
   mono_draw_frame(framebuffer, kPitch, kWidth, kHeight, 4, 4, 532, 952, 3, false);
   mono_draw_line(framebuffer, kPitch, kWidth, kHeight, 16, 72, 524, 72, false);
   mono_draw_frame(framebuffer, kPitch, kWidth, kHeight, 24, 80, 496, 448, 4, false);
+  // Dedicated game chrome below the emulated viewport. Keep the center clear
+  // for the live clock; controls stay at the edges and never cover game pixels.
   mono_fill_rect(framebuffer, kPitch, kWidth, kHeight, 24, 536, 496, 34, false);
-  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 36, 546, "ROTATE SCREEN", 2, true);
-  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 286, 547, "LIGHT", 1, true);
-  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 361, 546, "-", 2, true);
-  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 466, 546, "+", 2, true);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 40, 546, "ROTATE", 2, true);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 350, 539, "LIGHT", 1, true);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 374, 550, "-", 2, true);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 466, 550, "+", 2, true);
 
   mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 344, 770, "B", 2, false);
   mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 428, 696, "A", 2, false);
