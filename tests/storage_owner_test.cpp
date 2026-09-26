@@ -23,6 +23,7 @@ static bool fail_write, fail_read;
 static unsigned writes, closes, save_writes, hid_writes, serial_writes;
 static void authorized() { assert(xTaskGetCurrentTaskHandle() == owner); }
 void paperboy_usb_owner_poll() { authorized(); }
+void paperboy_touch_owner_poll() { authorized(); }
 
 static bool is_directory(const char *path) {
   return path && (!strcmp(path, "/sd") ||
