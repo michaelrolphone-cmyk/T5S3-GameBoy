@@ -20,10 +20,22 @@ static uint8_t rom_bytes[48u * 1024u];
 static bool dir_open(const char *path)
 {
     if (opened_directory != NULL) directory_open_during_other = true;
-    if (strcmp(path, "/sd") && strcmp(path, "/sd/Games")) return false;
+    if (strcmp(path, "/sd") &&
+        strcmp(path, "/sd/Games") &&
+        strcmp(path, GAMEBOY_STATE_ROM_DIRECTORY) &&
+        strcmp(path, GAMEBOY_STATE_ROM_DIRECTORY "/Imported") &&
+        strcmp(path, GAMEBOY_ROM_MANAGER_DIRECTORY) &&
+        strcmp(path, GAMEBOY_ROM_MANAGER_DIRECTORY "/Library")) return false;
     opened_directory = path;
     directory_cursor = 0;
     return true;
+}
+
+static bool path_exists(const char *path)
+{
+    if (overflow_mode) return false;
+    return !strcmp(path, GAMEBOY_STATE_ROM_DIRECTORY) ||
+           !strcmp(path, GAMEBOY_ROM_MANAGER_DIRECTORY);
 }
 
 static bool dir_next(gameboy_dirent_t *entry)
@@ -45,13 +57,40 @@ static bool dir_next(gameboy_dirent_t *entry)
         default: return false;
         }
     }
-    switch (directory_cursor++) {
-    case 0: strcpy(entry->name, "Pokemon.GBC"); entry->size = 49152; return true;
-    case 1: strcpy(entry->name, "alpha.gb"); entry->size = 49152; return true;
-    case 2: strcpy(entry->name, "deeper"); entry->is_directory = 1; return true;
-    case 3: strcpy(entry->name, "broken.gb"); entry->size = 0; return true;
-    default: return false;
+    if (!strcmp(opened_directory, "/sd/Games")) {
+        switch (directory_cursor++) {
+        case 0: strcpy(entry->name, "Pokemon.GBC"); entry->size = 49152; return true;
+        case 1: strcpy(entry->name, "alpha.gb"); entry->size = 49152; return true;
+        case 2: strcpy(entry->name, "deeper"); entry->is_directory = 1; return true;
+        case 3: strcpy(entry->name, "broken.gb"); entry->size = 0; return true;
+        default: return false;
+        }
     }
+    if (!strcmp(opened_directory, GAMEBOY_STATE_ROM_DIRECTORY)) {
+        switch (directory_cursor++) {
+        case 0: strcpy(entry->name, "Local.gb"); entry->size = 49152; return true;
+        case 1: strcpy(entry->name, "Local.gb.sav"); entry->size = 8192; return true;
+        case 2: strcpy(entry->name, "Imported"); entry->is_directory = 1; return true;
+        default: return false;
+        }
+    }
+    if (!strcmp(opened_directory, GAMEBOY_STATE_ROM_DIRECTORY "/Imported")) {
+        if (directory_cursor++) return false;
+        strcpy(entry->name, "Child.gbc"); entry->size = 49152; return true;
+    }
+    if (!strcmp(opened_directory, GAMEBOY_ROM_MANAGER_DIRECTORY)) {
+        switch (directory_cursor++) {
+        case 0: strcpy(entry->name, "Managed.gb"); entry->size = 49152; return true;
+        case 1: strcpy(entry->name, "Managed.gb.state"); entry->size = 32768; return true;
+        case 2: strcpy(entry->name, "Library"); entry->is_directory = 1; return true;
+        default: return false;
+        }
+    }
+    if (!strcmp(opened_directory, GAMEBOY_ROM_MANAGER_DIRECTORY "/Library")) {
+        if (directory_cursor++) return false;
+        strcpy(entry->name, "Color.gbc"); entry->size = 49152; return true;
+    }
+    return false;
 }
 
 static void dir_close(void)
@@ -106,30 +145,39 @@ int main(void)
     host.stream_open = stream_open;
     host.stream_read = stream_read;
     host.stream_close = stream_close;
+    host.path_exists = path_exists;
 
     gameboy_rom_catalog_t *catalog = malloc(sizeof(*catalog));
     assert(catalog);
     assert(gameboy_rom_scan(&host, catalog) == GAMEBOY_ROM_OK);
-    assert(catalog->count == 3u && !catalog->truncated);
+    assert(catalog->count == 7u && !catalog->truncated);
     assert(!strcmp(catalog->roms[0].name, "alpha.gb"));
-    assert(!strcmp(catalog->roms[1].name, "Pokemon.GBC"));
-    assert(!strcmp(catalog->roms[1].path, "/sd/Games/Pokemon.GBC"));
-    assert(!strcmp(catalog->roms[2].name, "Zelda.gb"));
-    assert(!directory_open_during_other && closed_directories == 2u);
+    assert(!strcmp(catalog->roms[1].name, "Child.gbc"));
+    assert(!strcmp(catalog->roms[1].path, GAMEBOY_STATE_ROM_DIRECTORY "/Imported/Child.gbc"));
+    assert(!strcmp(catalog->roms[2].name, "Color.gbc"));
+    assert(!strcmp(catalog->roms[2].path, GAMEBOY_ROM_MANAGER_DIRECTORY "/Library/Color.gbc"));
+    assert(!strcmp(catalog->roms[3].name, "Local.gb"));
+    assert(!strcmp(catalog->roms[3].path, GAMEBOY_STATE_ROM_DIRECTORY "/Local.gb"));
+    assert(!strcmp(catalog->roms[4].name, "Managed.gb"));
+    assert(!strcmp(catalog->roms[4].path, GAMEBOY_ROM_MANAGER_DIRECTORY "/Managed.gb"));
+    assert(!strcmp(catalog->roms[5].name, "Pokemon.GBC"));
+    assert(!strcmp(catalog->roms[5].path, "/sd/Games/Pokemon.GBC"));
+    assert(!strcmp(catalog->roms[6].name, "Zelda.gb"));
+    assert(!directory_open_during_other && closed_directories == 6u);
 
     uint8_t *readback = malloc(sizeof(rom_bytes));
     assert(readback);
-    assert(gameboy_rom_read_exact(&host, &catalog->roms[1], readback, sizeof(rom_bytes)) == GAMEBOY_ROM_OK);
+    assert(gameboy_rom_read_exact(&host, &catalog->roms[5], readback, sizeof(rom_bytes)) == GAMEBOY_ROM_OK);
     assert(stream_reads == sizeof(rom_bytes) / 1024u);
     assert(memcmp(rom_bytes, readback, sizeof(rom_bytes)) == 0);
     assert(closed_streams == 1u);
 
     stream_short_size = true;
-    assert(gameboy_rom_read_exact(&host, &catalog->roms[1], readback, sizeof(rom_bytes)) == GAMEBOY_ROM_SIZE_MISMATCH);
+    assert(gameboy_rom_read_exact(&host, &catalog->roms[5], readback, sizeof(rom_bytes)) == GAMEBOY_ROM_SIZE_MISMATCH);
     assert(closed_streams == 2u);
     stream_short_size = false;
     stream_fail_midway = true;
-    assert(gameboy_rom_read_exact(&host, &catalog->roms[1], readback, sizeof(rom_bytes)) == GAMEBOY_ROM_READ_FAILED);
+    assert(gameboy_rom_read_exact(&host, &catalog->roms[5], readback, sizeof(rom_bytes)) == GAMEBOY_ROM_READ_FAILED);
     assert(closed_streams == 3u);
     stream_fail_midway = false;
 
@@ -137,7 +185,7 @@ int main(void)
     host.stream_read = NULL;
     host.stream_close = NULL;
     host.read_file = truncated_fallback;
-    assert(gameboy_rom_read_exact(&host, &catalog->roms[1], readback, sizeof(rom_bytes)) == GAMEBOY_ROM_SIZE_MISMATCH);
+    assert(gameboy_rom_read_exact(&host, &catalog->roms[5], readback, sizeof(rom_bytes)) == GAMEBOY_ROM_SIZE_MISMATCH);
 
     overflow_mode = true;
     assert(gameboy_rom_scan(&host, catalog) == GAMEBOY_ROM_OK);
@@ -147,6 +195,6 @@ int main(void)
 
     free(readback);
     free(catalog);
-    puts("PASS: root/first-level ROM browsing, .gb/.gbc, sorting, catalog cap, exact streamed reads and failure cleanup");
+    puts("PASS: legacy + RiscRTE GameBoy/Rom Manager ROM browsing, save filtering, sorting, catalog cap, exact streamed reads and failure cleanup");
     return 0;
 }
