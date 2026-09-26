@@ -39,6 +39,13 @@ jobs:
             tests/landscape_test.cpp -o /tmp/landscape-test
           /tmp/landscape-test
 
+      - name: Test in-game RTC clock overlay
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc \
+            src/paperboy_game_clock.cpp src/mono_canvas.cpp \
+            tests/game_clock_test.cpp -o /tmp/game-clock-test
+          /tmp/game-clock-test
+
       - name: Test USB HID report decoding
         run: |
           c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc \
