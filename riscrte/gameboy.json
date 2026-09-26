@@ -20,5 +20,9 @@
       "capability": "usb.host",
       "api": ">=1"
     }
+  ],
+  "category": [
+    "Games",
+    "Emulation"
   ]
 }
