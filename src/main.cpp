@@ -536,7 +536,8 @@ void compose_scene(
 
   if (page == PaperboyPage::Game && paperboy_is_landscape()) {
     paperboy_landscape_draw(g_scene, framebuffer, g_game_frame, buttons, power_on,
-        g_memory_quicksave_valid || g_current_disk_snapshot_available, battery, visible_notice());
+        g_memory_quicksave_valid || g_current_disk_snapshot_available, battery,
+        visible_notice(), esp_timer_get_time());
     return;
   }
   if (page == PaperboyPage::Game) {
@@ -553,6 +554,18 @@ void compose_scene(
         g_memory_quicksave_valid || g_current_disk_snapshot_available,
         battery,
         visible_notice());
+    // Large 12-hour clock in the dedicated black chrome below the viewport.
+    // The emulator framebuffer remains untouched.
+    paperboy_game_clock_draw_ui(
+        g_scene,
+        PAPERBOY_LOGICAL_PITCH,
+        PAPERBOY_LOGICAL_WIDTH,
+        PAPERBOY_LOGICAL_HEIGHT,
+        184,
+        542,
+        3,
+        true,
+        esp_timer_get_time());
   } else {
     PaperboyRomLibraryView library;
     build_rom_library_view(library);
@@ -1463,6 +1476,13 @@ void run_console(void *unused) {
     }
 
     const uint32_t now_ms = millis();
+    const int64_t now_us = esp_timer_get_time();
+    const bool clock_changed = paperboy_game_clock_update(now_us);
+    if (clock_changed && page == PaperboyPage::Game &&
+        !(paperboy_is_landscape() && paperboy_landscape_fullscreen())) {
+      // Both panel buffers carry UI chrome; update each when the displayed minute changes.
+      full_scene_syncs = kPanelBufferCount;
+    }
     const bool notice_is_visible = visible_notice() != nullptr;
     if (notice_was_visible && !notice_is_visible && page == PaperboyPage::Game) {
       full_scene_syncs = kPanelBufferCount;
@@ -1830,10 +1850,6 @@ void run_console(void *unused) {
       }
       if (!skip_render) {
         draw_game_low_battery_overlay(g_game_frame, battery);
-        paperboy_game_clock_draw(
-            g_game_frame,
-            esp_timer_get_time(),
-            battery_is_low(battery));
       }
       audio_service_frame();
 
