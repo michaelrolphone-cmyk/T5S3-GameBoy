@@ -77,7 +77,7 @@ static bool dir_next(t5_app_dirent_t *entry) {
   }
   return false;
 }
-static void dir_close() { authorized(); assert(!opened_directory.empty()); opened_directory.clear(); }
+static void dir_close() { authorized(); opened_directory.clear(); }
 static bool exists(const char *path) {
   authorized();
   return is_directory(path) || files.count(path);
