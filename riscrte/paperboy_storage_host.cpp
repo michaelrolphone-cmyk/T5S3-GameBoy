@@ -331,6 +331,7 @@ void paperboy_storage_owner_wait() {
     if (uint32_t(now - last_usb_poll_ms) >= kUsbPollIntervalMs) {
       last_usb_poll_ms = now;
       paperboy_usb_owner_poll();
+      paperboy_touch_owner_poll();
     }
     serial_flush();
     if (!request) {
