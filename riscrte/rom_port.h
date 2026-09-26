@@ -16,6 +16,8 @@ extern "C" {
 #define GAMEBOY_ROM_PATH_MAX 256u
 #define GAMEBOY_ROM_BYTES_MAX (4u * 1024u * 1024u)
 #define GAMEBOY_ROM_READ_CHUNK (16u * 1024u)
+#define GAMEBOY_STATE_ROM_DIRECTORY "/sd/System/State/Applications/gameboy"
+#define GAMEBOY_ROM_MANAGER_DIRECTORY "/sd/System/State/Applications/Rom Manager"
 
 typedef struct {
     char name[GAMEBOY_ROM_NAME_MAX];
@@ -47,6 +49,9 @@ typedef struct {
     void (*stream_close)(gameboy_stream_t stream);
     /* Used only for hosts preceding the append-only streaming API. */
     bool (*read_file)(const char *path, void *buffer, size_t capacity, size_t *size_out);
+    /* Optional existence probe used to avoid treating absent RiscRTE state
+     * directories as scan failures. */
+    bool (*path_exists)(const char *path);
 } gameboy_rom_host_t;
 
 typedef enum {
@@ -61,8 +66,10 @@ typedef enum {
     GAMEBOY_ROM_UNSUPPORTED_HOST
 } gameboy_rom_result_t;
 
-/* Search SD root and each first-level directory, just as original
- * paperboy_storage_rescan() scans SD.open("/", depth=1). No auto-launch. */
+/* Preserve legacy SD-root + first-level discovery, then also scan the
+ * RiscRTE GameBoy application-state and Rom Manager state roots (plus one
+ * child-directory level) when path_exists reports that they are present.
+ * Save/state files are ignored by this ROM catalog. No auto-launch. */
 gameboy_rom_result_t gameboy_rom_scan(const gameboy_rom_host_t *host,
                                      gameboy_rom_catalog_t *catalog);
 /* Caller allocates exactly the chosen catalog entry's size_bytes and decides
