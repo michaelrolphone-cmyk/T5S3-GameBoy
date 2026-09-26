@@ -62,8 +62,10 @@ void release_provider() {
   }
   s_lease = T5_PROVIDER_CAPABILITY_LEASE_INVALID;
   s_capability_host = nullptr;
+  portENTER_CRITICAL(&s_state_mux);
   s_available = false;
-  publish_empty();
+  memset(&s_state, 0, sizeof(s_state));
+  portEXIT_CRITICAL(&s_state_mux);
 }
 }  // namespace
 
@@ -109,7 +111,9 @@ void paperboy_touch_owner_begin() {
   }
 
   s_failures = 0;
+  portENTER_CRITICAL(&s_state_mux);
   s_available = true;
+  portEXIT_CRITICAL(&s_state_mux);
   ESP_LOGI(kTag, "GameBoy using RiscRTE input.touch.raw provider");
 }
 
@@ -147,15 +151,19 @@ void paperboy_touch_owner_end() {
 bool touch_init(void) {
   // Provider acquisition is performed by app_main on the RiscRTE owner task
   // before the emulator worker starts.
-  return s_available;
+  portENTER_CRITICAL(&s_state_mux);
+  const bool available = s_available;
+  portEXIT_CRITICAL(&s_state_mux);
+  return available;
 }
 
 bool touch_read(touch_state_t *out_state) {
-  if (!out_state || !s_available) return false;
+  if (!out_state) return false;
   portENTER_CRITICAL(&s_state_mux);
-  *out_state = s_state;
+  const bool available = s_available;
+  if (available) *out_state = s_state;
   portEXIT_CRITICAL(&s_state_mux);
-  return true;
+  return available;
 }
 
 void touch_set_rotation(int rotation) {
