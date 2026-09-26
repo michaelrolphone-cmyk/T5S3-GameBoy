@@ -142,14 +142,12 @@ static gameboy_rom_result_t scan_one(const gameboy_rom_host_t *host,
     return result;
 }
 
-gameboy_rom_result_t gameboy_rom_scan(const gameboy_rom_host_t *host,
-                                     gameboy_rom_catalog_t *catalog)
+static gameboy_rom_result_t scan_tree(const gameboy_rom_host_t *host,
+                                           gameboy_rom_catalog_t *catalog,
+                                           const char *root)
 {
-    if (!host || !catalog || !host->dir_open || !host->dir_next || !host->dir_close)
-        return GAMEBOY_ROM_BAD_ARGUMENT;
-    memset(catalog, 0, sizeof(*catalog));
     folder_list_t folders = {0};
-    gameboy_rom_result_t result = scan_one(host, catalog, "/sd", &folders);
+    gameboy_rom_result_t result = scan_one(host, catalog, root, &folders);
     if (result == GAMEBOY_ROM_OK) {
         for (size_t i = 0; i < folders.count; ++i) {
             gameboy_rom_result_t child = scan_one(host, catalog, folders.paths[i], NULL);
@@ -157,6 +155,30 @@ gameboy_rom_result_t gameboy_rom_scan(const gameboy_rom_host_t *host,
         }
     }
     free(folders.paths);
+    return result;
+}
+
+gameboy_rom_result_t gameboy_rom_scan(const gameboy_rom_host_t *host,
+                                     gameboy_rom_catalog_t *catalog)
+{
+    if (!host || !catalog || !host->dir_open || !host->dir_next || !host->dir_close)
+        return GAMEBOY_ROM_BAD_ARGUMENT;
+    memset(catalog, 0, sizeof(*catalog));
+
+    gameboy_rom_result_t result = scan_tree(host, catalog, "/sd");
+    if (result != GAMEBOY_ROM_OK) return result;
+
+    static const char *const riscrte_roots[] = {
+        GAMEBOY_STATE_ROM_DIRECTORY,
+        GAMEBOY_ROM_MANAGER_DIRECTORY,
+    };
+    if (host->path_exists) {
+        for (size_t i = 0; i < sizeof(riscrte_roots) / sizeof(riscrte_roots[0]); ++i) {
+            if (!host->path_exists(riscrte_roots[i])) continue;
+            gameboy_rom_result_t extra = scan_tree(host, catalog, riscrte_roots[i]);
+            if (extra != GAMEBOY_ROM_OK && result == GAMEBOY_ROM_OK) result = extra;
+        }
+    }
     return result;
 }
 
