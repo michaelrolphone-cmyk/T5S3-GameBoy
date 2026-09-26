@@ -1,5 +1,5 @@
 {
-  "min_firmware_version": "1.2.99",
+  "min_firmware_version": "1.2.100",
   "display_name": "GameBoy",
   "file_name": "gameboy.elf",
   "icon": "solid:f11b",
