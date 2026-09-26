@@ -134,10 +134,8 @@ jobs:
           RISCRTE_HOST_ROOT: _riscrte
         run: python riscrte/build_elf.py
 
-      - name: Verify built RiscRTE app version matches firmware release
-        env:
-          VERSION: ${{ needs.request.outputs.version }}
-        run: python scripts/bind_risc_app_version.py --manifest dist/riscrte/gameboy.json --version "$VERSION" --check
+      - name: Verify built RiscRTE app version matches platformio.ini
+        run: python scripts/bind_risc_app_version.py --manifest dist/riscrte/gameboy.json --check
 
       - name: Verify RiscRTE capability boundary
         run: |
