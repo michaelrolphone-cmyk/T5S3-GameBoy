@@ -50,8 +50,11 @@ subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
     str(ROOT / 'src/usb_hid_keyboard.cpp'), '-o', str(optional_test)], check=True)
 subprocess.run([str(optional_test)], check=True)
 
-if not HOST_INCLUDE.joinpath('T5StorageApi.h').exists() or not HOST_INCLUDE.joinpath('T5ProviderCapabilityApi.h').exists() or not HOST_DRIVER_INCLUDE.joinpath('RiscUsbHidV1.h').exists():
-    raise SystemExit(f'Experimental RiscRTE USB HID ABI not found under {HOST_ROOT}')
+if (not HOST_INCLUDE.joinpath('T5StorageApi.h').exists()
+        or not HOST_INCLUDE.joinpath('T5ProviderCapabilityApi.h').exists()
+        or not HOST_DRIVER_INCLUDE.joinpath('RiscUsbHidV1.h').exists()
+        or not HOST_DRIVER_INCLUDE.joinpath('RiscTouchV1.h').exists()):
+    raise SystemExit(f'Required RiscRTE provider ABIs not found under {HOST_ROOT}')
 
 
 def run(cmd):
@@ -106,6 +109,7 @@ for source, entry in sorted(commands.items()):
         'src/gbemu.c': SRC / 'gbemu.c',
         'src/paperboy_storage.cpp': SRC / 'paperboy_storage_host.cpp',
         'src/usb_hid_gamepad.cpp': ROOT / 'riscrte/usb_hid_elf_adapter.cpp',
+        'src/touch_gt911.cpp': ROOT / 'riscrte/touch_provider_adapter.cpp',
     }.get(relative.as_posix(), source)
     obj = BUILD / 'objects' / relative.with_suffix(relative.suffix + '.o')
     obj.parent.mkdir(parents=True, exist_ok=True)

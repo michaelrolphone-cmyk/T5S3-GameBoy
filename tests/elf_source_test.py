@@ -45,7 +45,9 @@ with tempfile.TemporaryDirectory() as tmp:
     worker_start = app_main.index('xTaskNotifyGive(console_task);')
     display_wait = app_main.index('ulTaskNotifyTake(pdTRUE, portMAX_DELAY)')
     assert create < display_wait < hid_begin < worker_start
-    assert 'if (s_elf_display_bus_ready) paperboy_usb_owner_begin();' in app_main
+    assert 'paperboy_usb_owner_begin();' in app_main
+    assert 'paperboy_touch_owner_begin();' in app_main
+    assert app_main.index('paperboy_usb_owner_begin();') < app_main.index('paperboy_touch_owner_begin();') < worker_start
     assert 'bool paperboy_elf_prepare_display_bus() { return init_panel_bus(); }' in epd_staged
     assert 'ulTaskNotifyTake(pdTRUE, portMAX_DELAY)' in staged
     assert 'while (!paperboy_elf_exit_requested()) {' in staged
@@ -53,7 +55,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'app_hardware_takeover()' in staged
     assert 'void app_main()' in staged
     assert app_main.index('paperboy_storage_owner_wait();') < app_main.index('night_light_shutdown();') < app_main.index('epd_video_shutdown();')
-    assert app_main.index('paperboy_storage_owner_wait();') < app_main.index('paperboy_usb_owner_end();') < app_main.index('night_light_shutdown();')
+    assert app_main.index('paperboy_storage_owner_wait();') < app_main.index('paperboy_usb_owner_end();') < app_main.index('paperboy_touch_owner_end();') < app_main.index('night_light_shutdown();')
     assert 'int app_module_init()' in staged
     assert 'void app_module_fini()' in staged
     assert 'if (s_elf_boot_interrupt_attached)' in staged

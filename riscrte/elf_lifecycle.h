@@ -24,5 +24,11 @@ void paperboy_usb_owner_begin();
 void paperboy_usb_owner_poll();
 void paperboy_usb_owner_end();
 
+// Touch provider acquisition/polling also remains on the app owner task.
+// The emulator worker reads only the provider-backed authoritative snapshot.
+void paperboy_touch_owner_begin();
+void paperboy_touch_owner_poll();
+void paperboy_touch_owner_end();
+
 // Called on the console core before USB startup; setup reuses the bus.
 bool paperboy_elf_prepare_display_bus();
