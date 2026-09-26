@@ -41,11 +41,12 @@ with tempfile.TemporaryDirectory() as tmp:
     assert staged.find('paperboy_storage_bind_host();') < staged.find('(void)paperboy_storage_begin();') < staged.find('xTaskCreatePinnedToCore(')
     app_main = staged.split('void app_main()', 1)[1]
     create = app_main.index('xTaskCreatePinnedToCore(')
+    touch_begin = app_main.index('paperboy_touch_owner_begin();')
     hid_begin = app_main.index('paperboy_usb_owner_begin();')
     worker_start = app_main.index('xTaskNotifyGive(console_task);')
     display_wait = app_main.index('ulTaskNotifyTake(pdTRUE, portMAX_DELAY)')
-    assert create < display_wait < hid_begin < worker_start
-    assert 'if (s_elf_display_bus_ready) paperboy_usb_owner_begin();' in app_main
+    assert create < display_wait < touch_begin < hid_begin < worker_start
+    assert 'if (s_elf_display_bus_ready) {' in app_main
     assert 'bool paperboy_elf_prepare_display_bus() { return init_panel_bus(); }' in epd_staged
     assert 'ulTaskNotifyTake(pdTRUE, portMAX_DELAY)' in staged
     assert 'while (!paperboy_elf_exit_requested()) {' in staged
@@ -53,7 +54,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'app_hardware_takeover()' in staged
     assert 'void app_main()' in staged
     assert app_main.index('paperboy_storage_owner_wait();') < app_main.index('night_light_shutdown();') < app_main.index('epd_video_shutdown();')
-    assert app_main.index('paperboy_storage_owner_wait();') < app_main.index('paperboy_usb_owner_end();') < app_main.index('night_light_shutdown();')
+    assert app_main.index('paperboy_storage_owner_wait();') < app_main.index('paperboy_touch_owner_end();') < app_main.index('paperboy_usb_owner_end();') < app_main.index('night_light_shutdown();')
     assert 'int app_module_init()' in staged
     assert 'void app_module_fini()' in staged
     assert 'if (s_elf_boot_interrupt_attached)' in staged
@@ -137,7 +138,7 @@ with tempfile.TemporaryDirectory() as tmp:
         subprocess.run(['c++', '-std=c++11', '-Wall', '-Wextra', '-Werror',
                         f'-DTICK_MS={tick_ms}', str(source), '-o', str(binary)], check=True)
         subprocess.run([str(binary)], check=True, timeout=10)
-print('ELF loaded-frame throughput, DMG pacing and bounded owner USB polling: PASS')
+print('ELF loaded-frame throughput, DMG pacing and bounded owner input polling: PASS')
 
 # Execute the staged worker itself against a deterministic scheduler shim.
 # A provider can finish after the old 15-second timeout, with or without a HID
