@@ -63,8 +63,7 @@ subprocess.run([str(touch_test)], check=True)
 
 if (not HOST_INCLUDE.joinpath('T5StorageApi.h').exists() or
         not HOST_INCLUDE.joinpath('T5ProviderCapabilityApi.h').exists() or
-        not HOST_DRIVER_INCLUDE.joinpath('RiscUsbHidV1.h').exists() or
-        not HOST_DRIVER_INCLUDE.joinpath('RiscTouchV1.h').exists()):
+        not HOST_DRIVER_INCLUDE.joinpath('RiscUsbHidV1.h').exists()):
     raise SystemExit(f'Experimental RiscRTE input provider ABI not found under {HOST_ROOT}')
 
 
