@@ -16,8 +16,10 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'riscrte'))
+sys.path.insert(0, str(ROOT / 'scripts'))
 from prepare_elf import stage
 from stage_core import stage_core
+from bind_risc_app_version import read_platformio_version
 
 OUT = ROOT / 'dist/riscrte'
 BUILD = ROOT / 'build/riscrte'
@@ -183,6 +185,7 @@ if not 52 <= len(payload) <= 8 * 1024 * 1024:
 metadata = json.loads((ROOT / 'riscrte/gameboy.json').read_text())
 if metadata.get('file_name') != output.name:
     raise SystemExit('GameBoy manifest filename does not match the built ELF')
+metadata['version'] = read_platformio_version(ROOT / 'platformio.ini')
 metadata['size_bytes'] = len(payload)
 metadata['sha256'] = hashlib.sha256(payload).hexdigest()
 (OUT / 'gameboy.json').write_text(json.dumps(metadata, indent=2) + '\n')
