@@ -1,5 +1,6 @@
 #include "paperboy_landscape.h"
 #include "mono_canvas.h"
+#include "paperboy_game_clock.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -130,7 +131,8 @@ void paperboy_landscape_game(const uint8_t *game, uint8_t *panel) {
 }
 void paperboy_landscape_draw(uint8_t *canvas, uint8_t *panel, const uint8_t *game,
                             uint8_t buttons, bool power_on, bool save_available,
-                            const PaperboyBatteryStatus *battery, const char *notice) {
+                            const PaperboyBatteryStatus *battery, const char *notice,
+                            int64_t monotonic_us) {
   if (g_fullscreen) {
     if (power_on) fullscreen_game(game, panel);
     else memset(panel, 0, width * height / 8);
@@ -156,7 +158,16 @@ void paperboy_landscape_draw(uint8_t *canvas, uint8_t *panel, const uint8_t *gam
   if (buttons & GBEMU_INPUT_A) mono_draw_circle(canvas,pitch,width,height,864,230,30,false);
   if (buttons & GBEMU_INPUT_B) mono_draw_circle(canvas,pitch,width,height,788,326,30,false);
   text(canvas,853,223,"A",3); text(canvas,777,319,"B",3);
-  if (battery) { char label[24]; snprintf(label,sizeof(label),"BAT %u%%",battery->soc_percent); text(canvas,414,23,label); }
+  if (battery) {
+    char label[24];
+    snprintf(label,sizeof(label),"BAT %u%%",battery->soc_percent);
+    text(canvas,350,23,label,1);
+  }
+  // The normal landscape layout has a 280 px chrome gap between SAVE and LOAD.
+  // Use it for a large clock. Fullscreen returned above, so game pixels are
+  // never used as a clock surface.
+  paperboy_game_clock_draw_ui(
+      canvas, pitch, width, height, 430, 16, 3, false, monotonic_us);
 
   if (!power_on) text(canvas,390,255,"POWER OFF",3);
   if (notice) text(canvas,24,508,notice,1);
