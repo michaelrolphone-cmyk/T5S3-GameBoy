@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.bind_risc_app_version import bind_version
+from scripts.bind_risc_app_version import bind_version, read_platformio_version
 
 
 class BindRiscAppVersionTests(unittest.TestCase):
@@ -13,6 +13,17 @@ class BindRiscAppVersionTests(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.path = Path(self.directory.name) / "gameboy.json"
         self.path.write_text(json.dumps({"version": "1.2.29", "display_name": "GameBoy"}), encoding="utf-8")
+
+    def test_reads_version_from_platformio(self):
+        platformio = Path(self.directory.name) / "platformio.ini"
+        platformio.write_text("[version]\nVersion = 1.3.3\n", encoding="utf-8")
+        self.assertEqual(read_platformio_version(platformio), "1.3.3")
+
+    def test_rejects_invalid_platformio_version(self):
+        platformio = Path(self.directory.name) / "platformio.ini"
+        platformio.write_text("[version]\nVersion = v1.3.3\n", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "MAJOR.MINOR.PATCH"):
+            read_platformio_version(platformio)
 
     def test_sets_version_from_firmware_release(self):
         bind_version(self.path, "1.3.1")
