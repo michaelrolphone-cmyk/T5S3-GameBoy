@@ -21,7 +21,8 @@ def stage(destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     main = (ROOT / 'src/main.cpp').read_text(encoding='utf-8')
     main = patch_once(main, '#include "touch_gt911.h"',
-                      '#include "touch_gt911.h"\n#include "elf_lifecycle.h"', 'lifecycle header')
+                      '#include "touch_gt911.h"\n#include "elf_lifecycle.h"\n'
+                      '#include "touch_provider_adapter.h"', 'lifecycle header')
     main = patch_once(main, '  const bool storage_scan_ok = paperboy_storage_begin();',
                       '  paperboy_serial_log("GameBoy setup entered");\n'
                       '  const bool storage_scan_ok = paperboy_storage_begin();',
@@ -114,10 +115,14 @@ def stage(destination: Path) -> None:
         '    // Wait for display resources before starting optional USB on this owner.\n'
         '    while (ulTaskNotifyTake(pdTRUE, portMAX_DELAY) == 0) {}\n'
         '    paperboy_serial_log(s_elf_display_bus_ready ? "Display bus ready; USB provider starting" : "ERROR display bus unavailable");\n'
-        '    if (s_elf_display_bus_ready) paperboy_usb_owner_begin();\n'
+        '    if (s_elf_display_bus_ready) {\n'
+        '      paperboy_touch_owner_begin();\n'
+        '      paperboy_usb_owner_begin();\n'
+        '    }\n'
         '    xTaskNotifyGive(console_task);\n'
         '    paperboy_storage_owner_wait();\n'
         '  }\n'
+        '  paperboy_touch_owner_end();\n'
         '  paperboy_usb_owner_end();\n'
         '  if (s_elf_boot_interrupt_attached)',
         'HID starts after worker allocation')
