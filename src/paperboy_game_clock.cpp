@@ -23,10 +23,11 @@ uint32_t current_epoch_seconds(int64_t monotonic_us) {
   if (g_rtc_epoch_seconds == 0U) {
     return 0U;
   }
-  const int64_t elapsed_us = monotonic_us - g_sync_monotonic_us;
-  const uint32_t elapsed_seconds = elapsed_us <= 0
-      ? 0U
-      : static_cast<uint32_t>(elapsed_us / 1000000LL);
+  const uint64_t elapsed_us = monotonic_us <= g_sync_monotonic_us
+      ? 0ULL
+      : static_cast<uint64_t>(monotonic_us - g_sync_monotonic_us);
+  const uint32_t elapsed_seconds =
+      static_cast<uint32_t>(elapsed_us / 1000000ULL);
   return g_rtc_epoch_seconds + elapsed_seconds;
 }
 
