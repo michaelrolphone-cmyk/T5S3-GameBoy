@@ -24,7 +24,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: michaelrolphone-cmyk/T5S3-Reader
-          ref: master
+          # This PR consumes input.touch.raw introduced by T5S3-Reader PR #204.
+          # Return this to master once #204 merges.
+          ref: feat/touch-driver-provider
           path: _riscrte
           persist-credentials: false
       - name: Record exact RiscRTE firmware ABI commit
@@ -32,6 +34,7 @@ jobs:
           git -C _riscrte rev-parse HEAD
           test -f _riscrte/sdk/driver/RiscUsbHidV1.h
           test -f _riscrte/lib/NativeApps/include/T5ProviderCapabilityApi.h
+          test -f _riscrte/sdk/driver/RiscTouchV1.h
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -96,7 +99,7 @@ jobs:
               raise SystemExit('Standalone USB host calls leaked into ELF: ' + ', '.join(forbidden))
           if 't5_provider_capability_get_api' not in names:
               raise SystemExit('GameBoy ELF did not import the RiscRTE provider capability API')
-          print('HID import boundary verified; no standalone USB host calls')
+          print('Provider import boundary verified; GameBoy uses host capability API for HID/touch')
           PY
       - name: Validate ELF with the actual RiscRTE firmware validator
         run: |
