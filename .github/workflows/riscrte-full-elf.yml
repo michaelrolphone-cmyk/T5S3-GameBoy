@@ -83,6 +83,9 @@ jobs:
           RISCRTE_EXPORT_LIST: build/riscrte/host_exports.txt
           RISCRTE_HOST_ROOT: _riscrte
         run: python riscrte/build_elf.py
+      - name: Verify RiscRTE manifest uses the PlatformIO version
+        run: python scripts/bind_risc_app_version.py --manifest dist/riscrte/gameboy.json --check
+
       - name: Reject direct USB host imports in the ELF
         run: |
           python - <<'PY'
