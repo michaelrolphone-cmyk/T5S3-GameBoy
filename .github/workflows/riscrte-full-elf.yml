@@ -24,9 +24,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: michaelrolphone-cmyk/T5S3-Reader
-          # This PR consumes input.touch.raw introduced by T5S3-Reader PR #204.
-          # Return this to master once #204 merges.
-          ref: feat/touch-driver-provider
+          # GameBoy's viewport guard consumes the append-only API in Reader PR #220.
+          # Return this to master once #220 merges, before releasing GameBoy.
+          ref: feat/display-abstraction-foundation
           path: _riscrte
           persist-credentials: false
       - name: Record exact RiscRTE firmware ABI commit
