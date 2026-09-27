@@ -19,10 +19,15 @@ bool ready = false;
 bool acquire_frame() {
   if (!ready) return false;
   if (surface.frame) return true;
-  return display->acquire(display->context, RISC_DISPLAY_FORMAT_MONO1, &surface) &&
-         surface.frame && surface.pixels && surface.width == 960 &&
-         surface.height == 540 && surface.stride_bytes == 120 &&
-         surface.size_bytes >= 64800;
+  if (!display->acquire(display->context, RISC_DISPLAY_FORMAT_MONO1, &surface))
+    return false;
+  if (surface.frame && surface.pixels && surface.width == 960 &&
+      surface.height == 540 && surface.stride_bytes == 120 &&
+      surface.size_bytes >= 64800)
+    return true;
+  if (surface.frame) display->release(display->context, surface.frame);
+  surface = {};
+  return false;
 }
 
 void end_on_owner(void *) {
