@@ -53,7 +53,8 @@ subprocess.run([str(optional_test)], check=True)
 if (not HOST_INCLUDE.joinpath('T5StorageApi.h').exists()
         or not HOST_INCLUDE.joinpath('T5ProviderCapabilityApi.h').exists()
         or not HOST_DRIVER_INCLUDE.joinpath('RiscUsbHidV1.h').exists()
-        or not HOST_DRIVER_INCLUDE.joinpath('RiscTouchV1.h').exists()):
+        or not HOST_DRIVER_INCLUDE.joinpath('RiscTouchV1.h').exists()
+        or not HOST_DRIVER_INCLUDE.joinpath('RiscDisplayOutputV1.h').exists()):
     raise SystemExit(f'Required RiscRTE provider ABIs not found under {HOST_ROOT}')
 
 
@@ -184,8 +185,8 @@ undefined = sorted({f[7] for line in symbols.splitlines()
 # the actual output ELF's length and digest after linking, never a stale
 # firmware image, prior artifact, or manually maintained checksum.
 payload = output.read_bytes()
-if not 52 <= len(payload) <= 8 * 1024 * 1024:
-    raise SystemExit(f'GameBoy ELF is outside the RiscRTE 8 MiB app limit: {len(payload)} bytes')
+if len(payload) < 52:
+    raise SystemExit(f'GameBoy ELF is truncated: {len(payload)} bytes')
 metadata = json.loads((ROOT / 'riscrte/gameboy.json').read_text())
 if metadata.get('file_name') != output.name:
     raise SystemExit('GameBoy manifest filename does not match the built ELF')

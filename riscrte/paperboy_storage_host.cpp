@@ -95,6 +95,7 @@ void on_owner(Function function) {
   while (!__atomic_load_n(&request.done, __ATOMIC_ACQUIRE)) vTaskDelay(1);
 }
 
+
 bool host_exists(const char *path) {
   bool result = false;
   on_owner([&] { result = g_storage->exists(path); });
@@ -311,6 +312,10 @@ bool read_host_file(const char *path, void *buffer, size_t capacity, size_t &siz
   return true;
 }
 }  // namespace
+
+void paperboy_owner_call(void (*callback)(void *), void *context) {
+  on_owner([&] { callback(context); });
+}
 
 void paperboy_storage_owner_note_console_done() {
   __atomic_store_n(&g_console_done, true, __ATOMIC_RELEASE);

@@ -32,3 +32,6 @@ void paperboy_touch_owner_end();
 
 // Called on the console core before USB startup; setup reuses the bus.
 bool paperboy_elf_prepare_display_bus();
+void paperboy_owner_call(void (*callback)(void *), void *context);
+bool paperboy_display_owner_begin();
+void paperboy_display_owner_end();

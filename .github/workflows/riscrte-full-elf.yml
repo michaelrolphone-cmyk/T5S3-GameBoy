@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: michaelrolphone-cmyk/T5S3-Reader
-          # GameBoy's viewport guard consumes the append-only API in Reader PR #220.
+          # GameBoy's display.output provider consumes the ABI in Reader PR #220.
           # Return this to master once #220 merges, before releasing GameBoy.
           ref: feat/display-abstraction-foundation
           path: _riscrte
@@ -89,12 +89,12 @@ jobs:
       - name: Verify RiscRTE manifest uses the PlatformIO version
         run: python scripts/bind_risc_app_version.py --manifest dist/riscrte/gameboy.json --check
 
-      - name: Reject direct USB host imports in the ELF
+      - name: Reject direct USB and firmware video imports in the ELF
         run: |
           python - <<'PY'
           import json
           names = json.load(open('dist/riscrte/imports.json'))['undefined']
-          forbidden = sorted(name for name in names if name.startswith('usb_host_'))
+          forbidden = sorted(name for name in names if name.startswith('usb_host_') or name == 't5_video_get_api')
           if forbidden:
               raise SystemExit('Standalone USB host calls leaked into ELF: ' + ', '.join(forbidden))
           if 't5_provider_capability_get_api' not in names:

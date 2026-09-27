@@ -48,7 +48,10 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'paperboy_usb_owner_begin();' in app_main
     assert 'paperboy_touch_owner_begin();' in app_main
     assert app_main.index('paperboy_usb_owner_begin();') < app_main.index('paperboy_touch_owner_begin();') < worker_start
-    assert 'bool paperboy_elf_prepare_display_bus() { return init_panel_bus(); }' in epd_staged
+    assert 'bool paperboy_elf_prepare_display_bus() { return ready; }' in epd_staged
+    assert 'display->submit(display->context' in epd_staged
+    assert 'paperboy_owner_call(' in epd_staged
+    assert 'paperboy_display_owner_begin()' in staged
     assert 'ulTaskNotifyTake(pdTRUE, portMAX_DELAY)' in staged
     assert 'while (!paperboy_elf_exit_requested()) {' in staged
     assert 'paperboy_elf_request_exit();' in staged
@@ -62,19 +65,12 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'paperboy_elf_note_boot_interrupt_attached();' in staged
     assert 'esp_deep_sleep_start();' in original
     assert '#ifndef PAPERBOY_RISCRTE_ELF' in staged
-    # GPIO46 is active-low LoRa CS, not an unconnected dummy LCD pin.
-    # Both standalone and staged ELF must keep it inactive throughout scan.
-    for phase in ('idle', 'cmd', 'dummy', 'data'):
-        setting = f'panel_config.dc_levels.dc_{phase}_level = 1;'
-        assert setting in epd_original and setting in epd_staged, phase
-    assert 'esp_lcd_panel_io_tx_color' in epd_staged
-    assert 'esp_lcd_panel_io_del(g_panel_io)' in epd_staged
-    assert 'esp_lcd_del_i80_bus(g_i80_bus)' in epd_staged
-    assert 'release_allocations();' in epd_staged
-    assert 'kVideoDrivePasses = 3' in epd_staged
+    assert 'esp_lcd_panel_io_tx_color' in epd_original
+    assert 'esp_lcd_panel_io_tx_color' not in epd_staged
+    assert 'init_panel_bus' not in epd_staged
     assert original == (ROOT / 'src/main.cpp').read_text()
     assert epd_original == (ROOT / 'src/epd_video.cpp').read_text()
-print('Faithful GameBoy ELF source staging and hardware-release checks passed')
+print('GameBoy ELF stages provider-backed display; standalone raw driver unchanged')
 
 # Execute the actual input and rendering decisions with a counted display.
 # Controller changes must not invalidate the full scene, even during turbo;
@@ -158,20 +154,6 @@ with tempfile.TemporaryDirectory() as tmp:
     subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror',
                     str(source), '-o', str(binary)], check=True)
     subprocess.run([str(binary)], check=True, timeout=10)
-
-# Execute the actual staged LCD setup: the shared SPI device must be
-# deselected before the first display transfer, while USB ELFs load from SD.
-with tempfile.TemporaryDirectory() as tmp:
-    target = Path(tmp)
-    stage(target)
-    staged = (target / 'epd_video.cpp').read_text()
-    bus = 'bool init_panel_bus() {' + staged.split('bool init_panel_bus() {', 1)[1].split('\nvoid row_control_start()', 1)[0]
-    source = target / 'display_test.cpp'
-    source.write_text((ROOT / 'tests/elf_display_bus_harness.cpp').read_text().replace('// STAGED_BUS', bus))
-    binary = target / 'display_test'
-    subprocess.run(['c++', '-std=c++17', '-Wall', '-Wextra', '-Werror', str(source), '-o', str(binary)], check=True)
-    subprocess.run([str(binary)], check=True, timeout=10)
-print('Staged LCD bus keeps LoRa CS high before provider SD reads: PASS')
 
 # ELF telemetry must bind without calling the standalone charger/OTG writers.
 with tempfile.TemporaryDirectory() as tmp:
