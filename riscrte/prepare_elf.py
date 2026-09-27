@@ -71,7 +71,7 @@ def stage(destination: Path) -> None:
                       '#ifndef PAPERBOY_RISCRTE_ELF\nbool init_display() {\n  Wire.begin(',
                       'standalone display start')
     main = patch_once(main, 'void wait_vsync_frames(uint8_t frame_count) {',
-                      '#endif\n#ifdef PAPERBOY_RISCRTE_ELF\nbool init_display() {\n  return epd_video_init(g_expander) && epd_video_power_on() && epd_video_start();\n}\n#endif\n\nvoid wait_vsync_frames(uint8_t frame_count) {',
+                      '#endif\n#ifdef PAPERBOY_RISCRTE_ELF\nbool init_display() {\n  // Keep the expander input reader initialized for the power button; the\n  // installed display driver owns all panel configuration and drawing.\n  return g_expander.begin(Wire, t5s3_epd::kPca9535Address) &&\n         epd_video_init(g_expander) && epd_video_power_on() && epd_video_start();\n}\n#endif\n\nvoid wait_vsync_frames(uint8_t frame_count) {',
                       'provider display start')
     main = patch_once(main, 'struct GameFramePacer {',
                       'struct GameFramePacer {\n'
