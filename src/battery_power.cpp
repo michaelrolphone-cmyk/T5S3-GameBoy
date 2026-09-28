@@ -6,6 +6,10 @@
 #include <bq25896_hal_esp_idf.h>
 #include <bq27220.h>
 #include <esp_log.h>
+#ifdef PAPERBOY_RISCRTE_ELF
+#include <T5BatteryApi.h>
+#include "elf_lifecycle.h"
+#endif
 
 namespace {
 constexpr char kTag[] = "battery";
@@ -401,6 +405,10 @@ void update_low_battery_status(PaperboyBatteryStatus &status) {
 } // namespace
 
 bool battery_begin() {
+#ifdef PAPERBOY_RISCRTE_ELF
+  const auto *api = t5_battery_get_api(T5_BATTERY_API_VERSION);
+  return api && api->struct_size >= sizeof(*api) && api->read;
+#else
   if (g_battery_init_attempted) return g_charger_ready || g_gauge_ready;
   g_battery_init_attempted = true;
   g_charger_found = probe(kBq25896Address);
@@ -412,6 +420,7 @@ bool battery_begin() {
            g_gauge_ready ? "ready" : (g_gauge_found ? "init-failed" : "missing"));
   if (g_charger_ready) (void)start_host_boost();
   return g_charger_ready || g_gauge_ready;
+#endif
 }
 
 void battery_service() {
@@ -473,6 +482,50 @@ void battery_service() {
 }
 
 bool battery_read_status(PaperboyBatteryStatus &status) {
+#ifdef PAPERBOY_RISCRTE_ELF
+  // The firmware owns charger, gauge and VBUS state. Never initialize a
+  // second PMIC client or issue Wire transactions from the emulator task.
+  status = {};
+  struct Snapshot { t5_battery_state_t state; bool ok; } snapshot{};
+  paperboy_owner_call([](void *context) {
+    auto &result = *static_cast<Snapshot *>(context);
+    const auto *api = t5_battery_get_api(T5_BATTERY_API_VERSION);
+    result.ok = api && api->struct_size >= sizeof(*api) && api->read &&
+        api->read(&result.state);
+  }, &snapshot);
+  if (!snapshot.ok) return false;
+  const auto &state = snapshot.state;
+  status.gauge_found = state.gauge_ready;
+  status.gauge_read_ok = state.gauge_read_ok;
+  status.charger_found = state.charger_ready;
+  status.charger_read_ok = state.charger_read_ok;
+  status.usb_connected = state.vbus_connected;
+  status.charging = state.charging;
+  status.charge_done = state.charge_done;
+  status.charge_enabled = state.charge_enabled;
+  status.charge_status = state.charger_status;
+  status.vbus_status = state.charger_vbus_status;
+  status.soc_percent = state.soc_percent;
+  status.voltage_mv = state.gauge_read_ok ? state.gauge_voltage_mv : state.battery_voltage_mv;
+  status.current_ma = state.current_ma;
+  status.average_current_ma = state.average_current_ma;
+  status.remaining_capacity_mah = state.remaining_capacity_mah;
+  status.full_capacity_mah = state.full_capacity_mah;
+  status.health_percent = state.soh_percent;
+  status.temperature_dk = state.temperature_dk;
+  status.active_input_limit_ma = state.input_limit_ma;
+  status.configured_input_limit_ma = state.input_limit_ma;
+  status.configured_charge_current_ma = state.charge_current_ma;
+  status.configured_precharge_current_ma = state.precharge_current_ma;
+  status.configured_termination_current_ma = state.termination_current_ma;
+  status.configured_charge_voltage_mv = state.charge_voltage_mv;
+  status.charger_adc_current_ma = state.charger_adc_current_ma;
+  status.charger_battery_voltage_mv = state.battery_voltage_mv;
+  status.system_voltage_mv = state.system_voltage_mv;
+  status.vbus_voltage_mv = state.vbus_voltage_mv;
+  update_low_battery_status(status);
+  return status.gauge_read_ok || status.charger_read_ok;
+#else
   (void)battery_begin();
   status = {};
   status.gauge_found = g_gauge_found;
@@ -558,9 +611,14 @@ bool battery_read_status(PaperboyBatteryStatus &status) {
   }
   update_low_battery_status(status);
   return status.gauge_read_ok || status.charger_read_ok;
+#endif
 }
 
 BatteryShutdownResult battery_request_shutdown() {
+#ifdef PAPERBOY_RISCRTE_ELF
+  // Power-off belongs to the firmware session, never to an ELF's direct PMIC.
+  return BatteryShutdownResult::ChargerUnavailable;
+#else
   (void)battery_begin();
   if (!g_charger_ready) return BatteryShutdownResult::ChargerUnavailable;
   if (g_host_boost_active && !stop_host_boost("power-off", false))
@@ -572,4 +630,5 @@ BatteryShutdownResult battery_request_shutdown() {
   return BQ25896_SUCCEEDED(bq25896_shutdown(&g_charger))
       ? BatteryShutdownResult::PowerCutRequested
       : BatteryShutdownResult::IoError;
+#endif
 }
