@@ -7,5 +7,9 @@ struct t5_app_api_v1 {
   bool (*dir_open)(const char *);
   bool (*dir_next)(t5_app_dirent_t *);
   void (*dir_close)();
+  // The production API has additional members before this optional tail.
+  // Keep the tail name so storage-owner builds exercise the size guard.
+  void (*fill_rounded_rect_tone)(int32_t, int32_t, int32_t, int32_t, int32_t, uint8_t);
+  uint8_t (*backlight_level)();
 };
 const t5_app_api_v1 *t5_app_get_api(uint32_t);
