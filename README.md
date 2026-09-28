@@ -1,5 +1,22 @@
 # T5S3-GameBoy
 
+## RiscRTE App Store release sync
+
+After publishing the `gameboy.elf` and `gameboy.json` release assets, the release
+workflow dispatches the Reader repository's `sync-gameboy-app.yml` workflow to
+update its `release-index` branch. To enable immediate sync, set the GameBoy
+repository Actions secret `RISCRTE_INDEX_DISPATCH_TOKEN` to a fine-grained token
+authorized for `michaelrolphone-cmyk/T5S3-Reader` with **Actions: write**. The
+Reader workflow uses its own `GITHUB_TOKEN` with **Contents: write** to validate
+the release and update the index. GameBoy's built-in `GITHUB_TOKEN` cannot
+dispatch a workflow in another repository.
+
+If the secret is absent, the release emits a warning and Reader's scheduled sync
+remains the fallback. A dispatch failure makes the GameBoy release workflow fail
+after publishing the assets, so its logs expose an index update that needs
+attention. Rerun Reader's sync workflow after fixing the credential; do not
+republish the same release tag.
+
 [中文](README_CN.md) | **English**
 
 A portrait-mode touchscreen Game Boy emulator for the [LilyGO T5S3-4.7-e-paper-PRO](https://github.com/Xinyuan-LilyGO/T5S3-4.7-e-paper-PRO). It combines the CrankBoy emulator core with the board's GT911 touch controller, BQ27220/BQ25896 power hardware, SD card slot, and a real-time 1bpp e-paper refresh path. The ROM-library, persistence, and audio workflow is adapted from Paperboy while retaining the T5S3-specific display and power implementation.
