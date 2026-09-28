@@ -21,7 +21,13 @@ static size_t offset, cursor;
 static std::string opened_directory;
 static bool fail_write, fail_read;
 static unsigned writes, closes, save_writes, hid_writes, serial_writes;
+static int launch_light_level = -1;
 static void authorized() { assert(xTaskGetCurrentTaskHandle() == owner); }
+void night_light_set_launch_level(uint8_t level) {
+  authorized();
+  launch_light_level = level;
+}
+static uint8_t backlight_level() { authorized(); return 7; }
 void paperboy_usb_owner_poll() { authorized(); }
 void paperboy_touch_owner_poll() { authorized(); }
 
@@ -106,7 +112,8 @@ static size_t stream_read(t5_storage_stream_t stream, void *buffer, size_t capac
   memcpy(buffer, opened->data() + offset, n); offset += n; return n;
 }
 static void stream_close(t5_storage_stream_t stream) { authorized(); assert(stream == 1 && opened); opened = nullptr; ++closes; }
-static const t5_app_api_v1 app{sizeof(t5_app_api_v1), dir_open, dir_next, dir_close};
+static const t5_app_api_v1 app{sizeof(t5_app_api_v1), dir_open, dir_next, dir_close,
+                               nullptr, backlight_level};
 static const t5_storage_api_v1 storage{1, sizeof(t5_storage_api_v1), exists, read_file, write_file, remove_file, stream_open, stream_read, nullptr, stream_close};
 const t5_app_api_v1 *t5_app_get_api(uint32_t) { authorized(); return &app; }
 const t5_storage_api_v1 *t5_storage_get_api(uint32_t) { authorized(); return &storage; }
@@ -121,7 +128,8 @@ int main() {
   files[std::string(GAMEBOY_ROM_MANAGER_DIRECTORY) + "/Managed.gb.sav"] =
       std::vector<unsigned char>(16, 0x7E);
 
-  paperboy_storage_bind_host(); assert(paperboy_storage_begin());
+  paperboy_storage_bind_host(); assert(launch_light_level == 7);
+  assert(paperboy_storage_begin());
   assert(paperboy_storage_status().rom_count == 3);
 
   std::thread worker([] {
