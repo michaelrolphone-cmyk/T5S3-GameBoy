@@ -25,6 +25,11 @@ int main() {
     assert(paperboy_landscape_buttons(&a)==(GBEMU_INPUT_A|GBEMU_INPUT_LEFT));
     auto center=point(480,270); assert(paperboy_landscape_buttons(&center)==0 && paperboy_landscape_actions(&center)==0);
     auto rotate=point(820,28); assert(paperboy_landscape_actions(&rotate)==PAPERBOY_ACTION_ROTATE);
+    auto confirm=point(380,340), cancel=point(570,340);
+    assert(paperboy_landscape_save_choice(&confirm)==PaperboySaveChoice::Save);
+    assert(paperboy_landscape_save_choice(&cancel)==PaperboySaveChoice::Cancel);
+    confirm.points=2; confirm.x[1]=cancel.x[0]; confirm.y[1]=cancel.y[0];
+    assert(paperboy_landscape_save_choice(&confirm)==PaperboySaveChoice::Cancel);
     auto full=point(620,512); assert(paperboy_landscape_actions(&full)==PAPERBOY_ACTION_FULLSCREEN);
     std::vector<uint8_t> game(GBEMU_FRAMEBUFFER_SIZE,255),canvas(65280+16,0xCC),panel(64800+16,0xCC);
     game[0]=0x7F; // one black game pixel at top left
@@ -42,6 +47,7 @@ int main() {
 
     paperboy_landscape_set_fullscreen(true);
     assert(paperboy_landscape_fullscreen());
+    assert(paperboy_landscape_save_choice(&cancel)==PaperboySaveChoice::Cancel);
     auto exit_touch=point(480,270);
     assert(paperboy_landscape_buttons(&exit_touch)==0);
     assert(paperboy_landscape_actions(&exit_touch)==PAPERBOY_ACTION_FULLSCREEN);

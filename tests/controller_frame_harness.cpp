@@ -30,6 +30,11 @@ static bool boot_pressed, last_boot_pressed, g_boot_refresh_irq, boot_refresh_ar
 static uint32_t last_boot_refresh_ms;
 static std::vector<std::pair<bool, uint8_t>> clear_frames;
 static bool touch_ok = true, power_on = true, submit_ok = true, landscape;
+static bool g_save_confirmation_pending, save_confirmation_armed;
+static bool suppress_game_input_until_release;
+static bool last_touch_down, emu_faulted;
+static uint8_t last_confirmation_buttons;
+static bool saved_with_confirmation;
 static bool skip_render;
 static bool landscape_fullscreen;
 static PaperboyPage page = PaperboyPage::Game;
@@ -45,9 +50,19 @@ static bool audio_paused;
 constexpr const char *kTag = "frame-test";
 template<typename... Args> static void test_log(Args...) {}
 #define ESP_LOGI test_log
+#define ESP_LOGW test_log
 bool battery_read_status(PaperboyBatteryStatus &) { return true; }
 void usb_hid_gamepad_test_active(bool) {}
 static void audio_set_paused(bool paused) { audio_paused = paused; }
+static void set_notice(const char *) {}
+static bool current_rom_is_from_sd() { return false; }
+static bool save_current_session() { saved_with_confirmation = true; return true; }
+PaperboySaveChoice paperboy_ui_save_choice(const touch_state_t *) {
+  return PaperboySaveChoice::None;
+}
+PaperboySaveChoice paperboy_landscape_save_choice(const touch_state_t *) {
+  return PaperboySaveChoice::None;
+}
 void paperboy_ui_on_page_changed() { ++page_changes; }
 static void reset_game_frame_pacer(int &) { ++pacer_resets; }
 constexpr uint8_t kPanelBufferCount = 2;
@@ -110,6 +125,7 @@ static uint8_t frame() {
   // FRAME_RENDER
   last_buttons = buttons;
   last_touch_buttons = touch_mask;
+  last_touch_down = touch_down;
   return buttons;
 }
 int main() {
@@ -164,6 +180,30 @@ int main() {
   shortcuts = SNES_ACTION_LOAD; frame(); assert(loads == 1);
   shortcuts = SNES_ACTION_SETTINGS; frame(); assert(settings_requests == 1);
   assert(saves == 1 && loads == 1);
+  // The first SAVE chord only opens a prompt. Holding it cannot confirm, and
+  // B cancels without writing. A works only after every input is released.
+  g_save_confirmation_pending = true;
+  save_confirmation_armed = false;
+  saved_with_confirmation = false;
+  shortcuts = SNES_ACTION_SAVE;
+  pad = GBEMU_INPUT_START;
+  frame(); assert(g_save_confirmation_pending && !save_confirmation_armed &&
+                  !saved_with_confirmation);
+  shortcuts = 0; pad = 0; frame(); assert(save_confirmation_armed);
+  pad = GBEMU_INPUT_B; frame();
+  assert(!g_save_confirmation_pending && !saved_with_confirmation);
+  pad = 0; frame();
+  g_save_confirmation_pending = true;
+  save_confirmation_armed = false;
+  shortcuts = SNES_ACTION_SAVE;
+  pad = GBEMU_INPUT_START;
+  frame(); assert(g_save_confirmation_pending && !saved_with_confirmation);
+  shortcuts = 0; pad = 0; frame(); assert(save_confirmation_armed);
+  pad = GBEMU_INPUT_A; frame();
+  assert(!g_save_confirmation_pending && saved_with_confirmation);
+  assert(frame() == 0 && suppress_game_input_until_release);
+  pad = 0; frame(); assert(!suppress_game_input_until_release);
+  page_changes = 0;
   shortcuts = 0; page = next_page = PaperboyPage::Settings; menu_action = PAPERBOY_ACTION_REFRESH;
   assert(frame() == 0 && full_scene_syncs == 1);
   // Menu confirmation/back keys cannot leak into gameplay on a page switch.

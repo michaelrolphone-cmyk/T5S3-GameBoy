@@ -36,6 +36,8 @@ struct Rect {
 
 constexpr Rect kPowerRect = {20, 20, 280, 42};
 constexpr Rect kSaveRect = {316, 20, 94, 42};
+constexpr Rect kConfirmSaveRect = {40, 470, 214, 76};
+constexpr Rect kCancelSaveRect = {286, 470, 214, 76};
 constexpr Rect kLoadRect = {420, 20, 100, 42};
 constexpr Rect kSelectRect = {160, 842, 92, 30};
 constexpr Rect kStartRect = {288, 842, 92, 30};
@@ -855,6 +857,32 @@ void paperboy_ui_draw_dynamic(
         framebuffer, kPitch, kWidth, kHeight,
         250, 548, notice, 1, true);
   }
+}
+
+PaperboySaveChoice paperboy_ui_save_choice(const touch_state_t *touch) {
+  if (!touch || !touch->touched) return PaperboySaveChoice::None;
+  bool save_touched = false;
+  for (uint8_t i = 0; i < touch->points; ++i) {
+    if (point_in_rect(touch->x[i], touch->y[i], kCancelSaveRect))
+      return PaperboySaveChoice::Cancel;
+    if (point_in_rect(touch->x[i], touch->y[i], kConfirmSaveRect))
+      save_touched = true;
+  }
+  return save_touched ? PaperboySaveChoice::Save : PaperboySaveChoice::None;
+}
+
+void paperboy_ui_draw_save_confirmation(uint8_t *framebuffer, bool overwrite) {
+  if (!framebuffer) return;
+  mono_clear(framebuffer, kPitch * kHeight, true);
+  mono_draw_frame(framebuffer, kPitch, kWidth, kHeight, 20, 312, 500, 296, 4, false);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 110, 368,
+                 overwrite ? "OVERWRITE SAVE STATE?" : "SAVE GAME STATE?", 2, false);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 92, 420,
+                 overwrite ? "CURRENT SAVE WILL BE LOST" : "CONFIRM BEFORE SAVING", 1, false);
+  draw_button_box(framebuffer, kConfirmSaveRect, "SAVE", false);
+  draw_button_box(framebuffer, kCancelSaveRect, "CANCEL", false);
+  mono_draw_text(framebuffer, kPitch, kWidth, kHeight, 100, 565,
+                 "A: SAVE    B: CANCEL", 1, false);
 }
 
 void paperboy_ui_draw_page(

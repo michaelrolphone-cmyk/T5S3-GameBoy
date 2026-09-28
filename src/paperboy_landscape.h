@@ -7,6 +7,9 @@ static constexpr uint16_t PAPERBOY_LANDSCAPE_FULLSCREEN_WIDTH = 600;
 static constexpr uint16_t PAPERBOY_LANDSCAPE_FULLSCREEN_HEIGHT = 540;
 
 bool paperboy_landscape_fullscreen();
+PaperboySaveChoice paperboy_landscape_save_choice(const touch_state_t *touch);
+void paperboy_landscape_draw_save_confirmation(uint8_t *canvas, uint8_t *panel,
+                                               bool overwrite);
 void paperboy_landscape_set_fullscreen(bool enabled);
 void paperboy_landscape_draw(uint8_t *canvas, uint8_t *panel, const uint8_t *game,
                             uint8_t buttons, bool power_on, bool save_available,
