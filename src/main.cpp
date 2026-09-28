@@ -65,6 +65,7 @@ constexpr uint32_t kPowerButtonHoldMs = 2000U;
 constexpr uint32_t kBootDebounceMs = 180U;
 constexpr uint32_t kShutdownMessageSettleMs = 500U;
 constexpr uint32_t kBatteryPollMs = 1000U;
+constexpr uint32_t kTouchUiRefreshIntervalMs = 80U;
 constexpr uint32_t kNoticeDurationMs = 1800U;
 constexpr uint8_t kRtcAddress = 0x51U;
 
@@ -1424,6 +1425,8 @@ void run_console(void *unused) {
   PaperboyPage page = g_initial_page;
   PaperboyBatteryStatus battery = {};
   uint8_t last_touch_buttons = 0;
+  uint8_t displayed_touch_buttons = 0;
+  uint32_t last_touch_ui_refresh_ms = millis() - kTouchUiRefreshIntervalMs;
   bool last_touch_down = false;
   bool last_boot_pressed = digitalRead(t5s3_epd::kBootButton) == LOW;
   bool boot_refresh_armed = !last_boot_pressed;
@@ -1562,9 +1565,13 @@ void run_console(void *unused) {
       (void)night_light_adjust_brightness(
           (controller_actions & SNES_ACTION_BRIGHTEN) != 0U);
     }
-    // External controls drive the emulator without repainting the touch UI.
-    // Turbo and repeated pad presses must keep the game-only dirty region.
-    if (touch_buttons != last_touch_buttons) {
+    // Game input uses the current touch mask on this frame. Touch feedback is
+    // visual only: cap full-panel redraws during sliding/jitter so the game
+    // keeps using its small dirty region on intervening frames.
+    if (touch_buttons != displayed_touch_buttons &&
+        uint32_t(now_ms - last_touch_ui_refresh_ms) >= kTouchUiRefreshIntervalMs) {
+      displayed_touch_buttons = touch_buttons;
+      last_touch_ui_refresh_ms = now_ms;
       full_scene_syncs = kPanelBufferCount;
     }
 

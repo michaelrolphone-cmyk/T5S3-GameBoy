@@ -14,6 +14,9 @@
 static uint8_t pad, touch_mask, shortcuts;
 static uint16_t light_tenths = 50;
 static uint8_t last_buttons, last_touch_buttons, full_scene_syncs;
+static uint8_t displayed_touch_buttons;
+static uint32_t last_touch_ui_refresh_ms = uint32_t(0) - 80U;
+constexpr uint32_t kTouchUiRefreshIntervalMs = 80U;
 static uint8_t skipped_since_render, rendered_touch;
 static uint32_t menu_action, now_ms, rendered_frames, skipped_frames;
 static unsigned full_compositions, game_compositions, full_submissions, saves, loads;
@@ -115,8 +118,24 @@ int main() {
   assert(frame() == (GBEMU_INPUT_A | GBEMU_INPUT_RIGHT));
   assert(rendered_touch == GBEMU_INPUT_RIGHT && full_scene_syncs == 1);
   frame(); assert(full_scene_syncs == 0);
-  touch_mask = 0; frame(); frame();
+  touch_mask = 0; now_ms += kTouchUiRefreshIntervalMs; frame(); frame();
   assert(rendered_touch == 0 && full_compositions == 4);
+  // Virtual buttons reach the emulator on each frame; rapidly alternating
+  // masks cannot repeatedly force expensive full-panel refreshes.
+  const unsigned compositions_before_slide = full_compositions;
+  for (unsigned i = 0; i < 50; ++i) {
+    touch_mask = (i & 1) ? GBEMU_INPUT_A : GBEMU_INPUT_B;
+    ++now_ms;
+    assert(frame() == (GBEMU_INPUT_A | touch_mask));
+  }
+  assert(full_compositions == compositions_before_slide);
+  now_ms += kTouchUiRefreshIntervalMs;
+  frame(); frame();
+  assert(full_compositions == compositions_before_slide + 2);
+  touch_mask = 0;
+  now_ms += kTouchUiRefreshIntervalMs;
+  frame(); frame();
+  assert(rendered_touch == 0);
   // A busy display cannot drop a pending scene refresh.
   full_scene_syncs = 2; submit_ok = false; frame(); assert(full_scene_syncs == 2);
   submit_ok = true; frame(); frame(); assert(full_scene_syncs == 0);

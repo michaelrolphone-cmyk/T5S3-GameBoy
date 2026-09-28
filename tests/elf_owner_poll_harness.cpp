@@ -15,6 +15,7 @@ static bool g_console_done;
 static uint32_t origin, elapsed, poll_cost, requests;
 static bool early_notifications;
 static std::vector<uint32_t> polls;
+static std::vector<uint32_t> touch_polls;
 static uint32_t millis() { return origin + elapsed; }
 #define pdTRUE true
 #define pdMS_TO_TICKS(ms) ((ms) / TICK_MS)
@@ -31,7 +32,7 @@ static void paperboy_usb_owner_poll() {
   polls.push_back(elapsed);
   advance(poll_cost);
 }
-static void paperboy_touch_owner_poll() {}
+static void paperboy_touch_owner_poll() { touch_polls.push_back(elapsed); }
 static void serial_flush(bool = false) {}
 static void serial_append(const char *) {}
 
@@ -44,7 +45,7 @@ static void execute_request(void *context) {
 }
 
 static void run(uint32_t start, bool notified, bool busy, uint32_t cost) {
-  origin = start; elapsed = requests = 0; polls.clear();
+  origin = start; elapsed = requests = 0; polls.clear(); touch_polls.clear();
   g_console_done = false; early_notifications = notified;
   poll_cost = cost;
   OwnerRequest request{execute_request, nullptr, false};
@@ -58,6 +59,12 @@ static void run(uint32_t start, bool notified, bool busy, uint32_t cost) {
     assert(polls[i] - polls[i - 1] <= 4 + cost + TICK_MS);
   }
   if (!cost && (TICK_MS == 1 || notified || busy)) assert(polls.size() == 250);
+  assert(!touch_polls.empty() && touch_polls.front() <= 1 + cost);
+  assert(touch_polls.size() <= 63);
+  for (size_t i = 1; i < touch_polls.size(); ++i) {
+    assert(touch_polls[i] - touch_polls[i - 1] >= 16);
+    assert(touch_polls[i] - touch_polls[i - 1] <= 16 + cost + TICK_MS + 4);
+  }
   if (busy) assert(requests > 0 && request.done);
   printf("Owner, %d ms tick: %zu polls, %u storage requests, early wake=%u, poll cost=%u\n",
          TICK_MS, polls.size(), requests, unsigned(notified), cost);

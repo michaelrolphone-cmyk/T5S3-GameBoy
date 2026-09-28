@@ -321,10 +321,12 @@ void paperboy_storage_owner_note_console_done() {
 }
 
 void paperboy_storage_owner_wait() {
-  // Poll at 250 Hz instead of rescanning every provider every RTOS tick.
-  // Storage notifications still wake this owner immediately between polls.
+  // Keep USB responsive while limiting GT911 I2C traffic to about one poll
+  // per Game Boy frame. Storage requests still wake this owner immediately.
   constexpr uint32_t kUsbPollIntervalMs = 4;
+  constexpr uint32_t kTouchPollIntervalMs = 16;
   uint32_t last_usb_poll_ms = millis() - kUsbPollIntervalMs;
+  uint32_t last_touch_poll_ms = millis() - kTouchPollIntervalMs;
   while (!__atomic_load_n(&g_console_done, __ATOMIC_ACQUIRE)) {
     OwnerRequest *request = __atomic_exchange_n(&g_owner_request, nullptr, __ATOMIC_ACQUIRE);
     if (request) {
@@ -335,6 +337,9 @@ void paperboy_storage_owner_wait() {
     if (uint32_t(now - last_usb_poll_ms) >= kUsbPollIntervalMs) {
       last_usb_poll_ms = now;
       paperboy_usb_owner_poll();
+    }
+    if (uint32_t(now - last_touch_poll_ms) >= kTouchPollIntervalMs) {
+      last_touch_poll_ms = now;
       paperboy_touch_owner_poll();
     }
     serial_flush();
