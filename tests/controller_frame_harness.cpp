@@ -7,6 +7,7 @@
 #include "paperboy_ui.h"
 #include "snes_mini_controller.h"
 #include "paperboy_landscape.h"
+#include "paperboy_touch_dirty.h"
 #include "t5s3_epd_pins.h"
 
 // The input/dirty-region/render blocks below come from the real staged app.
@@ -15,17 +16,21 @@ static uint8_t pad, touch_mask, shortcuts;
 static uint16_t light_tenths = 50;
 static uint8_t last_buttons, last_touch_buttons, full_scene_syncs;
 static uint8_t displayed_touch_buttons;
-static uint32_t last_touch_ui_refresh_ms = uint32_t(0) - 80U;
-constexpr uint32_t kTouchUiRefreshIntervalMs = 80U;
+static uint32_t last_touch_ui_refresh_ms = uint32_t(0) - 160U;
+static uint8_t touch_scene_syncs;
+static uint16_t touch_dirty_y, touch_dirty_height;
+constexpr uint32_t kTouchUiRefreshIntervalMs = 160U;
 static uint8_t skipped_since_render, rendered_touch;
 static uint32_t menu_action, now_ms, rendered_frames, skipped_frames;
 static unsigned full_compositions, game_compositions, full_submissions, saves, loads;
+static unsigned partial_submissions;
 static unsigned brightness_updates, settings_requests;
 static unsigned pacer_resets;
 static bool boot_pressed, last_boot_pressed, g_boot_refresh_irq, boot_refresh_armed = true;
 static uint32_t last_boot_refresh_ms;
 static std::vector<std::pair<bool, uint8_t>> clear_frames;
 static bool touch_ok = true, power_on = true, submit_ok = true, landscape;
+static bool skip_render;
 static bool landscape_fullscreen;
 static PaperboyPage page = PaperboyPage::Game;
 static PaperboyPage next_page = PaperboyPage::Game;
@@ -54,6 +59,7 @@ static int digitalRead(int) { return boot_pressed ? LOW : 1; }
 static uint32_t millis() { return now_ms; }
 static void vTaskDelay(unsigned) { assert(false); }
 static bool epd_video_submit_pending() { return false; }
+static bool epd_video_can_submit() { return submit_ok; }
 static void submit_clear_frame(bool white, uint8_t frames) { clear_frames.emplace_back(white, frames); }
 uint8_t snes_mini_controller_buttons() { return pad; }
 uint8_t snes_mini_controller_take_actions() { return shortcuts; }
@@ -81,14 +87,16 @@ static void compose_scene(uint8_t *, uint8_t buttons, bool, PaperboyPage, const 
 static void rotate_game_to_panel(const uint8_t *, uint8_t *) { ++game_compositions; }
 bool paperboy_is_landscape() { return landscape; }
 bool paperboy_landscape_fullscreen() { return landscape_fullscreen; }
+PaperboyOrientation paperboy_orientation() { return PaperboyOrientation::Portrait; }
 static bool epd_video_submit(int y, int height) {
   if (y == 0 && height == t5s3_epd::kActiveHeight) ++full_submissions;
-  else assert(height == int(
+  else if (height == int(
       landscape
           ? (landscape_fullscreen
               ? PAPERBOY_LANDSCAPE_FULLSCREEN_HEIGHT
               : GBEMU_FRAME_HEIGHT)
-          : kGameDirtyHeight));
+          : kGameDirtyHeight)) { }
+  else { assert(y >= 0 && y + height <= 540 && height > 0 && height < 540); ++partial_submissions; }
   return submit_ok;
 }
 // REFRESH_FUNCTIONS
@@ -98,12 +106,18 @@ static uint8_t frame() {
   if (actions & PAPERBOY_ACTION_LOAD) ++loads;
   if (actions & PAPERBOY_ACTION_SETTINGS) ++settings_requests;
   // FRAME_PAGE_TRANSITION
+  skip_render = touch_scene_syncs > 0U || !submit_ok;
   // FRAME_RENDER
   last_buttons = buttons;
   last_touch_buttons = touch_mask;
   return buttons;
 }
 int main() {
+  uint16_t row = 0, rows = 0;
+  paperboy_touch_dirty_rows(GBEMU_INPUT_A, false, false, row, rows);
+  assert(row == 59 && rows == 85);
+  paperboy_touch_dirty_rows(GBEMU_INPUT_LEFT, true, true, row, rows);
+  assert(row == 173 && rows == 193);
   for (bool wide : {false, true}) {
     landscape = wide;
     for (unsigned i = 0; i < 600; ++i) {
@@ -116,10 +130,11 @@ int main() {
   // Touch highlights still repaint both buffers and preserve combined input.
   pad = GBEMU_INPUT_A; touch_mask = GBEMU_INPUT_RIGHT;
   assert(frame() == (GBEMU_INPUT_A | GBEMU_INPUT_RIGHT));
-  assert(rendered_touch == GBEMU_INPUT_RIGHT && full_scene_syncs == 1);
-  frame(); assert(full_scene_syncs == 0);
+  assert(rendered_touch == GBEMU_INPUT_RIGHT && touch_scene_syncs == 1);
+  frame(); assert(touch_scene_syncs == 0 && partial_submissions == 2);
   touch_mask = 0; now_ms += kTouchUiRefreshIntervalMs; frame(); frame();
-  assert(rendered_touch == 0 && full_compositions == 4);
+  assert(rendered_touch == 0 && full_compositions == 4 &&
+         partial_submissions == 4 && full_submissions == 0);
   // Virtual buttons reach the emulator on each frame; rapidly alternating
   // masks cannot repeatedly force expensive full-panel refreshes.
   const unsigned compositions_before_slide = full_compositions;

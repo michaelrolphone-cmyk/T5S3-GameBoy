@@ -6,11 +6,13 @@
 #include <T5StorageApi.h>
 #include <esp_heap_caps.h>
 #include <esp_log.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "rom_port.h"
+#include "night_light.h"
 
 namespace {
 constexpr char kTag[] = "storage";
@@ -366,6 +368,18 @@ void paperboy_storage_bind_host() {
   g_owner_task = xTaskGetCurrentTaskHandle();
   __atomic_store_n(&g_console_done, false, __ATOMIC_RELEASE);
   if (!g_app) g_app = t5_app_get_api(T5_APP_ABI_VERSION);
+  // The firmware app API is append-only. Use the known trailing slot position
+  // so this ELF can also be built against an older Reader SDK header.
+  using BacklightGetter = uint8_t (*)(void);
+  constexpr size_t kBacklightOffset =
+      offsetof(t5_app_api_v1, fill_rounded_rect_tone) +
+      sizeof(((t5_app_api_v1 *)nullptr)->fill_rounded_rect_tone);
+  if (g_app && g_app->struct_size >= kBacklightOffset + sizeof(BacklightGetter)) {
+    BacklightGetter getter = nullptr;
+    memcpy(&getter, reinterpret_cast<const uint8_t *>(g_app) + kBacklightOffset,
+           sizeof(getter));
+    if (getter) night_light_set_launch_level(getter());
+  }
   if (!g_storage) g_storage = t5_storage_get_api(T5_STORAGE_API_VERSION);
 }
 
@@ -378,7 +392,9 @@ bool paperboy_storage_begin() {
   g_status = {};
   for (auto &rom : g_roms) rom = {};
   g_scan_ok = false;
-  if (!g_app || g_app->struct_size < sizeof(t5_app_api_v1) ||
+  if (!g_app || g_app->struct_size <
+                    offsetof(t5_app_api_v1, fill_rounded_rect_tone) +
+                        sizeof(g_app->fill_rounded_rect_tone) ||
       !g_app->dir_open || !g_app->dir_next || !g_app->dir_close ||
       !g_storage || g_storage->struct_size < sizeof(t5_storage_api_v1) ||
       !g_storage->exists || !g_storage->read_file || !g_storage->write_file_atomic ||

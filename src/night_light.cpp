@@ -14,6 +14,8 @@ constexpr char kTag[] = "night_light";
 constexpr char kPreferencesNamespace[] = "gb-light";
 constexpr char kBrightnessKey[] = "level";
 constexpr char kBrightnessTenthsKey[] = "level10";
+constexpr char kBrightnessLowKey[] = "levelLo";
+constexpr char kBrightnessHighKey[] = "levelHi";
 constexpr ledc_mode_t kMode = LEDC_LOW_SPEED_MODE;
 // Game audio owns LEDC timer 0/channel 0. Never share its timer: the
 // audio engine changes that timer's frequency dynamically.
@@ -21,11 +23,12 @@ constexpr ledc_timer_t kTimer = LEDC_TIMER_2;
 constexpr ledc_channel_t kChannel = LEDC_CHANNEL_2;
 constexpr uint32_t kPwmHz = 1000U;  // PT4103B23F EN: <= approximately 1 kHz.
 constexpr uint32_t kDutyMax = 1023U;
-constexpr uint16_t kMaxBrightnessTenths = 100U;  // 10.0%
+constexpr uint16_t kMaxBrightnessTenths = 1000U;  // 100.0%
 constexpr uint16_t kFineBrightnessThresholdTenths = 10U;  // 1.0%
 
 bool g_ready = false;
 uint16_t g_brightness_tenths = 0U;
+int16_t g_launch_level = -1;
 
 bool apply_brightness(uint16_t brightness_tenths) {
   // One tenth of one percent maps to about one count at 10-bit resolution.
@@ -46,6 +49,10 @@ bool apply_brightness(uint16_t brightness_tenths) {
 
 }  // namespace
 
+void night_light_set_launch_level(uint8_t firmware_level) {
+  g_launch_level = firmware_level > 10U ? 10U : firmware_level;
+}
+
 void night_light_init() {
   if (g_ready) {
     return;
@@ -58,9 +65,12 @@ void night_light_init() {
   uint16_t saved_tenths = 0U;
   Preferences preferences;
   if (preferences.begin(kPreferencesNamespace, true)) {
-    const uint8_t saved_precise =
-        preferences.getUChar(kBrightnessTenthsKey, UINT8_MAX);
-    if (saved_precise != UINT8_MAX) {
+    const uint8_t saved_low = preferences.getUChar(kBrightnessLowKey, UINT8_MAX);
+    const uint8_t saved_high = preferences.getUChar(kBrightnessHighKey, UINT8_MAX);
+    const uint8_t saved_precise = preferences.getUChar(kBrightnessTenthsKey, UINT8_MAX);
+    if (saved_low != UINT8_MAX && saved_high != UINT8_MAX) {
+      saved_tenths = static_cast<uint16_t>(saved_high) << 8U | saved_low;
+    } else if (saved_precise != UINT8_MAX) {
       saved_tenths = saved_precise;
     } else {
       // Migrate the original whole-percent value on first boot after upgrade.
@@ -74,6 +84,11 @@ void night_light_init() {
   }
   if (saved_tenths > kMaxBrightnessTenths) {
     saved_tenths = kMaxBrightnessTenths;
+  }
+  if (g_launch_level >= 0) {
+    // Firmware's 0..10 setting maps quadratically to its LEDC duty.
+    // Convert to tenths of a percent for the GameBoy's 10-bit PWM.
+    saved_tenths = static_cast<uint16_t>(g_launch_level * g_launch_level * 10);
   }
 
   ledc_timer_config_t timer = {};
@@ -107,7 +122,7 @@ void night_light_init() {
   if (apply_brightness(saved_tenths)) {
     g_brightness_tenths = saved_tenths;
   }
-  ESP_LOGI(kTag, "ready gpio=%u PWM=%luHz brightness=%u.%u%% (max 10.0%%)",
+  ESP_LOGI(kTag, "ready gpio=%u PWM=%luHz brightness=%u.%u%% (max 100.0%%)",
            t5s3_epd::kBacklightEnable,
            static_cast<unsigned long>(kPwmHz),
            static_cast<unsigned>(g_brightness_tenths / 10U),
@@ -134,9 +149,10 @@ bool night_light_set_brightness_tenths(uint16_t tenths_percent) {
   g_brightness_tenths = tenths_percent;
   Preferences preferences;
   if (preferences.begin(kPreferencesNamespace, false)) {
-    if (preferences.putUChar(
-            kBrightnessTenthsKey,
-            static_cast<uint8_t>(tenths_percent)) != sizeof(uint8_t)) {
+    if (preferences.putUChar(kBrightnessHighKey,
+                             static_cast<uint8_t>(tenths_percent >> 8U)) != sizeof(uint8_t) ||
+        preferences.putUChar(kBrightnessLowKey,
+                             static_cast<uint8_t>(tenths_percent)) != sizeof(uint8_t)) {
       ESP_LOGW(kTag, "could not persist brightness; change remains active");
     }
     preferences.end();
@@ -181,7 +197,7 @@ uint8_t night_light_brightness() {
 }
 
 bool night_light_set_brightness(uint8_t percent) {
-  if (percent > 10U) percent = 10U;
+  if (percent > 100U) percent = 100U;
   return night_light_set_brightness_tenths(static_cast<uint16_t>(percent) * 10U);
 }
 
@@ -191,6 +207,7 @@ void night_light_shutdown() {
   }
   g_ready = false;
   g_brightness_tenths = 0U;
+  g_launch_level = -1;
   pinMode(t5s3_epd::kBacklightEnable, OUTPUT);
   digitalWrite(t5s3_epd::kBacklightEnable, LOW);
 }

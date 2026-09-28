@@ -23,6 +23,7 @@
 #include "paperboy_storage.h"
 #include "paperboy_ui.h"
 #include "paperboy_landscape.h"
+#include "paperboy_touch_dirty.h"
 #include "pca9535_min.h"
 #include "t5s3_epd_pins.h"
 #include "touch_gt911.h"
@@ -65,7 +66,7 @@ constexpr uint32_t kPowerButtonHoldMs = 2000U;
 constexpr uint32_t kBootDebounceMs = 180U;
 constexpr uint32_t kShutdownMessageSettleMs = 500U;
 constexpr uint32_t kBatteryPollMs = 1000U;
-constexpr uint32_t kTouchUiRefreshIntervalMs = 80U;
+constexpr uint32_t kTouchUiRefreshIntervalMs = 160U;
 constexpr uint32_t kNoticeDurationMs = 1800U;
 constexpr uint8_t kRtcAddress = 0x51U;
 
@@ -1427,6 +1428,9 @@ void run_console(void *unused) {
   uint8_t last_touch_buttons = 0;
   uint8_t displayed_touch_buttons = 0;
   uint32_t last_touch_ui_refresh_ms = millis() - kTouchUiRefreshIntervalMs;
+  uint8_t touch_scene_syncs = 0;
+  uint16_t touch_dirty_y = 0;
+  uint16_t touch_dirty_height = 0;
   bool last_touch_down = false;
   bool last_boot_pressed = digitalRead(t5s3_epd::kBootButton) == LOW;
   bool boot_refresh_armed = !last_boot_pressed;
@@ -1565,14 +1569,30 @@ void run_console(void *unused) {
       (void)night_light_adjust_brightness(
           (controller_actions & SNES_ACTION_BRIGHTEN) != 0U);
     }
-    // Game input uses the current touch mask on this frame. Touch feedback is
-    // visual only: cap full-panel redraws during sliding/jitter so the game
-    // keeps using its small dirty region on intervening frames.
+    // Touch is immediate for emulation; its visual feedback has a separate,
+    // bounded scan-row update that does not request a full panel refresh.
     if (touch_buttons != displayed_touch_buttons &&
         uint32_t(now_ms - last_touch_ui_refresh_ms) >= kTouchUiRefreshIntervalMs) {
+      uint16_t first = 0, height = 0;
+      paperboy_touch_dirty_rows(
+          touch_buttons ^ displayed_touch_buttons, paperboy_is_landscape(),
+          paperboy_orientation() == PaperboyOrientation::LandscapeReverse,
+          first, height);
+      if (height != 0) {
+        if (touch_scene_syncs != 0) {
+          const uint16_t last = touch_dirty_y + touch_dirty_height - 1U;
+          const uint16_t next_last = first + height - 1U;
+          const uint16_t start = first < touch_dirty_y ? first : touch_dirty_y;
+          const uint16_t end = next_last > last ? next_last : last;
+          first = start;
+          height = end - start + 1U;
+        }
+        touch_dirty_y = first;
+        touch_dirty_height = height;
+        touch_scene_syncs = kPanelBufferCount;
+      }
       displayed_touch_buttons = touch_buttons;
       last_touch_ui_refresh_ms = now_ms;
-      full_scene_syncs = kPanelBufferCount;
     }
 
     const bool boot_pressed = digitalRead(t5s3_epd::kBootButton) == LOW;
@@ -1831,6 +1851,8 @@ void run_console(void *unused) {
     }
 
     if (page == PaperboyPage::Game && power_on && !emu_faulted) {
+      // Full scene updates also cover control highlights on both buffers.
+      if (full_scene_syncs != 0U) touch_scene_syncs = 0U;
       const uint32_t vsync_now = epd_video_get_vsync_count();
       const uint32_t vsync_gap = vsync_now - last_vsync;
       if (vsync_gap > 1U) {
@@ -1844,8 +1866,10 @@ void run_console(void *unused) {
               : kMinSkippedFramesBetweenRenders;
       const bool render_due =
           full_scene_syncs > 0U ||
+          touch_scene_syncs > 0U ||
           skipped_since_render >= skipped_frames_required;
-      const bool skip_render = !render_due || !epd_video_can_submit();
+      const bool skip_render = !render_due || !epd_video_can_submit() ||
+          touch_scene_syncs > 0U;
       gbemu_frame_stats_t frame_stats = {};
 
       if (!gbemu_run_frame(
@@ -1886,7 +1910,20 @@ void run_console(void *unused) {
 
       add_sample(run_timing, frame_stats.run_us);
       ++emulated_frames;
-      if (skip_render) {
+      if (touch_scene_syncs > 0U && epd_video_can_submit()) {
+        uint8_t *backbuffer = epd_video_get_backbuffer();
+        const int64_t compose_started = esp_timer_get_time();
+        compose_scene(backbuffer, touch_buttons, power_on, page, &battery);
+        add_sample(compose_timing,
+                   static_cast<uint32_t>(esp_timer_get_time() - compose_started));
+        if (epd_video_submit(touch_dirty_y, touch_dirty_height)) {
+          --touch_scene_syncs;
+          ++rendered_frames;
+          skipped_since_render = 0U;
+        } else {
+          ++skipped_frames;
+        }
+      } else if (skip_render) {
         ++skipped_frames;
         if (skipped_since_render < UINT8_MAX) {
           ++skipped_since_render;
