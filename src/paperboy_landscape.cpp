@@ -11,6 +11,7 @@ struct Rect { int x, y, w, h; };
 constexpr Rect power{16, 10, 192, 36}, save{240, 10, 100, 36}, load{620, 10, 100, 36};
 constexpr Rect rotate{752, 10, 192, 36}, settings{404, 494, 152, 36};
 constexpr Rect fullscreen{580, 494, 152, 36};
+constexpr Rect confirm_save{306, 306, 164, 68}, cancel_save{490, 306, 164, 68};
 constexpr Rect selectBtn{40, 432, 144, 46}, start{776, 432, 144, 46};
 constexpr Rect light_down{24, 72, 80, 40}, light_up{124, 72, 80, 40};
 bool g_fullscreen = false;
@@ -82,6 +83,29 @@ void fullscreen_game(const uint8_t *game, uint8_t *panel) {
 }
 
 bool paperboy_landscape_fullscreen() { return g_fullscreen; }
+PaperboySaveChoice paperboy_landscape_save_choice(const touch_state_t *touch) {
+  if (!touch || !touch->touched) return PaperboySaveChoice::None;
+  bool save_touched = false;
+  for (uint8_t i = 0; i < touch->points; ++i) {
+    uint16_t x, y;
+    paperboy_landscape_touch(touch->x[i], touch->y[i], x, y);
+    if (inside(x, y, cancel_save)) return PaperboySaveChoice::Cancel;
+    if (inside(x, y, confirm_save)) save_touched = true;
+  }
+  return save_touched ? PaperboySaveChoice::Save : PaperboySaveChoice::None;
+}
+void paperboy_landscape_draw_save_confirmation(uint8_t *canvas, uint8_t *panel,
+                                               bool overwrite) {
+  if (!canvas || !panel) return;
+  mono_clear(canvas, width * height / 8, true);
+  mono_draw_frame(canvas, pitch, width, height, 270, 128, 420, 280, 4, false);
+  text(canvas, 332, 176, overwrite ? "OVERWRITE SAVE?" : "SAVE GAME STATE?", 2);
+  text(canvas, 356, 230, overwrite ? "OLD STATE WILL BE LOST" : "CONFIRM BEFORE SAVING", 1);
+  box(canvas, confirm_save, "SAVE");
+  box(canvas, cancel_save, "CANCEL");
+  text(canvas, 388, 384, "A: SAVE  B: CANCEL", 1);
+  for (int i = 0; i < width * height / 8; ++i) panel_byte(panel, i, canvas[i]);
+}
 void paperboy_landscape_set_fullscreen(bool enabled) { g_fullscreen = enabled; }
 
 uint8_t paperboy_landscape_buttons(const touch_state_t *touch) {

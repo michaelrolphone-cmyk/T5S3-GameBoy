@@ -18,6 +18,13 @@ int main() {
   touch_state_t touch{};
   touch.touched = true;
   touch.points = 1;
+  touch.x[0] = 145; touch.y[0] = 510;
+  assert(paperboy_ui_save_choice(&touch) == PaperboySaveChoice::Save);
+  touch.x[0] = 390;
+  assert(paperboy_ui_save_choice(&touch) == PaperboySaveChoice::Cancel);
+  touch.x[0] = 145; touch.points = 2; touch.x[1] = 390; touch.y[1] = 510;
+  assert(paperboy_ui_save_choice(&touch) == PaperboySaveChoice::Cancel);
+  touch.points = 1;
   touch.x[0] = 270;
   touch.y[0] = 630; // Center of the visible Gamepad Test row.
   assert(paperboy_ui_map_actions(&touch, PaperboyPage::Settings) ==

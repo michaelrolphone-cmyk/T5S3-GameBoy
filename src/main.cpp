@@ -106,6 +106,8 @@ uint32_t g_notice_until_ms = 0U;
 size_t g_rom_selection = 0U;
 bool g_storage_ready = false;
 bool g_last_snapshot_available = false;
+bool g_save_confirmation_pending = false;
+bool g_save_confirmation_overwrite = false;
 PaperboyPage g_initial_page = PaperboyPage::Game;
 bool g_touch_available = false;
 const char *g_idle_reason = nullptr;
@@ -545,6 +547,17 @@ void compose_scene(
     const PaperboyBatteryStatus *battery) {
   if (framebuffer == nullptr || g_background == nullptr ||
       g_scene == nullptr || g_game_frame == nullptr) {
+    return;
+  }
+
+  if (g_save_confirmation_pending) {
+    if (paperboy_is_landscape()) {
+      paperboy_landscape_draw_save_confirmation(
+          g_scene, framebuffer, g_save_confirmation_overwrite);
+    } else {
+      paperboy_ui_draw_save_confirmation(g_scene, g_save_confirmation_overwrite);
+      rotate_portrait_to_panel(g_scene, framebuffer);
+    }
     return;
   }
 
@@ -1455,6 +1468,9 @@ void run_console(void *unused) {
   TimingWindow flip_timing = {};
   bool notice_was_visible = visible_notice() != nullptr;
   bool emu_faulted = false;
+  bool save_confirmation_armed = false;
+  uint8_t last_confirmation_buttons = 0U;
+  bool suppress_game_input_until_release = false;
 
   const bool battery_probe_ok = battery_read_status(battery);
   ESP_LOGI(
@@ -1547,31 +1563,79 @@ void run_console(void *unused) {
     // Poll on every page so held shoulders cannot become a new press on return.
     const uint8_t controller_buttons = snes_mini_controller_buttons();
     const uint8_t controller_actions = snes_mini_controller_take_actions();
-    const uint32_t menu_actions = paperboy_ui_map_controller(
-        snes_mini_controller_navigation_buttons(), page, now_ms);
-    const uint8_t touch_buttons = page == PaperboyPage::Game && touch_ok
+    const bool save_confirmation_was_pending = g_save_confirmation_pending;
+    const bool touch_down = touch_ok && touch.touched && touch.points > 0U;
+    if (suppress_game_input_until_release && !touch_down && controller_buttons == 0U)
+      suppress_game_input_until_release = false;
+    const bool controls_blocked = g_save_confirmation_pending ||
+                                  suppress_game_input_until_release;
+    const uint32_t menu_actions = controls_blocked ? 0U :
+        paperboy_ui_map_controller(snes_mini_controller_navigation_buttons(), page, now_ms);
+    const uint8_t touch_buttons = page == PaperboyPage::Game && touch_ok &&
+        !controls_blocked
         ? paperboy_ui_map_buttons(&touch) : 0U;
-    uint8_t buttons = page == PaperboyPage::Game
+    uint8_t buttons = page == PaperboyPage::Game && !controls_blocked
         ? (touch_buttons | (paperboy_ui_controller_ready() ? controller_buttons : 0U))
         : 0U;
-    uint32_t actions = touch_ok ? paperboy_ui_map_actions(&touch, page) : 0U;
+    uint32_t actions = touch_ok && !controls_blocked
+        ? paperboy_ui_map_actions(&touch, page) : 0U;
     actions |= menu_actions;
     if (menu_actions != 0U) full_scene_syncs = kPanelBufferCount;
-    if (controller_actions & SNES_ACTION_SETTINGS) {
+    if (g_save_confirmation_pending) {
+      PaperboySaveChoice choice = PaperboySaveChoice::None;
+      // Require release of the initiating SAVE press before either input can
+      // confirm. A held controller shortcut or touch cannot overwrite a state.
+      if (!save_confirmation_armed) {
+        save_confirmation_armed = !touch_down && controller_buttons == 0U &&
+                                   controller_actions == 0U;
+      } else {
+        if (touch_down && !last_touch_down) {
+          choice = paperboy_is_landscape()
+              ? paperboy_landscape_save_choice(&touch)
+              : paperboy_ui_save_choice(&touch);
+        }
+        const uint8_t newly_pressed = controller_buttons & ~last_confirmation_buttons;
+        if (newly_pressed & GBEMU_INPUT_B) choice = PaperboySaveChoice::Cancel;
+        else if (choice == PaperboySaveChoice::None &&
+                 (newly_pressed & GBEMU_INPUT_A)) choice = PaperboySaveChoice::Save;
+      }
+      last_confirmation_buttons = controller_buttons;
+      actions = 0U;
+      buttons = 0U;
+      if (choice != PaperboySaveChoice::None) {
+        g_save_confirmation_pending = false;
+        save_confirmation_armed = false;
+        suppress_game_input_until_release = true;
+        if (choice == PaperboySaveChoice::Save) {
+          if (save_current_session()) {
+            set_notice(current_rom_is_from_sd() ? "SAVED TO SD" : "STATE SAVED");
+            ESP_LOGI(kTag, "game session saved after confirmation");
+          } else {
+            set_notice("SAVE FAILED");
+            ESP_LOGW(kTag, "game session save failed");
+          }
+        }
+        audio_set_paused(emu_faulted || !power_on);
+        full_scene_syncs = kPanelBufferCount;
+        paperboy_ui_on_page_changed();
+      }
+    } else if (!controls_blocked && (controller_actions & SNES_ACTION_SETTINGS)) {
       actions = PAPERBOY_ACTION_SETTINGS;
     }
-    if (page == PaperboyPage::Game) {
+    if (page == PaperboyPage::Game && !save_confirmation_was_pending &&
+        !controls_blocked) {
       if (controller_actions & SNES_ACTION_ROTATE) actions = PAPERBOY_ACTION_ROTATE;
       if (controller_actions & SNES_ACTION_SAVE) actions |= PAPERBOY_ACTION_SAVE;
       if (controller_actions & SNES_ACTION_LOAD) actions |= PAPERBOY_ACTION_LOAD;
     }
-    if (controller_actions & (SNES_ACTION_DIM | SNES_ACTION_BRIGHTEN)) {
+    if (!save_confirmation_was_pending && !controls_blocked &&
+        (controller_actions & (SNES_ACTION_DIM | SNES_ACTION_BRIGHTEN))) {
       (void)night_light_adjust_brightness(
           (controller_actions & SNES_ACTION_BRIGHTEN) != 0U);
     }
     // Touch is immediate for emulation; its visual feedback has a separate,
     // bounded scan-row update that does not request a full panel refresh.
-    if (touch_buttons != displayed_touch_buttons &&
+    if (!g_save_confirmation_pending && touch_buttons != displayed_touch_buttons &&
         uint32_t(now_ms - last_touch_ui_refresh_ms) >= kTouchUiRefreshIntervalMs) {
       uint16_t first = 0, height = 0;
       paperboy_touch_dirty_rows(
@@ -1601,7 +1665,8 @@ void run_console(void *unused) {
     bool boot_refresh_completed = false;
     const bool boot_refresh_requested = boot_refresh_armed && (boot_irq || boot_edge) &&
         (millis() - last_boot_refresh_ms) >= kBootDebounceMs;
-    const bool controller_refresh_requested = (controller_actions & SNES_ACTION_REFRESH) &&
+    const bool controller_refresh_requested = !controls_blocked &&
+        (controller_actions & SNES_ACTION_REFRESH) &&
         !(controller_actions & SNES_ACTION_SETTINGS);
     if (boot_refresh_requested || controller_refresh_requested) {
       boot_refresh_armed = false;
@@ -1627,7 +1692,6 @@ void run_console(void *unused) {
     }
     last_boot_pressed = boot_pressed_after_refresh;
 
-    const bool touch_down = touch_ok && touch.touched && touch.points > 0U;
     if (touch_down && !last_touch_down) {
       ESP_LOGI(
           kTag,
@@ -1704,12 +1768,14 @@ void run_console(void *unused) {
       if (emu_faulted) {
         set_notice("RESET OR LOAD FIRST");
         ESP_LOGW(kTag, "state save rejected while emulator is faulted");
-      } else if (save_current_session()) {
-        set_notice(current_rom_is_from_sd() ? "SAVED TO SD" : "STATE SAVED");
-        ESP_LOGI(kTag, "game session saved");
       } else {
-        set_notice("SAVE FAILED");
-        ESP_LOGW(kTag, "game session save failed");
+        g_save_confirmation_overwrite = g_memory_quicksave_valid ||
+                                        g_current_disk_snapshot_available;
+        g_save_confirmation_pending = true;
+        save_confirmation_armed = false;
+        last_confirmation_buttons = controller_buttons;
+        audio_set_paused(true);
+        actions = 0U;  // Ignore simultaneous load or navigation actions.
       }
       full_scene_syncs = kPanelBufferCount;
     }
@@ -1850,7 +1916,8 @@ void run_console(void *unused) {
       pca_button_pressed_since_ms = 0U;
     }
 
-    if (page == PaperboyPage::Game && power_on && !emu_faulted) {
+    if (page == PaperboyPage::Game && power_on && !emu_faulted &&
+        !g_save_confirmation_pending) {
       // Full scene updates also cover control highlights on both buffers.
       if (full_scene_syncs != 0U) touch_scene_syncs = 0U;
       const uint32_t vsync_now = epd_video_get_vsync_count();
@@ -2037,6 +2104,8 @@ void enter_idle(const char *reason, const char *headline, const char *detail) {
 }  // namespace
 
 void setup() {
+  g_save_confirmation_pending = false;
+  g_save_confirmation_overwrite = false;
   Serial.begin(115200);
   delay(1500);
 

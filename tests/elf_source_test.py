@@ -84,7 +84,8 @@ with tempfile.TemporaryDirectory() as tmp:
     target = Path(tmp)
     stage(target)
     staged = (target / 'main.cpp').read_text()
-    input_block = staged.split('    // Poll on every page', 1)[1].split('    const bool touch_down', 1)[0]
+    input_block = staged.split('    // Poll on every page', 1)[1].split(
+        '    if (touch_down && !last_touch_down) {\n      ESP_LOGI(', 1)[0]
     input_block = input_block[input_block.index('    const uint8_t controller_buttons'):]
     transition_block = '    if (next_page != page) {' + staged.split('    if (next_page != page) {', 1)[1].split('    bool pca_button_pressed', 1)[0]
     render_block = staged.split('      if (touch_scene_syncs > 0U && epd_video_can_submit()) {', 1)[1].split('      pace_game_frame', 1)[0]

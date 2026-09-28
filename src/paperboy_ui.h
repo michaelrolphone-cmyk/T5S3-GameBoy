@@ -39,6 +39,8 @@ enum class PaperboyPage : uint8_t {
   GamepadTest,
 };
 
+enum class PaperboySaveChoice : uint8_t { None, Save, Cancel };
+
 static constexpr uint16_t PAPERBOY_LOGICAL_WIDTH = 540;
 static constexpr uint16_t PAPERBOY_LOGICAL_HEIGHT = 960;
 static constexpr uint16_t PAPERBOY_LOGICAL_PITCH = (PAPERBOY_LOGICAL_WIDTH + 7U) / 8U;
@@ -73,6 +75,8 @@ void paperboy_ui_draw_dynamic(
     bool save_available,
     const PaperboyBatteryStatus *battery,
     const char *notice);
+PaperboySaveChoice paperboy_ui_save_choice(const touch_state_t *touch);
+void paperboy_ui_draw_save_confirmation(uint8_t *framebuffer, bool overwrite);
 void paperboy_ui_draw_page(
     uint8_t *framebuffer,
     PaperboyPage page,
