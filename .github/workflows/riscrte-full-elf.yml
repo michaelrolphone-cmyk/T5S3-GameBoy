@@ -24,9 +24,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: michaelrolphone-cmyk/T5S3-Reader
-          # This PR consumes input.touch.raw introduced by T5S3-Reader PR #204.
-          # Return this to master once #204 merges.
-          ref: feat/touch-driver-provider
+          # Consume the merged host SDK so PR builds match released firmware.
+          ref: master
           path: _riscrte
           persist-credentials: false
       - name: Record exact RiscRTE firmware ABI commit

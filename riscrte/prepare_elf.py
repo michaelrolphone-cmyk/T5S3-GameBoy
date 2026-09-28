@@ -67,6 +67,29 @@ def stage(destination: Path) -> None:
     main = patch_once(main, task_block,
                       '  // Console work stays on the dedicated ELF worker created by app_main.\n'
                       '  run_console(nullptr);', 'synchronous console')
+    main = patch_once(main, 'bool init_display() {\n  Wire.begin(',
+                      '#ifndef PAPERBOY_RISCRTE_ELF\nbool init_display() {\n  Wire.begin(',
+                      'standalone display initialization')
+    main = patch_once(main, 'void wait_vsync_frames(uint8_t frame_count) {',
+                      '''#endif
+#ifdef PAPERBOY_RISCRTE_ELF
+bool init_display() {
+  // Firmware initialized Wire and owns PCA defaults. Only bind the input
+  // reader on the host owner task; raw panel setup still runs on the worker.
+  bool expander_ready = false;
+  paperboy_owner_call([](void *result) {
+    *static_cast<bool *>(result) = g_expander.begin(Wire, t5s3_epd::kPca9535Address);
+  }, &expander_ready);
+  if (!expander_ready || !epd_video_init(g_expander)) return false;
+  bool powered = false;
+  paperboy_owner_call([](void *result) {
+    *static_cast<bool *>(result) = epd_video_power_on();
+  }, &powered);
+  return powered && epd_video_start();
+}
+#endif
+
+void wait_vsync_frames(uint8_t frame_count) {''', 'ELF display initialization')
     main = patch_once(main, 'struct GameFramePacer {',
                       'struct GameFramePacer {\n'
                       '  int64_t last_yield_us = 0;', 'ELF cooperation timestamp')

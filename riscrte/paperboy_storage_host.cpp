@@ -312,6 +312,10 @@ bool read_host_file(const char *path, void *buffer, size_t capacity, size_t &siz
 }
 }  // namespace
 
+void paperboy_owner_call(void (*callback)(void *), void *context) {
+  if (callback) on_owner([&] { callback(context); });
+}
+
 void paperboy_storage_owner_note_console_done() {
   __atomic_store_n(&g_console_done, true, __ATOMIC_RELEASE);
 }

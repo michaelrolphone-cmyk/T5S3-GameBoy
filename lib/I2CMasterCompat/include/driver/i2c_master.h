@@ -91,8 +91,13 @@ static inline esp_err_t i2c_master_transmit_receive(
       return ESP_ERR_INVALID_ARG;
     }
     dev_handle->wire->beginTransmission(dev_handle->address);
-    if (dev_handle->wire->write(write_buffer, write_size) != write_size ||
-        dev_handle->wire->endTransmission(false) != 0) {
+    if (dev_handle->wire->write(write_buffer, write_size) != write_size) {
+      // beginTransmission owns Wire's mutex until endTransmission/requestFrom.
+      // A short write must terminate that transaction before returning.
+      (void)dev_handle->wire->endTransmission(true);
+      return ESP_FAIL;
+    }
+    if (dev_handle->wire->endTransmission(false) != 0) {
       return ESP_FAIL;
     }
   }
@@ -128,6 +133,7 @@ static inline esp_err_t i2c_master_multi_buffer_transmit(
           dev_handle->wire->write(
               buffers[i].write_buffer, buffers[i].buffer_size) !=
               buffers[i].buffer_size) {
+        (void)dev_handle->wire->endTransmission(true);
         return ESP_ERR_INVALID_ARG;
       }
     }

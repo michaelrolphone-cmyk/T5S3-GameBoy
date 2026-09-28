@@ -180,7 +180,7 @@ uint8_t days_in_month(uint16_t year, uint8_t month) {
   return month == 2U && leap_year(year) ? 29U : kDays[month - 1U];
 }
 
-uint32_t read_rtc_timestamp() {
+uint32_t read_rtc_timestamp_on_bus() {
   uint8_t registers[7] = {0};
   Wire.beginTransmission(kRtcAddress);
   Wire.write(0x02U);
@@ -217,6 +217,18 @@ uint32_t read_rtc_timestamp() {
   days += static_cast<uint32_t>(day - 1U);
   return days * 86400UL + static_cast<uint32_t>(hour) * 3600UL +
       static_cast<uint32_t>(minute) * 60UL + second;
+}
+
+uint32_t read_rtc_timestamp() {
+#ifdef PAPERBOY_RISCRTE_ELF
+  uint32_t timestamp = 0;
+  paperboy_owner_call([](void *value) {
+    *static_cast<uint32_t *>(value) = read_rtc_timestamp_on_bus();
+  }, &timestamp);
+  return timestamp;
+#else
+  return read_rtc_timestamp_on_bus();
+#endif
 }
 
 void add_sample(TimingWindow &window, uint32_t value_us) {
@@ -1271,6 +1283,17 @@ void on_shutdown() {
 }
 
 bool read_expander_button(bool &pressed) {
+#ifdef PAPERBOY_RISCRTE_ELF
+  struct Result { bool pressed; bool ok; } result{false, false};
+  paperboy_owner_call([](void *context) {
+    auto &r = *static_cast<Result *>(context);
+    uint8_t input0 = 0, input1 = 0;
+    r.ok = g_expander.readInputs(input0, input1);
+    r.pressed = r.ok && (input1 & t5s3_epd::kPcaMaskButton) == 0U;
+  }, &result);
+  pressed = result.pressed;
+  return result.ok;
+#else
   uint8_t input0 = 0;
   uint8_t input1 = 0;
   if (!g_expander.readInputs(input0, input1)) {
@@ -1280,6 +1303,7 @@ bool read_expander_button(bool &pressed) {
   (void)input0;
   pressed = (input1 & t5s3_epd::kPcaMaskButton) == 0U;
   return true;
+#endif
 }
 
 void draw_shutdown_page() {
