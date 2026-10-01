@@ -25,8 +25,8 @@ jobs:
         with:
           repository: michaelrolphone-cmyk/T5S3-Reader
           # GameBoy's display.output provider consumes the ABI in Reader PR #220.
-          # Return this to master once #220 merges, before releasing GameBoy.
-          ref: feat/display-abstraction-foundation
+          # Pin the tested SDK; reconcile with merged master before releasing GameBoy.
+          ref: ec85daef78a8a7697cf6f79f5745e883822cc254
           path: _riscrte
           persist-credentials: false
       - name: Record exact RiscRTE firmware ABI commit

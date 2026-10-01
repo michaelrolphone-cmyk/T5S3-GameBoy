@@ -8,7 +8,7 @@ The standalone firmware retains the original raw `epd_video.cpp` and its hardwar
 
 The host performs an exclusive display handoff before entering GameBoy. The ELF acquires `display.output` on its owner task and borrows MONO1 frames from that provider; it does not stage the standalone panel/DMA implementation. Capability calls and release stay on the owner task, while the console worker writes pixels into its acquired frame. On exit the worker finishes before the provider lease is released and the host restores its UI. Shared I2C/PCA input access remains on the host owner task. This consumer conversion does not by itself prove full physical-driver extraction in the companion firmware.
 
-The current candidate is GameBoy 1.3.13 with a minimum firmware version of 1.3.47 and the compatible `display-epd-video` 0.1.2 provider from Reader PR #220. The CI host checkout remains on that companion branch until it is merged; a firmware version number alone is not proof the capability exists. Separate save-confirmation PR #29 reserves version 1.3.12 and is not incorporated here. Reconcile release ordering and versions before publishing either candidate.
+The current candidate is GameBoy 1.3.13 with a minimum firmware version of 1.3.49 and the compatible `display-epd-video` 0.1.2 provider from Reader PR #220. The CI host checkout is pinned to Reader `ec85daef78a8a7697cf6f79f5745e883822cc254` from that companion branch; a firmware version number alone is not proof the capability exists. Separate save-confirmation PR #29 reserves version 1.3.12 and is not incorporated here. Reconcile release ordering and versions before publishing either candidate.
 
 Host regression tests cover owner-task dispatch, a provider returning the wrong pixel format, rejected submissions retaining the frame, queued/active versus complete/superseded/failed presentations, and clean re-entry without a stale token. Unknown status remains pending, not fabricated success. The adapter's 24 Hz pacing counter is synthetic and is not physical scan-completion evidence.
 
@@ -115,3 +115,5 @@ Existing adjacent `ROM.gb.sav`/`ROM.gb.state` and older
 `ROM.sav`/`ROM.state` paths remain read-compatible so this storage change
 does not strand previously created saves. The standalone firmware keeps its
 existing SD-root/adjacent-sidecar behavior.
+
+October 1 integration: the minimum firmware is 1.3.49 because Reader #220 adds the restricted display-provider backend binding absent from published 1.3.48. The GameBoy source, standalone display, save format and pacing remain unchanged. Publish save-confirmation #29 (1.3.12) before 1.3.13, or renumber that later candidate above any published 1.3.13. No unrelated save-confirmation changes are included.
