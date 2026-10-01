@@ -6,6 +6,9 @@
 
 #include "gbemu.h"
 #include "usb_hid_gamepad.h"
+#ifdef PAPERBOY_RISCRTE_ELF
+#include "elf_lifecycle.h"
+#endif
 
 namespace {
 
@@ -225,7 +228,18 @@ uint8_t snes_mini_controller_buttons() {
   // Always poll USB, even when the optional I2C controller is disconnected.
   // Inputs from USB, I2C and the touchscreen remain additive.
   const uint8_t usb_buttons = usb_hid_gamepad_buttons();
+#ifdef PAPERBOY_RISCRTE_ELF
+  // Wire's repeated-START state and mutex are task-owned. The optional I2C
+  // controller shares the firmware's physical bus, so keep every poll on the
+  // same host owner that services provider I2C and SD requests.
+  uint8_t i2c_buttons = 0;
+  paperboy_owner_call([](void *value) {
+    *static_cast<uint8_t *>(value) = snes_i2c_buttons();
+  }, &i2c_buttons);
+  return usb_buttons | i2c_buttons;
+#else
   return usb_buttons | snes_i2c_buttons();
+#endif
 }
 
 uint8_t snes_mini_controller_take_actions() {

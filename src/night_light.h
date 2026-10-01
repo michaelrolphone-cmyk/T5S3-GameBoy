@@ -5,12 +5,13 @@
 // T5S3 Pro GPIO11 LED boost enable.
 //
 // Brightness is represented internally in tenths of one percent:
-//   0 = off, 1 = 0.1%, 10 = 1.0%, 100 = 10.0%.
-// 10.0% remains the maximum allowed brightness.
+//   0 = off, 1 = 0.1%, 10 = 1.0%, 1000 = 100.0%.
 //
 // The legacy whole-percent getters/setters remain for source compatibility.
 // State is saved to ESP32 NVS so the control also works without an SD card.
 void night_light_init();
+// Captured on the firmware owner task before the GameBoy console starts.
+void night_light_set_launch_level(uint8_t firmware_level);
 
 uint16_t night_light_brightness_tenths();
 bool night_light_set_brightness_tenths(uint16_t tenths_percent);

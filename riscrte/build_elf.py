@@ -185,8 +185,8 @@ undefined = sorted({f[7] for line in symbols.splitlines()
 # the actual output ELF's length and digest after linking, never a stale
 # firmware image, prior artifact, or manually maintained checksum.
 payload = output.read_bytes()
-if len(payload) < 52:
-    raise SystemExit(f'GameBoy ELF is truncated: {len(payload)} bytes')
+if not 52 <= len(payload) <= 8 * 1024 * 1024:
+    raise SystemExit(f'GameBoy ELF is outside the RiscRTE 8 MiB app limit: {len(payload)} bytes')
 metadata = json.loads((ROOT / 'riscrte/gameboy.json').read_text())
 if metadata.get('file_name') != output.name:
     raise SystemExit('GameBoy manifest filename does not match the built ELF')

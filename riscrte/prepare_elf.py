@@ -69,10 +69,28 @@ def stage(destination: Path) -> None:
                       '  run_console(nullptr);', 'synchronous console')
     main = patch_once(main, 'bool init_display() {\n  Wire.begin(',
                       '#ifndef PAPERBOY_RISCRTE_ELF\nbool init_display() {\n  Wire.begin(',
-                      'standalone display start')
+                      'standalone display initialization')
     main = patch_once(main, 'void wait_vsync_frames(uint8_t frame_count) {',
-                      '#endif\n#ifdef PAPERBOY_RISCRTE_ELF\nbool init_display() {\n  // Keep the expander input reader initialized for the power button; the\n  // installed display driver owns all panel configuration and drawing.\n  return g_expander.begin(Wire, t5s3_epd::kPca9535Address) &&\n         epd_video_init(g_expander) && epd_video_power_on() && epd_video_start();\n}\n#endif\n\nvoid wait_vsync_frames(uint8_t frame_count) {',
-                      'provider display start')
+                      '''#endif
+#ifdef PAPERBOY_RISCRTE_ELF
+bool init_display() {
+  // Firmware initialized Wire and owns PCA defaults. Only bind the input
+  // reader on the host owner task; the installed display provider owns
+  // all panel setup, power sequencing and drawing.
+  bool expander_ready = false;
+  paperboy_owner_call([](void *result) {
+    *static_cast<bool *>(result) = g_expander.begin(Wire, t5s3_epd::kPca9535Address);
+  }, &expander_ready);
+  if (!expander_ready || !epd_video_init(g_expander)) return false;
+  bool powered = false;
+  paperboy_owner_call([](void *result) {
+    *static_cast<bool *>(result) = epd_video_power_on();
+  }, &powered);
+  return powered && epd_video_start();
+}
+#endif
+
+void wait_vsync_frames(uint8_t frame_count) {''', 'ELF display initialization')
     main = patch_once(main, 'struct GameFramePacer {',
                       'struct GameFramePacer {\n'
                       '  int64_t last_yield_us = 0;', 'ELF cooperation timestamp')

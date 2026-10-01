@@ -6,7 +6,11 @@ This port starts from the intact standalone `master` implementation. `src/main.c
 
 The standalone firmware retains the original raw `epd_video.cpp` and its hardware behavior. The RiscRTE ELF stages a `display.output` adapter in its place. Preserve the emulator, touch UI, audio, persistence, and game pacing; the installed display provider owns physical presentation.
 
-The short-term host exception is an **exclusive whole-display handoff**: after validating GameBoy's package and before `app_main`, RiscRTE stops rendering and releases its display backend, bus/DMA and shared panel ownership. GameBoy starts its own original display pipeline, independently drives the display for the duration of the app and stops its tasks/interrupts/DMA, frees panel handles and returns ownership before its ELF is unloaded. RiscRTE then reinitializes its backend and redraws the prior UI even if GameBoy initialization fails. Do not unload a module while tasks, callbacks or DMA still execute its code. A minimal compatibility change in the RiscRTE host is authorized for this temporary takeover; do not turn it into a full capability/driver-system migration or make it a general architectural prerequisite. Protect shared I2C/power peripherals from simultaneous ownership.
+The host performs an exclusive display handoff before entering GameBoy. The ELF acquires `display.output` on its owner task and borrows MONO1 frames from that provider; it does not stage the standalone panel/DMA implementation. Capability calls and release stay on the owner task, while the console worker writes pixels into its acquired frame. On exit the worker finishes before the provider lease is released and the host restores its UI. Shared I2C/PCA input access remains on the host owner task. This consumer conversion does not by itself prove full physical-driver extraction in the companion firmware.
+
+The current candidate is GameBoy 1.3.13 with a minimum firmware version of 1.3.47 and the compatible `display-epd-video` 0.1.2 provider from Reader PR #220. The CI host checkout remains on that companion branch until it is merged; a firmware version number alone is not proof the capability exists. Separate save-confirmation PR #29 reserves version 1.3.12 and is not incorporated here. Reconcile release ordering and versions before publishing either candidate.
+
+Host regression tests cover owner-task dispatch, a provider returning the wrong pixel format, rejected submissions retaining the frame, queued/active versus complete/superseded/failed presentations, and clean re-entry without a stale token. Unknown status remains pending, not fabricated success. The adapter's 24 Hz pacing counter is synthetic and is not physical scan-completion evidence.
 
 ## Behavioral invariants
 
@@ -20,7 +24,7 @@ The short-term host exception is an **exclusive whole-display handoff**: after v
 
 ## Definition of ready
 
-Produce a real ELF, not just a plan or an independently compiling test library. CI must build the original application sources into the ELF and test loader symbols/relocations plus ROM and save behavior. On device, verify launch, browser and multiple ROMs, high-speed display, audio, controls, save/load, clean exit and successful return to RiscRTE. Compilation is not hardware validation. Keep PR #7 draft and unmerged until tested; the owner controls merging.
+Produce a real ELF, not just a plan or an independently compiling test library. CI must build the original application sources into the ELF and test loader symbols/relocations plus ROM and save behavior. On device, verify launch, browser and multiple ROMs, high-speed display, audio, controls, save/load, clean exit and successful return to RiscRTE. Compilation is not hardware validation. The current display migration is PR #25; the owner controls merging and qualification.
 ### Controller rendering and shortcuts (1.2.22)
 
 External controller and keyboard buttons feed the emulator without animating the

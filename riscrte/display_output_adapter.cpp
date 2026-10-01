@@ -23,6 +23,7 @@ bool acquire_frame() {
     return false;
   if (surface.frame && surface.pixels && surface.width == 960 &&
       surface.height == 540 && surface.stride_bytes == 120 &&
+      surface.pixel_format == RISC_DISPLAY_FORMAT_MONO1 &&
       surface.size_bytes >= 64800)
     return true;
   if (surface.frame) display->release(display->context, surface.frame);
@@ -33,6 +34,7 @@ bool acquire_frame() {
 void end_on_owner(void *) {
   if (display && surface.frame) display->release(display->context, surface.frame);
   surface = {};
+  last_token = 0;
   display = nullptr;
   ready = false;
   if (host && lease) (void)host->release(lease);
@@ -122,7 +124,8 @@ bool epd_video_submit_pending() {
     value = ready && last_token &&
         (!display->present_status(display->context, last_token, &status) ||
          (status.state != RISC_DISPLAY_PRESENT_COMPLETE &&
-          status.state != RISC_DISPLAY_PRESENT_SUPERSEDED));
+          status.state != RISC_DISPLAY_PRESENT_SUPERSEDED &&
+          status.state != RISC_DISPLAY_PRESENT_FAILED));
   }, &pending);
   return pending;
 }

@@ -83,8 +83,8 @@ with tempfile.TemporaryDirectory() as tmp:
     input_block = staged.split('    // Poll on every page', 1)[1].split('    const bool touch_down', 1)[0]
     input_block = input_block[input_block.index('    const uint8_t controller_buttons'):]
     transition_block = '    if (next_page != page) {' + staged.split('    if (next_page != page) {', 1)[1].split('    bool pca_button_pressed', 1)[0]
-    render_block = staged.split('        uint8_t *backbuffer = epd_video_get_backbuffer();', 1)[1].split('      pace_game_frame', 1)[0]
-    render_block = '        uint8_t *backbuffer = epd_video_get_backbuffer();' + render_block.rsplit('}', 1)[0]
+    render_block = staged.split('      if (touch_scene_syncs > 0U && epd_video_can_submit()) {', 1)[1].split('      pace_game_frame', 1)[0]
+    render_block = '      if (touch_scene_syncs > 0U && epd_video_can_submit()) {' + render_block
     refresh_functions = staged.split('void wait_epd_idle()', 1)[1].split('void present_shutdown_page()', 1)[0]
     refresh_functions = 'void wait_epd_idle()' + refresh_functions
     refresh_constants = '\n'.join(line for line in staged.splitlines() if line.startswith(

@@ -17,6 +17,7 @@ void paperboy_storage_bind_host();
 void paperboy_storage_owner_wait();
 void paperboy_storage_owner_note_console_done();
 void paperboy_serial_log(const char *message);
+void paperboy_owner_call(void (*callback)(void *), void *context);
 
 // RiscRTE provider grants and subscriptions are task-owned. All HID provider
 // calls run here on the storage/ELF owner, never on the console worker.
@@ -32,6 +33,5 @@ void paperboy_touch_owner_end();
 
 // Called on the console core before USB startup; setup reuses the bus.
 bool paperboy_elf_prepare_display_bus();
-void paperboy_owner_call(void (*callback)(void *), void *context);
 bool paperboy_display_owner_begin();
 void paperboy_display_owner_end();

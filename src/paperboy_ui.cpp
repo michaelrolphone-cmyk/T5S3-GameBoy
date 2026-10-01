@@ -468,7 +468,7 @@ void draw_value_row(uint8_t *framebuffer, int y, const char *label, const char *
 void draw_light_controls(uint8_t *framebuffer) {
   const uint16_t level = night_light_brightness_tenths();
   char title[48];
-  snprintf(title, sizeof(title), "NIGHT LIGHT %u.%u%% (MAX 10.0%%)",
+  snprintf(title, sizeof(title), "NIGHT LIGHT %u.%u%% (MAX 100%%)",
            static_cast<unsigned>(level / 10U),
            static_cast<unsigned>(level % 10U));
   draw_centered_text(framebuffer, 736, title, 2);
