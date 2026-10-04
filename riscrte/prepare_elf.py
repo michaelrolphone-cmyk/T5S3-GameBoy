@@ -152,6 +152,18 @@ void wait_vsync_frames(uint8_t frame_count) {''', 'ELF display initialization')
     main = patch_once(main, 'TaskHandle_t s_elf_owner_task = nullptr;',
                       'TaskHandle_t s_elf_owner_task = nullptr;\n'
                       'bool s_elf_display_bus_ready = false;', 'display preparation state')
+    main = patch_once(
+        main,
+        'extern "C" __attribute__((visibility("default"))) void app_main() {\n'
+        '  s_elf_exit_requested = false;\n'
+        '  s_elf_boot_interrupt_attached = false;\n',
+        'bool paperboy_watch_launch();\n'
+        'extern "C" __attribute__((visibility("default"))) void app_main() {\n'
+        '  s_elf_exit_requested = false;\n'
+        '  s_elf_boot_interrupt_attached = false;\n'
+        '  // 240x240 RGB565 is the T-Watch panel. Every other display keeps the paper GUI.\n'
+        '  if (paperboy_watch_launch()) return;\n',
+        'watch launch is separate from the paper GUI')
     (destination / 'main.cpp').write_text(main, encoding='utf-8')
 
     epd = (ROOT / 'riscrte/display_output_adapter.cpp').read_text(encoding='utf-8')

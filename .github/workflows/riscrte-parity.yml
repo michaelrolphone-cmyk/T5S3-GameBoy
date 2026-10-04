@@ -28,6 +28,15 @@ jobs:
         run: /tmp/gameboy-rom-port-test
       - name: Verify original app and raw EPD driver are staged for ELF without feature loss
         run: python3 tests/elf_source_test.py
+      - name: Verify the T-Watch launch path stays off the paper GUI and off the SD card
+        run: |
+          cc -std=c11 -O1 -g -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined \
+            -fno-omit-frame-pointer riscrte/watch_path.c tests/watch_path_test.c -o /tmp/watch-path-test
+          /tmp/watch-path-test
+          c++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer -Itests/watch_stubs -Itests/display_stubs -Itests/storage_stubs -Isrc -Iriscrte \
+            riscrte/watch_launch.cpp riscrte/watch_path.c tests/watch_launch_host.cpp -o /tmp/watch-launch-test
+          /tmp/watch-launch-test
       - name: Verify provider-backed display ownership and failure handling
         run: |
           c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined \

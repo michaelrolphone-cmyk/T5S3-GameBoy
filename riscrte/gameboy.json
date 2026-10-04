@@ -29,6 +29,10 @@
     {
       "capability": "usb.host",
       "api": ">=1"
+    },
+    {
+      "capability": "input.navigation",
+      "api": ">=1"
     }
   ],
   "category": [
