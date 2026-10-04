@@ -98,6 +98,12 @@ for required in ('src/main.cpp', 'src/epd_video.cpp', 'src/gbemu.c',
 commands[ROOT.joinpath('riscrte/rom_port.c').resolve()] = commands[
     ROOT.joinpath('src/gbemu.c').resolve()]
 
+# Same ELF. The watch path is compiled in; app_main branches on the panel.
+commands[ROOT.joinpath('riscrte/watch_path.c').resolve()] = commands[
+    ROOT.joinpath('src/gbemu.c').resolve()]
+commands[ROOT.joinpath('riscrte/watch_launch.cpp').resolve()] = commands[
+    ROOT.joinpath('src/main.cpp').resolve()]
+
 objects = []
 for source, entry in sorted(commands.items()):
     original_tokens = shlex.split(entry.get('command', '')) if entry.get('command') else list(entry['arguments'])
