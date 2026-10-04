@@ -40,6 +40,7 @@ with tempfile.TemporaryDirectory() as tmp:
     assert 'paperboy_storage_owner_note_console_done();' in staged
     assert staged.find('paperboy_storage_bind_host();') < staged.find('(void)paperboy_storage_begin();') < staged.find('xTaskCreatePinnedToCore(')
     app_main = staged.split('void app_main()', 1)[1]
+    assert app_main.index('if (paperboy_watch_launch()) return;') < app_main.index('paperboy_storage_bind_host();')
     create = app_main.index('xTaskCreatePinnedToCore(')
     hid_begin = app_main.index('paperboy_usb_owner_begin();')
     worker_start = app_main.index('xTaskNotifyGive(console_task);')
