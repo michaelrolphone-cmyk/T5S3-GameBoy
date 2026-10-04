@@ -4,23 +4,27 @@ This port starts from the intact standalone `master` implementation. `src/main.c
 
 ## Immediate compatibility approach
 
-GameBoy is a privileged, board-specific ELF. It **may directly operate the T5S3 hardware** and use ESP-IDF, Arduino and board-specific APIs. Compliance with the future portable-app/provider architecture is not a prerequisite. Do not replace `epd_video.cpp` with `T5AppApi` rectangles, replace the original touch UI with a text menu, mute audio, drop persistence, or alter game pacing just because the native-app facade lacks a service. Do not build a thin firmware-hosted proxy for the GameBoy display driver. Compile and retain the original hardware implementation in the GameBoy ELF, making minimal, guarded ELF-specific changes only where required for linking, initialization and orderly teardown. Standalone firmware behavior must remain unchanged.
+The standalone firmware retains the original raw `epd_video.cpp` and its hardware behavior. The RiscRTE ELF stages a `display.output` adapter in its place. Preserve the emulator, touch UI, audio, persistence, and game pacing; the installed display provider owns physical presentation.
 
-The short-term host exception is an **exclusive whole-display handoff**: after validating GameBoy's package and before `app_main`, RiscRTE stops rendering and releases its display backend, bus/DMA and shared panel ownership. GameBoy starts its own original display pipeline, independently drives the display for the duration of the app and stops its tasks/interrupts/DMA, frees panel handles and returns ownership before its ELF is unloaded. RiscRTE then reinitializes its backend and redraws the prior UI even if GameBoy initialization fails. Do not unload a module while tasks, callbacks or DMA still execute its code. A minimal compatibility change in the RiscRTE host is authorized for this temporary takeover; do not turn it into a full capability/driver-system migration or make it a general architectural prerequisite. Protect shared I2C/power peripherals from simultaneous ownership.
+The host performs an exclusive display handoff before entering GameBoy. The ELF acquires `display.output` on its owner task and borrows MONO1 frames from that provider; it does not stage the standalone panel/DMA implementation. Capability calls and release stay on the owner task, while the console worker writes pixels into its acquired frame. On exit the worker finishes before the provider lease is released and the host restores its UI. Shared I2C/PCA input access remains on the host owner task. This consumer conversion does not by itself prove full physical-driver extraction in the companion firmware.
+
+The current candidate is GameBoy 1.3.13 with a minimum firmware version of 1.3.49 and the compatible `display-epd-video` 0.1.2 provider from Reader PR #220. The CI host checkout is pinned to Reader `9c9827eb2afe136b237efafce9e476f6b333a90b` from that companion branch; a firmware version number alone is not proof the capability exists. Separate save-confirmation PR #29 reserves version 1.3.12 and is not incorporated here. Reconcile release ordering and versions before publishing either candidate.
+
+Host regression tests cover owner-task dispatch, a provider returning the wrong pixel format, rejected submissions retaining the frame, queued/active versus complete/superseded/failed presentations, and clean re-entry without a stale token. Unknown status remains pending, not fabricated success. The adapter's 24 Hz pacing counter is synthetic and is not physical scan-completion evidence.
 
 ## Behavioral invariants
 
 - Keep the original game, ROM browser, settings, battery, SD and about screens, layout, navigation, touch mapping, controls, overlays, audio and gaming frame timing. Never silently load the first ROM.
 - Keep the existing ROM scan (root plus first-level folders, including `/Games`), case-insensitive `.gb`/`.gbc`, sorted capped catalog, built-in fallback, error messages and ROM selection.
 - Preserve cartridge RAM and RTC, canonical and legacy save paths and formats, last-ROM preference, configuration, memory quicksave, disk states and atomic writes.
-- Preserve physical display performance by retaining the original `epd_video.cpp` raw scan, waveform, dirty-row, double-buffer and DMA implementation in the ELF.
+- Preserve display output semantics through `display.output` acquisition, frame submission and owner-task release. The original `epd_video.cpp` remains the standalone implementation.
 - Retain direct board interaction when essential, including touch, battery and audio. Avoid initializing shared SD or I2C hardware twice: use existing mounted VFS and shared-bus coordination where necessary, without changing the application's semantics.
 - Ensure ROM reads use the correct VFS path and exact byte count, with chunked streaming for large files; do not confuse directory display names with absolute read paths. All opened resources close on failure and success.
 - Build a valid Xtensa ET_DYN module, verify every imported symbol and relocation, and fail CI if a required ESP-IDF/Arduino symbol is unavailable. Allow practical host export additions for this compatibility app.
 
 ## Definition of ready
 
-Produce a real ELF, not just a plan or an independently compiling test library. CI must build the original application sources into the ELF and test loader symbols/relocations plus ROM and save behavior. On device, verify launch, browser and multiple ROMs, high-speed display, audio, controls, save/load, clean exit and successful return to RiscRTE. Compilation is not hardware validation. Keep PR #7 draft and unmerged until tested; the owner controls merging.
+Produce a real ELF, not just a plan or an independently compiling test library. CI must build the original application sources into the ELF and test loader symbols/relocations plus ROM and save behavior. On device, verify launch, browser and multiple ROMs, high-speed display, audio, controls, save/load, clean exit and successful return to RiscRTE. Compilation is not hardware validation. The current display migration is PR #25; the owner controls merging and qualification.
 ### Controller rendering and shortcuts (1.2.22)
 
 External controller and keyboard buttons feed the emulator without animating the
@@ -111,3 +115,5 @@ Existing adjacent `ROM.gb.sav`/`ROM.gb.state` and older
 `ROM.sav`/`ROM.state` paths remain read-compatible so this storage change
 does not strand previously created saves. The standalone firmware keeps its
 existing SD-root/adjacent-sidecar behavior.
+
+October 1 integration: the minimum firmware is 1.3.49 because Reader #220 adds the restricted display-provider backend binding absent from published 1.3.48. The GameBoy source, standalone display, save format and pacing remain unchanged. Publish save-confirmation #29 (1.3.12) before 1.3.13, or renumber that later candidate above any published 1.3.13. No unrelated save-confirmation changes are included.

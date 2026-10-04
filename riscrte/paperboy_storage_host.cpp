@@ -97,6 +97,7 @@ void on_owner(Function function) {
   while (!__atomic_load_n(&request.done, __ATOMIC_ACQUIRE)) vTaskDelay(1);
 }
 
+
 bool host_exists(const char *path) {
   bool result = false;
   on_owner([&] { result = g_storage->exists(path); });

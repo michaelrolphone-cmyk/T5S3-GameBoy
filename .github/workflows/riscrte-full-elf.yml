@@ -24,8 +24,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: michaelrolphone-cmyk/T5S3-Reader
-          # Consume the merged host SDK so PR builds match released firmware.
-          ref: master
+          # GameBoy's display.output provider consumes the ABI in Reader PR #220.
+          # Pin the tested SDK; reconcile with merged master before releasing GameBoy.
+          ref: 9c9827eb2afe136b237efafce9e476f6b333a90b
           path: _riscrte
           persist-credentials: false
       - name: Record exact RiscRTE firmware ABI commit
@@ -88,12 +89,12 @@ jobs:
       - name: Verify RiscRTE manifest uses the PlatformIO version
         run: python scripts/bind_risc_app_version.py --manifest dist/riscrte/gameboy.json --check
 
-      - name: Reject direct USB host imports in the ELF
+      - name: Reject direct USB and firmware video imports in the ELF
         run: |
           python - <<'PY'
           import json
           names = json.load(open('dist/riscrte/imports.json'))['undefined']
-          forbidden = sorted(name for name in names if name.startswith('usb_host_'))
+          forbidden = sorted(name for name in names if name.startswith('usb_host_') or name == 't5_video_get_api')
           if forbidden:
               raise SystemExit('Standalone USB host calls leaked into ELF: ' + ', '.join(forbidden))
           if 't5_provider_capability_get_api' not in names:

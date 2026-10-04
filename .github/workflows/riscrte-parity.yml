@@ -28,6 +28,14 @@ jobs:
         run: /tmp/gameboy-rom-port-test
       - name: Verify original app and raw EPD driver are staged for ELF without feature loss
         run: python3 tests/elf_source_test.py
+      - name: Verify provider-backed display ownership and failure handling
+        run: |
+          c++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined \
+            -fno-omit-frame-pointer -Itests/display_stubs -Isrc -Iriscrte \
+            riscrte/display_output_adapter.cpp tests/display_output_adapter_test.cpp \
+            -o /tmp/gameboy-display-test
+          /tmp/gameboy-display-test format
+          /tmp/gameboy-display-test
       - name: Verify worker storage calls execute on the host owner task
         run: |
           cc -std=c11 -Wall -Wextra -Werror -c riscrte/rom_port.c -o /tmp/rom-port.o

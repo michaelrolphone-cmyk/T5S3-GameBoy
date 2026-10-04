@@ -21,7 +21,7 @@ def stage(destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     main = (ROOT / 'src/main.cpp').read_text(encoding='utf-8')
     main = patch_once(main, '#include "touch_gt911.h"',
-                      '#include "touch_gt911.h"\n#include "elf_lifecycle.h"', 'lifecycle header')
+                      '#include "touch_gt911.h"\n#include "elf_lifecycle.h"\n#include <T5UiApi.h>', 'lifecycle header')
     main = patch_once(main, '  const bool storage_scan_ok = paperboy_storage_begin();',
                       '  paperboy_serial_log("GameBoy setup entered");\n'
                       '  const bool storage_scan_ok = paperboy_storage_begin();',
@@ -75,7 +75,8 @@ def stage(destination: Path) -> None:
 #ifdef PAPERBOY_RISCRTE_ELF
 bool init_display() {
   // Firmware initialized Wire and owns PCA defaults. Only bind the input
-  // reader on the host owner task; raw panel setup still runs on the worker.
+  // reader on the host owner task; the installed display provider owns
+  // all panel setup, power sequencing and drawing.
   bool expander_ready = false;
   paperboy_owner_call([](void *result) {
     *static_cast<bool *>(result) = g_expander.begin(Wire, t5s3_epd::kPca9535Address);
@@ -113,14 +114,14 @@ void wait_vsync_frames(uint8_t frame_count) {''', 'ELF display initialization')
                       '    if (remaining_us > 2000) {\n      vTaskDelay(1);\n'
                       '      pacer.last_yield_us = esp_timer_get_time();',
                       'normal pacing counts as cooperation')
-    main += '''\n\n#ifdef PAPERBOY_RISCRTE_ELF\nnamespace {\nvolatile bool s_elf_exit_requested = false;\nbool s_elf_boot_interrupt_attached = false;\nTaskHandle_t s_elf_owner_task = nullptr;\n}\nvoid paperboy_elf_request_exit() { s_elf_exit_requested = true; }\nbool paperboy_elf_exit_requested() { return s_elf_exit_requested; }\nvoid paperboy_elf_note_boot_interrupt_attached() { s_elf_boot_interrupt_attached = true; }\n\nextern "C" __attribute__((visibility("default"))) uint32_t app_hardware_takeover() {\n  return T5_HARDWARE_TAKEOVER_DISPLAY;\n}\n\nusing PaperboyInitFunction = void (*)();\nextern "C" PaperboyInitFunction __app_init_array_start[];\nextern "C" PaperboyInitFunction __app_init_array_end[];\nextern "C" PaperboyInitFunction __app_ctors_start[];\nextern "C" PaperboyInitFunction __app_ctors_end[];\nextern "C" PaperboyInitFunction __app_fini_array_start[];\nextern "C" PaperboyInitFunction __app_fini_array_end[];\nextern "C" PaperboyInitFunction __app_dtors_start[];\nextern "C" PaperboyInitFunction __app_dtors_end[];\n\nextern "C" __attribute__((visibility("default"))) int app_module_init() {\n  for (PaperboyInitFunction *fn = __app_init_array_start; fn != __app_init_array_end; ++fn) {\n    if (*fn != nullptr) (*fn)();\n  }\n  for (PaperboyInitFunction *fn = __app_ctors_end; fn != __app_ctors_start;) {\n    --fn;\n    if (*fn != nullptr) (*fn)();\n  }\n  return 0;\n}\n\nextern "C" __attribute__((visibility("default"))) void app_module_fini() {\n  for (PaperboyInitFunction *fn = __app_dtors_start; fn != __app_dtors_end; ++fn) {\n    if (*fn != nullptr) (*fn)();\n  }\n  for (PaperboyInitFunction *fn = __app_fini_array_end; fn != __app_fini_array_start;) {\n    --fn;\n    if (*fn != nullptr) (*fn)();\n  }\n}\n\nextern "C" void paperboy_elf_console_task(void *unused) {\n  (void)unused;\n  setup();\n  TaskHandle_t owner = s_elf_owner_task;\n  s_elf_owner_task = nullptr;\n  paperboy_storage_owner_note_console_done();\n  if (owner != nullptr) {\n    xTaskNotifyGive(owner);\n  }\n  vTaskDelete(nullptr);\n}\n\nextern "C" __attribute__((visibility("default"))) void app_main() {\n  s_elf_exit_requested = false;\n  s_elf_boot_interrupt_attached = false;\n  paperboy_storage_bind_host();\n  (void)paperboy_storage_begin();\n  s_elf_owner_task = xTaskGetCurrentTaskHandle();\n  TaskHandle_t console_task = nullptr;\n  const BaseType_t task_result = xTaskCreatePinnedToCore(\n      paperboy_elf_console_task,\n      "gameboy_console",\n      32768,\n      nullptr,\n      1, // Same priority as the RiscRTE owner; emulation must not starve USB.\n      &console_task,\n      0);\n  if (task_result != pdPASS) {\n    s_elf_owner_task = nullptr;\n    ESP_LOGE(kTag, "ELF console task creation failed");\n  } else {\n    paperboy_storage_owner_wait();\n  }\n  if (s_elf_boot_interrupt_attached) {\n    detachInterrupt(digitalPinToInterrupt(t5s3_epd::kBootButton));\n    s_elf_boot_interrupt_attached = false;\n  }\n  night_light_shutdown();\n  audio_deinit();\n  paperboy_storage_end();\n  epd_video_shutdown();\n  if (g_emu != nullptr) { gbemu_destroy(g_emu); g_emu = nullptr; }\n  paperboy_storage_free_rom(g_sd_rom);\n  release_quicksave();\n  if (g_background != nullptr) { heap_caps_free(g_background); g_background = nullptr; }\n  if (g_scene != nullptr) { heap_caps_free(g_scene); g_scene = nullptr; }\n  if (g_game_frame != nullptr) { heap_caps_free(g_game_frame); g_game_frame = nullptr; }\n  g_idle_reason = nullptr;\n  g_storage_ready = false;\n  g_current_rom_path[0] = '\\0';\n}\n#endif\n'''
+    main += '''\n\n#ifdef PAPERBOY_RISCRTE_ELF\nnamespace {\nvolatile bool s_elf_exit_requested = false;\nbool s_elf_boot_interrupt_attached = false;\nTaskHandle_t s_elf_owner_task = nullptr;\n}\nvoid paperboy_elf_request_exit() { s_elf_exit_requested = true; }\nbool paperboy_elf_exit_requested() { return s_elf_exit_requested; }\nvoid paperboy_elf_note_boot_interrupt_attached() { s_elf_boot_interrupt_attached = true; }\n\nextern "C" __attribute__((visibility("default"))) uint32_t app_hardware_takeover() {\n  return T5_HARDWARE_TAKEOVER_DISPLAY;\n}\n\nusing PaperboyInitFunction = void (*)();\nextern "C" PaperboyInitFunction __app_init_array_start[];\nextern "C" PaperboyInitFunction __app_init_array_end[];\nextern "C" PaperboyInitFunction __app_ctors_start[];\nextern "C" PaperboyInitFunction __app_ctors_end[];\nextern "C" PaperboyInitFunction __app_fini_array_start[];\nextern "C" PaperboyInitFunction __app_fini_array_end[];\nextern "C" PaperboyInitFunction __app_dtors_start[];\nextern "C" PaperboyInitFunction __app_dtors_end[];\n\nextern "C" __attribute__((visibility("default"))) int app_module_init() {\n  for (PaperboyInitFunction *fn = __app_init_array_start; fn != __app_init_array_end; ++fn) {\n    if (*fn != nullptr) (*fn)();\n  }\n  for (PaperboyInitFunction *fn = __app_ctors_end; fn != __app_ctors_start;) {\n    --fn;\n    if (*fn != nullptr) (*fn)();\n  }\n  return 0;\n}\n\nextern "C" __attribute__((visibility("default"))) void app_module_fini() {\n  for (PaperboyInitFunction *fn = __app_dtors_start; fn != __app_dtors_end; ++fn) {\n    if (*fn != nullptr) (*fn)();\n  }\n  for (PaperboyInitFunction *fn = __app_fini_array_end; fn != __app_fini_array_start;) {\n    --fn;\n    if (*fn != nullptr) (*fn)();\n  }\n}\n\nextern "C" void paperboy_elf_console_task(void *unused) {\n  (void)unused;\n  setup();\n  TaskHandle_t owner = s_elf_owner_task;\n  s_elf_owner_task = nullptr;\n  paperboy_storage_owner_note_console_done();\n  if (owner != nullptr) {\n    xTaskNotifyGive(owner);\n  }\n  vTaskDelete(nullptr);\n}\n\nextern "C" __attribute__((visibility("default"))) void app_main() {\n  s_elf_exit_requested = false;\n  s_elf_boot_interrupt_attached = false;\n  paperboy_storage_bind_host();\n  (void)paperboy_storage_begin();\n  s_elf_display_bus_ready = paperboy_display_owner_begin();\n  if (!s_elf_display_bus_ready) paperboy_serial_log("ERROR install compatible display.output driver");\n  s_elf_owner_task = xTaskGetCurrentTaskHandle();\n  TaskHandle_t console_task = nullptr;\n  const BaseType_t task_result = xTaskCreatePinnedToCore(\n      paperboy_elf_console_task,\n      "gameboy_console",\n      32768,\n      nullptr,\n      1, // Same priority as the RiscRTE owner; emulation must not starve USB.\n      &console_task,\n      0);\n  if (task_result != pdPASS) {\n    s_elf_owner_task = nullptr;\n    ESP_LOGE(kTag, "ELF console task creation failed");\n  } else {\n    paperboy_storage_owner_wait();\n  }\n  if (s_elf_boot_interrupt_attached) {\n    detachInterrupt(digitalPinToInterrupt(t5s3_epd::kBootButton));\n    s_elf_boot_interrupt_attached = false;\n  }\n  night_light_shutdown();\n  audio_deinit();\n  paperboy_storage_end();\n  epd_video_shutdown();\n  if (g_emu != nullptr) { gbemu_destroy(g_emu); g_emu = nullptr; }\n  paperboy_storage_free_rom(g_sd_rom);\n  release_quicksave();\n  if (g_background != nullptr) { heap_caps_free(g_background); g_background = nullptr; }\n  if (g_scene != nullptr) { heap_caps_free(g_scene); g_scene = nullptr; }\n  if (g_game_frame != nullptr) { heap_caps_free(g_game_frame); g_game_frame = nullptr; }\n  g_idle_reason = nullptr;\n  g_storage_ready = false;\n  g_current_rom_path[0] = '\\0';\n}\n#endif\n'''
     main = patch_once(
         main,
         'extern "C" void paperboy_elf_console_task(void *unused) {\n  (void)unused;\n  setup();',
         'extern "C" void paperboy_elf_console_task(void *unused) {\n'
         '  (void)unused;\n'
         '  // Claim the display IRQ/DMA before USB can consume its available vector.\n'
-        '  s_elf_display_bus_ready = paperboy_elf_prepare_display_bus();\n'
+        '  s_elf_display_bus_ready = s_elf_display_bus_ready && paperboy_elf_prepare_display_bus();\n'
         '  xTaskNotifyGive(s_elf_owner_task);\n'
         '  // The owner retains console_task while loading optional providers.\n'
         '  // It must remain live until the owner releases this start barrier;\n'
@@ -153,28 +154,9 @@ void wait_vsync_frames(uint8_t frame_count) {''', 'ELF display initialization')
                       'bool s_elf_display_bus_ready = false;', 'display preparation state')
     (destination / 'main.cpp').write_text(main, encoding='utf-8')
 
-    epd = (ROOT / 'src/epd_video.cpp').read_text(encoding='utf-8')
-    original_wait = '''  for (uint8_t i = 0; i < 20 && g_scan_task != nullptr; ++i) {\n    vTaskDelay(pdMS_TO_TICKS(10));\n  }\n\n  wait_for_dma();'''
-    replacement_wait = '''  for (uint16_t i = 0; i < 200 && g_scan_task != nullptr; ++i) {\n    vTaskDelay(pdMS_TO_TICKS(10));\n  }\n  if (g_scan_task != nullptr) {\n    ESP_LOGE(kTag, "scan task did not stop; refusing unsafe ELF unload");\n    abort();\n  }\n  vTaskDelay(1);\n  wait_for_dma();'''
-    epd = patch_once(epd, original_wait, replacement_wait, 'scan-task join')
-    epd = patch_once(epd, '  g_dma_done = true;\n  return true;\n}',
-        '  // The panel has no D/C wire. Detach LCD output from shared LoRa CS\n'
-        '  // before owner-side SD reads (including USB provider loading).\n'
-        '  gpio_set_level(kDummyDcGpio, 1);\n'
-        '  gpio_config_t unused_dc = {};\n'
-        '  unused_dc.pin_bit_mask = 1ULL << kDummyDcGpio;\n'
-        '  unused_dc.mode = GPIO_MODE_OUTPUT;\n'
-        '  unused_dc.pull_up_en = GPIO_PULLUP_ENABLE;\n'
-        '  if (gpio_config(&unused_dc) != ESP_OK) return false;\n'
-        '  g_dma_done = true;\n  return true;\n}', 'keep LoRa deselected before SD reads')
-
-    original_tail = '''  if (g_expander != nullptr) {\n    g_expander->safeShutdownOutputs();\n  }\n}'''
-    replacement_tail = '''  if (g_expander != nullptr) {\n    g_expander->safeShutdownOutputs();\n  }\n#ifdef PAPERBOY_RISCRTE_ELF\n  if (g_panel_io != nullptr) {\n    const esp_err_t rc = esp_lcd_panel_io_del(g_panel_io);\n    if (rc != ESP_OK) { ESP_LOGE(kTag, "panel IO release: %s", esp_err_to_name(rc)); abort(); }\n    g_panel_io = nullptr;\n  }\n  if (g_i80_bus != nullptr) {\n    const esp_err_t rc = esp_lcd_del_i80_bus(g_i80_bus);\n    if (rc != ESP_OK) { ESP_LOGE(kTag, "i80 bus release: %s", esp_err_to_name(rc)); abort(); }\n    g_i80_bus = nullptr;\n  }\n  release_allocations();\n  g_expander = nullptr;\n  g_dma_done = true;\n  g_flip_req = false;\n  g_drive_pending = false;\n#endif\n}'''
-    epd = patch_once(epd, original_tail, replacement_tail, 'LCD/DMA teardown')
-    epd += '\n// Reserve on the console core before the owner loads optional USB.\n' \
-           'bool paperboy_elf_prepare_display_bus() { return init_panel_bus(); }\n'
+    epd = (ROOT / 'riscrte/display_output_adapter.cpp').read_text(encoding='utf-8')
     (destination / 'epd_video.cpp').write_text(epd, encoding='utf-8')
-    print(f'Staged complete GameBoy application and original display driver in {destination}')
+    print(f'Staged GameBoy application with installable display.output adapter in {destination}')
 
 
 if __name__ == '__main__':

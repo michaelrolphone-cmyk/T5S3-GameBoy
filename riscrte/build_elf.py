@@ -53,7 +53,8 @@ subprocess.run([str(optional_test)], check=True)
 if (not HOST_INCLUDE.joinpath('T5StorageApi.h').exists()
         or not HOST_INCLUDE.joinpath('T5ProviderCapabilityApi.h').exists()
         or not HOST_DRIVER_INCLUDE.joinpath('RiscUsbHidV1.h').exists()
-        or not HOST_DRIVER_INCLUDE.joinpath('RiscTouchV1.h').exists()):
+        or not HOST_DRIVER_INCLUDE.joinpath('RiscTouchV1.h').exists()
+        or not HOST_DRIVER_INCLUDE.joinpath('RiscDisplayOutputV1.h').exists()):
     raise SystemExit(f'Required RiscRTE provider ABIs not found under {HOST_ROOT}')
 
 
