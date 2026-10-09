@@ -15,7 +15,7 @@ The MONO1 frontend accepts a bounded surface at least 480×432 in landscape.
 On X4's 480×800 raw surface it renders an 800×480 landscape layout, with a
 centered 480×432 game view. Core white bits are inverted to the canonical
 MONO1 black-bit convention. Fast mode requests low-latency presentation; Paper
-mode requests quality presentation. The physical driver owns the waveform.
+mode requests quality presentation. The picker uses the selected mode too. The physical driver owns the waveform.
 While a frame is pending, emulation and navigation continue; the app never
 modifies a submitted surface or submits another until completion.
 
@@ -29,6 +29,21 @@ Controls:
   directly for the configured launcher, even when launched by a file browser.
 - USB/BLE controllers participate through the deployment's navigation provider.
   This app requests no raw USB, radio or touch hardware capability.
+
+Version 1.3.16 fixes the broker/volume path boundary: the UI and `file.open`
+use `/sd/...`, while storage-volume calls receive `/...` (root `/sd` becomes
+`/`). The selected X4 FatFs provider has no implicit `sd` subdirectory.
+Cleanup now waits for an owned pending display even after an unrelated input
+failure; an actual provider failure or timeout still retains ownership safely.
+
+Default-visible `GAMEBOY t_ms=... stage=... result=...` diagnostics name
+capability acquisition/release, storage refresh/open/close, ROM loading and
+initialization, input startup, the first frame and presentation transitions,
+failures and cleanup. The bounded Runtime diagnostic callback is used directly;
+there are no app file writes or per-frame logs. Retention logs its named failure
+before requesting invocation retention. The original .38 log alone does not
+prove which provider caused its retained invocation; the next device run can
+identify the exact operation. The separate 1.3.15 multi-touch work is preserved.
 
 The catalogue holds at most 96 entries and scans at most 512 entries or two
 seconds per folder, with scheduler checkpoints. ROM reads use 4096-byte chunks,

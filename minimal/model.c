@@ -15,6 +15,10 @@ bool gb_path(const char* p){
  const char* s=p+4;
  for(const char* q=s;;++q)if(!*q || *q=='/'){if(!component(s,(size_t)(q-s)))return false;if(!*q)return true;s=q+1;}
 }
+const char* gb_volume_path(const char* path){
+ if(!gb_path(path))return NULL;
+ return path[3]?path+3:"/";
+}
 bool gb_rom_name(const char* name){
  if(!name || !component(name,bounded_length(name,128)))return false;
  const char* ext=strrchr(name,'.');if(!ext || ext==name)return false;
