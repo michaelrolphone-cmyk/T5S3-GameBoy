@@ -1,0 +1,56 @@
+name: Minimal GameBoy Runtime port
+
+on:
+  pull_request:
+    paths:
+      - 'minimal/**'
+      - 'src/**'
+      - 'tests/minimal_*'
+      - 'tests/run_minimal.py'
+      - '.github/workflows/minimal-gameboy.yml'
+  push:
+    branches: [master, feat/recover-x4-gameboy]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core-and-target:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PLATFORMIO_SETTING_ENABLE_TELEMETRY: 'No'
+      ASAN_OPTIONS: detect_leaks=0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: michaelrolphone-cmyk/RiscRTE
+          ref: b2d9dc1b90498665c95b70ec3bffa61245f346ec
+          path: _minimal_runtime
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Select the isolated compiler cache
+        run: echo "PLATFORMIO_CORE_DIR=$RUNNER_TEMP/gameboy-tools" >> "$GITHUB_ENV"
+      - name: Real core and capability lifecycle
+        run: |
+          python tests/run_minimal.py --runtime _minimal_runtime
+          python tests/run_minimal.py --runtime _minimal_runtime --sanitize
+      - name: Install the pinned official Xtensa compiler
+        run: |
+          python -m pip install 'platformio==6.1.19'
+          pio pkg install --global --tool 'espressif/toolchain-xtensa-esp32s3@8.4.0+2021r2-patch5'
+      - name: Build and validate the actual target ELF
+        run: |
+          export NATIVE_APP_CC="$PLATFORMIO_CORE_DIR/packages/toolchain-xtensa-esp32s3/bin/xtensa-esp32s3-elf-gcc"
+          python minimal/build.py --runtime _minimal_runtime
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gameboy-minimal-elf
+          path: |
+            dist/minimal/gameboy.elf
+            dist/minimal/gameboy.json
+            dist/minimal/build.json
+            dist/minimal/licenses/

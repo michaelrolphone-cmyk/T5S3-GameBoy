@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "base_repository": "michaelrolphone-cmyk/T5S3-GameBoy",
+  "base_commit": "46e74ba453243921695b29e06f5eaa25453645de",
+  "core": [
+    "src/gbemu.c",
+    "src/gbemu.h",
+    "src/crankboy_core",
+    "src/audio.c",
+    "src/minigb_apu"
+  ],
+  "sdk_repository": "michaelrolphone-cmyk/T5S3-Reader",
+  "sdk_commit": "aac8c06d3221139084acd0cfc64f7b0ba194a97a",
+  "sdk_headers": {
+    "RiscDisplayOutputV1.h": "99b682ba34f07e7868dec8e78dfb816c067fdc184e647033bc6ed8d489b9c9a2",
+    "RiscInputNavigationV1.h": "022ab46c1a94372524c519d04db42d34e06e814171fa1b4bd17f85a8ee217ef2",
+    "RiscTouchV1.h": "fe18fab3ac20fda95747388f1428408b7795e5da3511c7a9fff07c16ddfd2c7d",
+    "RiscProviderV2.h": "2935d83493a411e19ee98b8c7e805b86f4adf98c6bde66fd031df7cc379bdc17",
+    "RiscStreamProviderV1.h": "0fe306e060321387c816bb70ec4370a501a423f4fe19a20c9be80aa1b98f3432"
+  },
+  "font_source": "T5S3-GameBoy/riscrte/font8x8_basic.h",
+  "font_commit": "0c114dc7c6fe1b6c3be049a3a79bbb2d2292e38f",
+  "font_sha256": "77f7eecdf7bc8144a318b94d3c3b04512356814d41cd86b505d1b360437d752f",
+  "font_license": "Public domain, original notice retained",
+  "runtime_headers": "Selected explicitly by --runtime and hashed in build.json",
+  "reconstruction": "New source; lost unpublished dcdbc5499 artifact was not recovered."
+}

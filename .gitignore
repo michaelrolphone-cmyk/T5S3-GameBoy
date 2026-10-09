@@ -10,3 +10,6 @@ __pycache__/
 *.py[cod]
 other
 script
+
+# Exact Runtime dependency checkout used by the minimal-port workflow.
+_minimal_runtime/
