@@ -9,6 +9,7 @@ extern uint64_t __umoddi3(uint64_t,uint64_t);
 int main(void){
  const char* invalid[]={"", "/", "/sd/", "/sd/../a.gb", "/sd//a.gb", "/sd/./a.gb", "/sd/a\\b.gb", "/sd/a\n.gb", "/sdx/a.gb"};
  for(unsigned i=0;i<sizeof(invalid)/sizeof(*invalid);++i)assert(!gb_path(invalid[i]));
+ assert(!strcmp(gb_volume_path("/sd"),"/") && !strcmp(gb_volume_path("/sd/ROMs/demo.gb"),"/ROMs/demo.gb") && !gb_volume_path("/sd/../demo.gb") && !gb_volume_path("/sdx/demo.gb"));
  assert(gb_path("/sd") && gb_path("/sd/ROMs/Test.GB"));assert(gb_rom_name("Test.GB") && gb_rom_name("dual.GbC"));
  assert(!gb_rom_name(".gb") && !gb_rom_name("a.txt") && !gb_rom_name("../a.gb"));
  char joined[512];assert(gb_join("/sd","a.gb",joined,sizeof(joined)) && !strcmp(joined,"/sd/a.gb"));

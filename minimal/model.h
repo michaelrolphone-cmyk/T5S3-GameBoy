@@ -9,6 +9,7 @@
 typedef struct {char name[128];bool directory;} gb_entry;
 typedef struct {gb_entry entries[GB_CATALOG_MAX];size_t count;bool truncated;} gb_catalog;
 bool gb_path(const char* path);
+const char* gb_volume_path(const char* broker_path);
 bool gb_rom_name(const char* name);
 bool gb_join(const char* directory,const char* name,char* out,size_t capacity);
 void gb_parent(char* path);

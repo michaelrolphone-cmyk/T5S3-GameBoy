@@ -15,7 +15,7 @@ The MONO1 frontend accepts a bounded surface at least 480×432 in landscape.
 On X4's 480×800 raw surface it renders an 800×480 landscape layout, with a
 centered 480×432 game view. Core white bits are inverted to the canonical
 MONO1 black-bit convention. Fast mode requests low-latency presentation; Paper
-mode requests quality presentation. The physical driver owns the waveform.
+mode requests quality presentation. The picker uses the selected mode too. The physical driver owns the waveform.
 While a frame is pending, emulation and navigation continue; the app never
 modifies a submitted surface or submits another until completion.
 
@@ -37,7 +37,7 @@ Controls:
   Picker rows open on tap; its bottom controls provide Home, Back, mode and
   previous/next pages. There is no per-app Quick Actions overlay.
 
-Minimal app 1.3.15 adds an ordinary `input.touch.raw@1` grant using the unchanged
+Minimal app 1.3.17 includes an ordinary `input.touch.raw@1` grant using the unchanged
 Reader `RiscTouchV1.h`. GT911 public IDs 1–16 own contacts independently of report
 array order; the consumer accepts up to five actual contacts. Missing IDs and
 UP events release their captured controls. A finger that starts outside a
@@ -56,6 +56,21 @@ holds alive; repeatedly reading a cached snapshot does not refresh the timer.
 There is no CANCEL event in this ABI; cancellation is local consumer state.
 Touch unsubscribe must succeed before the grant can be released or Home can
 launch another app. An uncertain unsubscribe retains the invocation.
+
+Version 1.3.17 includes the 1.3.16 fixes for the broker/volume path boundary: the UI and `file.open`
+use `/sd/...`, while storage-volume calls receive `/...` (root `/sd` becomes
+`/`). The selected X4 FatFs provider has no implicit `sd` subdirectory.
+Cleanup now waits for an owned pending display even after an unrelated input
+failure; an actual provider failure or timeout still retains ownership safely.
+
+Default-visible `GAMEBOY t_ms=... stage=... result=...` diagnostics name
+capability acquisition/release, storage refresh/open/close, ROM loading and
+initialization, input startup, the first frame and presentation transitions,
+failures and cleanup. The bounded Runtime diagnostic callback is used directly;
+there are no app file writes or per-frame logs. Retention logs its named failure
+before requesting invocation retention. The original .38 log alone does not
+prove which provider caused its retained invocation; the next device run can
+identify the exact operation. It combines these repairs with the simultaneous touch controls from 1.3.15.
 
 The catalogue holds at most 96 entries and scans at most 512 entries or two
 seconds per folder, with scheduler checkpoints. ROM reads use 4096-byte chunks,
@@ -104,6 +119,22 @@ No commercial ROM is bundled or used. The physical panel must still demonstrate
 multiple distinct GT911 contact IDs and continuous held-report cadence; this
 consumer cannot create a second finger on single-contact hardware/configuration.
 
+The optional production-volume contract test uses the selected X4 SD provider,
+shared FatFs, and its existing GPIO/card-wire fixture. It rejects unconverted
+`/sd` paths, then verifies GameBoy's converted root and all bytes of a 32 KiB
+synthetic ROM, including clean provider shutdown:
+
+```sh
+python3 tests/run_minimal_provider.py --x4 ../Xteink-X4 \
+  --runtime ../RiscRTE --reader ../T5S3-Reader
+python3 tests/run_minimal_provider.py --x4 ../Xteink-X4 \
+  --runtime ../RiscRTE --reader ../T5S3-Reader --sanitize
+```
+
+Use the actual selected shared source, not only its historical baseline pin.
+The .38 fixture passes with Runtime `faa8f62936a5889c65cce3f271758d9d95f21d7b`
+and Reader `86241815411a925b6f246ff8437a33dce3d20af6`.
+
 ## Product integration
 
 Add `gameboy.elf` and `gameboy.json` to the immutable installed store and declare
@@ -119,7 +150,7 @@ BIN is a qualified X4 native composition. Product integration follows the X4
 owner's power-fix priority.
 
 The existing qualified 1.3.14 ELF and its four-grant manifest remain separate
-integration inputs. This 1.3.15 branch does not replace them in an existing
+integration inputs. This 1.3.17 branch does not replace them in an existing
 product, publish a release or establish hardware qualification.
 
 This is reconstructed source. The earlier unpublished `dcdbc5499...` port and

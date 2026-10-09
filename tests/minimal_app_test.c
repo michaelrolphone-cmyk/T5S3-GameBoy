@@ -12,6 +12,8 @@ extern int app_module_init(void);
 extern void app_main(void);
 extern void app_module_fini(void);
 static const char* mode;
+static bool core_ready,named_retention;
+static unsigned diagnostics;
 static uint32_t ticks,polls,submits,completes,reads,closed,dir_closed,releases,homes,game_frames;
 static bool retained,live[5],acquired,file_live,dir_live;
 static size_t offset;
@@ -43,7 +45,13 @@ void* __wrap_malloc(size_t n){if((is("rom-oom") && n==32768) || (is("init-oom") 
 void* __wrap_calloc(size_t n,size_t bytes){if(is("core-oom"))return NULL;return __real_calloc(n,bytes);}
 static bool health(risc_runtime_health_v1* h){if(retained)return false;h->uptime_ms=ticks;return true;}
 static void yield(uint32_t ms){assert(!retained && ms>=1 && ms<=50);ticks+=ms;assert(ticks<25000);}
-static bool diagnostic(const char* s){return s && !retained;}
+static bool diagnostic(const char* s){
+ assert(s && !retained && strlen(s)<256 && !strchr(s,'\n') && strstr(s,"GAMEBOY t_ms="));++diagnostics;assert(diagnostics<100);
+ if(strstr(s,"stage=rom-core-init result=ok"))core_ready=true;
+ if(strstr(s,"stage=retain-invocation result=required") && strlen(s)>70)named_retention=true;
+ if(getenv("GAMEBOY_TEST_TRACE"))puts(s);
+ return true;
+}
 static bool hold(void){retained=true;return true;}
 static bool request_home(void){assert(!retained && !file_live && !acquired && !subscribed);for(unsigned i=0;i<5;++i)assert(!live[i]);++homes;return true;}
 static bool info(void* c,risc_display_info_v1* out){(void)c;out->api_version=1;out->struct_size=sizeof(*out);out->width=(is("landscape") || is("touch-landscape"))?800:480;out->height=(is("landscape") || is("touch-landscape"))?480:800;out->supported_formats=is("bad-display")?0:1;return true;}
@@ -55,7 +63,8 @@ static void release_frame(void* c,risc_display_frame_v1 frame){(void)c;assert(!r
 static bool submit(void* c,risc_display_frame_v1 frame,const risc_display_rect_v1* damage,size_t n,const risc_display_present_options_v1* options,risc_display_present_token_v1* token){
  (void)c;(void)damage;assert(!retained && acquired && frame==1 && n==0 && options);acquired=false;
  for(unsigned i=0;i<16;++i)assert(pixels[i]==0xa5 && pixels[48016+i]==0xa5);
- if(options->intent==RISC_DISPLAY_PRESENT_LOW_LATENCY || ((is("paper") || is("touch-paper")) && reads>=8)){
+ if(!submits)assert(options->intent==RISC_DISPLAY_PRESENT_LOW_LATENCY);
+ if(core_ready){
   ++game_frames;unsigned black=0;for(unsigned i=16;i<48016;++i)black+=(unsigned)__builtin_popcount(pixels[i]);
   if(game_frames>1)assert(black>1000); // The real synthetic ROM drew tile pixels.
   const char* capture=getenv("GAMEBOY_TEST_FRAME");
@@ -70,6 +79,7 @@ static bool status(void* c,risc_display_present_token_v1 token,risc_display_pres
 static bool navigation_poll(void* c,risc_input_navigation_frame_v1* out){
  (void)c;assert(!retained);++polls;memset(out,0,sizeof(*out));
  if(is("present-timeout") || is("present-failed") || is("surface-overflow"))return true;
+ if(is("navigation-failure-pending") && submits && present_until>ticks)return false;
  if(is("cancel") && file_live){out->pressed=RISC_NAV_BACK;return true;}
  if((touch_mode()?ticks>=900:submits>=4) || (polls>1000 && !file_live)){out->pressed=RISC_NAV_HOME;return true;}
  if(is("touch-keyboard") && touch_started && ticks-touch_start<720)out->buttons|=RISC_NAV_DOWN|RISC_NAV_PAGE_FORWARD;
@@ -80,10 +90,10 @@ static bool navigation_poll(void* c,risc_input_navigation_frame_v1* out){
 static bool reset(void* c){(void)c;assert(!retained);return true;}
 static bool refresh(void* c){(void)c;return !is("unavailable-media");}
 static bool ready(void* c){(void)c;return !is("unavailable-media");}
-static risc_storage_dir_t dir_open(void* c,const char* p){(void)c;assert(!retained && !dir_live && gb_path(p));dir_live=true;return 1;}
+static risc_storage_dir_t dir_open(void* c,const char* p){(void)c;assert(!retained && !dir_live && !strcmp(p,"/"));dir_live=true;return 1;}
 static bool dir_next(void* c,risc_storage_dir_t d,risc_storage_dirent_v1* out){(void)c;assert(dir_live && d==1);static unsigned n;if(n++==(is("directory-limit")?600u:1u))return false;snprintf(out->name,sizeof(out->name),is("directory-limit")?"%03u.gb":"demo.gb",n);out->size=sizeof(rom);return true;}
 static void dir_close(void* c,risc_storage_dir_t d){(void)c;assert(!retained && dir_live && d==1);dir_live=false;++dir_closed;}
-static risc_storage_file_t open_read(void* c,const char* p,uint64_t* bytes){(void)c;assert(!retained && gb_path(p) && !file_live);offset=0;file_live=true;*bytes=is("size-limit")?5*1024*1024:sizeof(rom);return 1;}
+static risc_storage_file_t open_read(void* c,const char* p,uint64_t* bytes){(void)c;assert(!retained && !strcmp(p,"/demo.gb") && !file_live);offset=0;file_live=true;*bytes=is("size-limit")?5*1024*1024:sizeof(rom);return 1;}
 static size_t read_rom(void* c,risc_storage_file_t f,void* out,size_t n){(void)c;assert(!retained && file_live && f==1 && n<=4096);++reads;if(is("error-read"))return 0;if(is("short-read") && n>97)n=97;if(n>sizeof(rom)-offset)n=sizeof(rom)-offset;memcpy(out,rom+offset,n);offset+=n;return n;}
 static bool close_rom(void* c,risc_storage_file_t f,bool commit){(void)c;assert(!retained && file_live && f==1 && !commit);++closed;if(is("close-retained"))return false;file_live=false;return true;}
 static bool source(char* out,size_t cap){assert(cap==512);if(!is("receiver") && !is("invalid-source"))return false;strcpy(out,is("invalid-source")?"/sd/../bad.gb":"/sd/demo.gb");return true;}
@@ -142,7 +152,7 @@ int main(int argc,char** argv){
  if(!init){app_main();app_module_fini();}
  bool retain=is("close-retained") || is("present-timeout") || is("present-failed") || is("grant-retained") || is("touch-unsubscribe-retained");assert(retained==retain);
  if(!retain){for(unsigned i=0;i<5;++i)assert(!live[i]);assert(!file_live && !acquired && !subscribed);}
- assert(homes==(!reject && !retain && !is("surface-overflow")));
+ assert(homes==(!reject && !retain && !is("surface-overflow") && !is("navigation-failure-pending")));
  fprintf(stderr,"observed %s: reads=%u closed=%u submits=%u complete=%u polls=%u ticks=%u\n",mode,reads,closed,submits,completes,polls,ticks);
  if(is("chooser") || is("receiver") || (is("landscape") || is("touch-landscape"))){assert(reads==8 && closed==1 && submits>=4 && completes==submits);}
  if(is("chooser") || is("receiver") || (is("landscape") || is("touch-landscape")) || is("paper"))assert(game_frames>=2);if(is("bad-rom") || is("cgb-only") || is("init-oom") || is("rom-oom") || is("core-oom"))assert(game_frames==0);
@@ -150,5 +160,6 @@ int main(int argc,char** argv){
  if(is("short-read"))assert(reads>8 && closed==1);if(is("cancel"))assert(reads==1 && closed==1);if(is("size-limit"))assert(reads==0 && closed==1);if(is("invalid-source"))assert(reads==0);
  if(touch_mode() && !reject){assert(saw_combo);if(!is("touch-home") && !is("touch-roms"))assert(saw_neutral_after_combo);assert(touch_polls);}
  if(is("touch-keyboard"))assert(saw_mixed);
+ if(retain)assert(named_retention);if(!is("old-runtime"))assert(diagnostics);
  printf("Minimal GameBoy real core: %s PASS (%u reads, %u frames)\n",mode,reads,submits);
 }
