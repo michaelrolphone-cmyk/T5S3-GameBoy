@@ -21,7 +21,6 @@ jobs:
     timeout-minutes: 15
     env:
       PLATFORMIO_SETTING_ENABLE_TELEMETRY: 'No'
-      PLATFORMIO_CORE_DIR: ${{ runner.temp }}/gameboy-tools
       ASAN_OPTIONS: detect_leaks=0
     steps:
       - uses: actions/checkout@v4
@@ -33,6 +32,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Select the isolated compiler cache
+        run: echo "PLATFORMIO_CORE_DIR=$RUNNER_TEMP/gameboy-tools" >> "$GITHUB_ENV"
       - name: Real core and capability lifecycle
         run: |
           python tests/run_minimal.py --runtime _minimal_runtime
