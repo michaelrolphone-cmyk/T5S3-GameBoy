@@ -13,6 +13,6 @@ with tempfile.TemporaryDirectory() as tmp:
     for i,source in enumerate(src+[ROOT/'tests/minimal_app_test.c']):
         obj=temp/f'{i}.o';objects.append(obj)
         subprocess.run([*flags,'-DGBEMU_FAST_MONO=1','-ffunction-sections','-fdata-sections','-c',str(source),'-o',str(obj)],check=True)
-    app=temp/'app';subprocess.run([*flags,'-Wl,--gc-sections',*map(str,objects),'-o',str(app)],check=True)
-    for mode in ['chooser','receiver','landscape','paper','bad-rom','cgb-only','short-read','error-read','size-limit','cancel','close-retained','present-timeout','present-failed','grant-retained','old-runtime','bad-display','surface-overflow','missing-grant','unavailable-media','invalid-source','directory-limit']:
+    app=temp/'app';subprocess.run([*flags,'-Wl,--gc-sections','-Wl,--wrap=malloc,--wrap=calloc',*map(str,objects),'-o',str(app)],check=True)
+    for mode in ['chooser','receiver','landscape','paper','bad-rom','cgb-only','short-read','error-read','size-limit','cancel','close-retained','present-timeout','present-failed','grant-retained','old-runtime','bad-display','surface-overflow','missing-grant','unavailable-media','invalid-source','directory-limit','init-oom','rom-oom','core-oom']:
         subprocess.run([str(app),mode],check=True,timeout=30)

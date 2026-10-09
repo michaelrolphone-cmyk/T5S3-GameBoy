@@ -17,6 +17,10 @@ static size_t offset;
 static uint32_t present_until;
 static uint8_t pixels[48000+32],rom[32768];
 static bool is(const char* s){return !strcmp(mode,s);}
+void* __real_malloc(size_t);
+void* __real_calloc(size_t,size_t);
+void* __wrap_malloc(size_t n){if((is("rom-oom") && n==32768) || (is("init-oom") && n==GBEMU_FRAMEBUFFER_SIZE))return NULL;return __real_malloc(n);}
+void* __wrap_calloc(size_t n,size_t bytes){if(is("core-oom"))return NULL;return __real_calloc(n,bytes);}
 static bool health(risc_runtime_health_v1* h){if(retained)return false;h->uptime_ms=ticks;return true;}
 static void yield(uint32_t ms){assert(!retained && ms>=1 && ms<=50);ticks+=ms;assert(ticks<25000);}
 static bool diagnostic(const char* s){return s && !retained;}
@@ -83,14 +87,15 @@ int main(int argc,char** argv){
  for(unsigned i=0x134;i<=0x14c;++i)rom[0x14d]=(uint8_t)(rom[0x14d]-rom[i]-1);
  if(is("bad-rom"))rom[0x147]=0xff; // Unsupported mapper, not an invented checksum policy.
  if(is("old-runtime"))runtime.struct_size=RISC_RUNTIME_STREAM_CLIENT_V1_SIZE;
- int init=app_module_init();bool reject=is("old-runtime") || is("bad-display") || is("missing-grant");assert((init!=0)==reject);
+ int init=app_module_init();bool reject=is("old-runtime") || is("bad-display") || is("missing-grant") || is("init-oom");assert((init!=0)==reject);
  if(!init){app_main();app_module_fini();}
  bool retain=is("close-retained") || is("present-timeout") || is("present-failed") || is("grant-retained");assert(retained==retain);
  if(!retain){for(unsigned i=0;i<4;++i)assert(!live[i]);assert(!file_live && !acquired);}
  assert(homes==(!reject && !retain && !is("surface-overflow")));
  fprintf(stderr,"observed %s: reads=%u closed=%u submits=%u complete=%u polls=%u ticks=%u\n",mode,reads,closed,submits,completes,polls,ticks);
  if(is("chooser") || is("receiver") || is("landscape")){assert(reads==8 && closed==1 && submits>=4 && completes==submits);}
- if(is("chooser") || is("receiver") || is("landscape") || is("paper"))assert(game_frames>=2);if(is("bad-rom") || is("cgb-only"))assert(game_frames==0);
+ if(is("chooser") || is("receiver") || is("landscape") || is("paper"))assert(game_frames>=2);if(is("bad-rom") || is("cgb-only") || is("init-oom") || is("rom-oom") || is("core-oom"))assert(game_frames==0);
+ if(is("rom-oom"))assert(closed==1 && reads==0);if(is("core-oom"))assert(closed==1 && reads==8);
  if(is("short-read"))assert(reads>8 && closed==1);if(is("cancel"))assert(reads==1 && closed==1);if(is("size-limit"))assert(reads==0 && closed==1);if(is("invalid-source"))assert(reads==0);
  printf("Minimal GameBoy real core: %s PASS (%u reads, %u frames)\n",mode,reads,submits);
 }
