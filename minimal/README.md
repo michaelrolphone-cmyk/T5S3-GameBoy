@@ -41,6 +41,12 @@ it cannot continue I/O, free provider-owned resources or launch another app.
 
 Use the official Xtensa ESP32-S3 GCC 8.4.0 toolchain and the selected Runtime
 checkout. No Arduino framework is needed for the application ELF.
+The dedicated minimal-port CI pins Runtime
+`b2d9dc1b90498665c95b70ec3bffa61245f346ec` ([Runtime PR56](https://github.com/michaelrolphone-cmyk/RiscRTE/pull/56)).
+Its source tree exactly matches the locally qualified `.77` source
+`3093683cd505e15eb3be595ea0403a6e2c82eecb`. This pin includes the append-only
+configured-default callback needed by Home; a version number alone is not
+a sufficient compatibility check.
 
 ```sh
 NATIVE_APP_CC=/path/to/xtensa-esp32s3-elf-gcc \
