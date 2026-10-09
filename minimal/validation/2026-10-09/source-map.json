@@ -1,0 +1,215 @@
+{
+  "schema": 1,
+  "repository": "michaelrolphone-cmyk/T5S3-GameBoy",
+  "public_base": "16242c55437134400e8ce4db696530c022bb8575",
+  "artifact_source_pins_unchanged": true,
+  "source_commits": [
+    {
+      "version": "1.3.15",
+      "original_commit": "e230c324f1b5e4134d124b05f6d3330558b957e8",
+      "public_commit": "33929ebe718187925aa3e0e3c97af8a228d8f98a",
+      "original_tree": "ced4d0175b2b4c843f018561791ebba4d5a1bd08",
+      "public_tree": "ced4d0175b2b4c843f018561791ebba4d5a1bd08",
+      "tree_equivalence_verified": true
+    },
+    {
+      "version": "1.3.16",
+      "original_commit": "c7cc18b32f671bcdde27722cbbf61b0bcbef2679",
+      "public_commit": "8ec0772eea9b6133c86b35884a2889bd91ce9552",
+      "original_tree": "db84ee74b6590d42668e928692a23904bcd5e72a",
+      "public_tree": "db84ee74b6590d42668e928692a23904bcd5e72a",
+      "tree_equivalence_verified": true
+    },
+    {
+      "version": "1.3.17",
+      "original_commit": "0e4547b3ede68a62130c89f9dbde0a1dbc6fc45f",
+      "public_commit": "164008d447724f42d027d5a59a844b8fdc7a545b",
+      "original_tree": "f4d962e9a8190179bfa97da0a8f80bd9931ba8fb",
+      "public_tree": "f4d962e9a8190179bfa97da0a8f80bd9931ba8fb",
+      "tree_equivalence_verified": true
+    }
+  ],
+  "receipts": [
+    {
+      "version": "1.3.15",
+      "path": "minimal/validation/2026-10-09/1.3.15/build.json",
+      "sha256": "eb9e5d5fd47697de21ffb1819f83f36ba06e31484f38473e843de97a40512967",
+      "original_sha256": "eb9e5d5fd47697de21ffb1819f83f36ba06e31484f38473e843de97a40512967",
+      "original_bytes": 4437,
+      "bytes": 4437,
+      "git_blob_sha": "eb06e1cb256a78ed613f3425ff68b36c220c3242"
+    },
+    {
+      "version": "1.3.15",
+      "path": "minimal/validation/2026-10-09/1.3.15/gameboy.json",
+      "sha256": "3bcd6579456af350d2d62db419716d9cc5a39ddcefcb92120fb72d750776a94a",
+      "original_sha256": "3bcd6579456af350d2d62db419716d9cc5a39ddcefcb92120fb72d750776a94a",
+      "original_bytes": 612,
+      "bytes": 612,
+      "git_blob_sha": "32ec79dbf0fe9e94c66fbd5a22295435d7366394"
+    },
+    {
+      "version": "1.3.15",
+      "path": "minimal/validation/2026-10-09/1.3.15/host.log.gz",
+      "sha256": "da616d494f00d4ea3f7416a6f877d2e80f0f44bc057bc591d3a9c0a442b779e7",
+      "original_sha256": "885190082508a9a07679d1d40967342eeb4a97659b839d2bce61cba616b5076f",
+      "original_bytes": 5780,
+      "bytes": 899,
+      "git_blob_sha": "e0370995416682435b81b84e815fb3bb5185b844"
+    },
+    {
+      "version": "1.3.15",
+      "path": "minimal/validation/2026-10-09/1.3.15/host-sanitize.log.gz",
+      "sha256": "da616d494f00d4ea3f7416a6f877d2e80f0f44bc057bc591d3a9c0a442b779e7",
+      "original_sha256": "885190082508a9a07679d1d40967342eeb4a97659b839d2bce61cba616b5076f",
+      "original_bytes": 5780,
+      "bytes": 899,
+      "git_blob_sha": "e0370995416682435b81b84e815fb3bb5185b844"
+    },
+    {
+      "version": "1.3.15",
+      "path": "minimal/validation/2026-10-09/1.3.15/target-build.log.gz",
+      "sha256": "92fc8283819a5832704fb4bcace238be74172bdf713ec165f7c058d94cf63e26",
+      "original_sha256": "01c2f6d570ad6f9a174f1c71089a5c87b85e590d85a5975292493cfe271a3d42",
+      "original_bytes": 396,
+      "bytes": 283,
+      "git_blob_sha": "2b64570f62d0f16da5eed7711488fca9b00fcb2d"
+    },
+    {
+      "version": "1.3.16",
+      "path": "minimal/validation/2026-10-09/1.3.16/build.json",
+      "sha256": "bd08691e63609333fa7881d32dbed1897d67f0b818911b55913aeef7510e54cd",
+      "original_sha256": "bd08691e63609333fa7881d32dbed1897d67f0b818911b55913aeef7510e54cd",
+      "original_bytes": 3928,
+      "bytes": 3928,
+      "git_blob_sha": "33f22860bc0e17a6dbd1ac9f6ea335c1585b278f"
+    },
+    {
+      "version": "1.3.16",
+      "path": "minimal/validation/2026-10-09/1.3.16/gameboy.json",
+      "sha256": "3f4eda9ba34a07b449993f1c805d2572d0fb5b83b291f696e16605f5e2e897e9",
+      "original_sha256": "3f4eda9ba34a07b449993f1c805d2572d0fb5b83b291f696e16605f5e2e897e9",
+      "original_bytes": 461,
+      "bytes": 461,
+      "git_blob_sha": "be01eee11d83550b1348fee19d9f4b4c78cb71b7"
+    },
+    {
+      "version": "1.3.16",
+      "path": "minimal/validation/2026-10-09/1.3.16/host.log.gz",
+      "sha256": "c25203bd2e7db4485bb4801e666da5b7f286cb49e765abdccc98455172d4e40f",
+      "original_sha256": "39202171d2dd4f6f4b0c321646a4310726ef3213d17d304106d4dcdd95d60c8a",
+      "original_bytes": 60618,
+      "bytes": 2609,
+      "git_blob_sha": "91a0d69fafa7e8c0fa64a89b423c85b7d06ed31a"
+    },
+    {
+      "version": "1.3.16",
+      "path": "minimal/validation/2026-10-09/1.3.16/host-sanitize.log.gz",
+      "sha256": "c25203bd2e7db4485bb4801e666da5b7f286cb49e765abdccc98455172d4e40f",
+      "original_sha256": "39202171d2dd4f6f4b0c321646a4310726ef3213d17d304106d4dcdd95d60c8a",
+      "original_bytes": 60618,
+      "bytes": 2609,
+      "git_blob_sha": "91a0d69fafa7e8c0fa64a89b423c85b7d06ed31a"
+    },
+    {
+      "version": "1.3.16",
+      "path": "minimal/validation/2026-10-09/1.3.16/target.log.gz",
+      "sha256": "b9561a2ff624c12618643f336acb5f0c783e82ca13990d481d316debc40630fb",
+      "original_sha256": "92a684aad8a548ff58c8e897daf800abdd1bbf1cb59bb267ecd32cd914d6cd35",
+      "original_bytes": 396,
+      "bytes": 282,
+      "git_blob_sha": "2052d4f85d29eed1cdb10fe455c53e004447295f"
+    },
+    {
+      "version": "1.3.16",
+      "path": "minimal/validation/2026-10-09/1.3.16/root-contract-before.log.gz",
+      "sha256": "20abd8deed860e3a93fcdf853aaed67fd12c7c605b63f72265883f57724902ba",
+      "original_sha256": "ed49aee2ceb4a8609421d79314e1ddcbac27a12e7fe99ba4d77069a177463475",
+      "original_bytes": 739,
+      "bytes": 478,
+      "git_blob_sha": "ba9b4fa747d8f47bb3100bebae121d71055f91f2"
+    },
+    {
+      "version": "1.3.16",
+      "path": "minimal/validation/2026-10-09/1.3.16/cleanup-negative-control.log.gz",
+      "sha256": "285eb9024acdcd82ae9cfb0935a26338fcb90b4c5e57fe807b78553f2fb8d9c4",
+      "original_sha256": "e0c44b6387905929a211cea3e065c4476fcd4b1e7ab876b7707dbbd750bff4d3",
+      "original_bytes": 230,
+      "bytes": 192,
+      "git_blob_sha": "8d190e433748ade3d736ffb8a19c2f3b72d642c5"
+    },
+    {
+      "version": "1.3.16",
+      "path": "minimal/validation/2026-10-09/1.3.16/production-root-contract.log.gz",
+      "sha256": "9417f3a32d38d28f45cf96ea555c1500cb4d2e5f9fb9a30f2e610359533ab5af",
+      "original_sha256": "be5ca384698a6556c4522324e0cf6cf71d7caf2885ff12ec5277754be4abe6fd",
+      "original_bytes": 2229,
+      "bytes": 1017,
+      "git_blob_sha": "06471f63f0550ec7c990f9b1311395c65b4d4e6e"
+    },
+    {
+      "version": "1.3.17",
+      "path": "minimal/validation/2026-10-09/1.3.17/build.json",
+      "sha256": "7334a89beb1abf2e45ceb8b56721ad2c977dd0d1d604e7b617193a0754d1ab04",
+      "original_sha256": "7334a89beb1abf2e45ceb8b56721ad2c977dd0d1d604e7b617193a0754d1ab04",
+      "original_bytes": 4437,
+      "bytes": 4437,
+      "git_blob_sha": "ac2e3179f9c5fc005a7fd05f110683a0d3339023"
+    },
+    {
+      "version": "1.3.17",
+      "path": "minimal/validation/2026-10-09/1.3.17/gameboy.json",
+      "sha256": "bfb00de4bdf962925cbd10483658920beb8f33cf7688706a9ca0bc23c03d497a",
+      "original_sha256": "bfb00de4bdf962925cbd10483658920beb8f33cf7688706a9ca0bc23c03d497a",
+      "original_bytes": 612,
+      "bytes": 612,
+      "git_blob_sha": "59850f61bb14e54db510f0b176da692913ede90e"
+    },
+    {
+      "version": "1.3.17",
+      "path": "minimal/validation/2026-10-09/1.3.17/host.log.gz",
+      "sha256": "bce8c5d1cb7dbbe86f8c8ffd1147e932472abecaf7d1b2e59b5a2bd39783fb41",
+      "original_sha256": "8ca82d2cba88f87fa70d785d4b22638e2908ff43f353df13726939da6bebe078",
+      "original_bytes": 117748,
+      "bytes": 4024,
+      "git_blob_sha": "2fe06b0fd06ecf4e98c23a40fcf98c663a439f79"
+    },
+    {
+      "version": "1.3.17",
+      "path": "minimal/validation/2026-10-09/1.3.17/host-sanitize.log.gz",
+      "sha256": "bce8c5d1cb7dbbe86f8c8ffd1147e932472abecaf7d1b2e59b5a2bd39783fb41",
+      "original_sha256": "8ca82d2cba88f87fa70d785d4b22638e2908ff43f353df13726939da6bebe078",
+      "original_bytes": 117748,
+      "bytes": 4024,
+      "git_blob_sha": "2fe06b0fd06ecf4e98c23a40fcf98c663a439f79"
+    },
+    {
+      "version": "1.3.17",
+      "path": "minimal/validation/2026-10-09/1.3.17/target.log.gz",
+      "sha256": "d996a8c0c150e8b3e74ed25a928767fa77d3aca993eb5deabc09acfb0d618d53",
+      "original_sha256": "9d83d76e82c85c623841cd2d4185b843e2d7f7c9e9a81619cf7d6f272e3ce47b",
+      "original_bytes": 396,
+      "bytes": 284,
+      "git_blob_sha": "d1047fa6937dd8d437b5738f32012d0dc82ea079"
+    },
+    {
+      "version": "1.3.17",
+      "path": "minimal/validation/2026-10-09/1.3.17/provider.log.gz",
+      "sha256": "60ee97e2eb51376f6da9e9b2a9230c7dc32fe0156739ef3d801043f7cb44d997",
+      "original_sha256": "7bea74253720f8c27050a3a7bdac655a374accc80c29f7bd33d57c380815c825",
+      "original_bytes": 128,
+      "bytes": 133,
+      "git_blob_sha": "e03ffbe7a9fe70238e41279288627aff96a5a2b0"
+    },
+    {
+      "version": "1.3.17",
+      "path": "minimal/validation/2026-10-09/1.3.17/provider-sanitize.log.gz",
+      "sha256": "60ee97e2eb51376f6da9e9b2a9230c7dc32fe0156739ef3d801043f7cb44d997",
+      "original_sha256": "7bea74253720f8c27050a3a7bdac655a374accc80c29f7bd33d57c380815c825",
+      "original_bytes": 128,
+      "bytes": 133,
+      "git_blob_sha": "e03ffbe7a9fe70238e41279288627aff96a5a2b0"
+    }
+  ],
+  "qualification": "Host and target-ELF checks only. The original X4 .38 hardware retention cause is not established by its entry/return log. Physical simultaneous touch and held-report cadence remain unverified."
+}
