@@ -8,7 +8,7 @@ It supports DMG and DMG-compatible `.gb`/`.gbc` files, read from the selected SD
 volume or handed off through `file.open`. CGB-only games are rejected by the
 existing core. The APU still advances and preserves its internal state, but the
 output is deliberately silent. This frontend does not yet expose cartridge
-saves, save states, touch controls or audio output. It performs no SD writes.
+saves, save states or audio output. It performs no SD writes.
 The GameBoy cartridge header checksum policy remains the original core policy.
 
 The MONO1 frontend accepts a bounded surface at least 480×432 in landscape.
@@ -28,7 +28,34 @@ Controls:
   Select/Start. Hold Back for 900 ms to return to the ROM picker. Home leaves
   directly for the configured launcher, even when launched by a file browser.
 - USB/BLE controllers participate through the deployment's navigation provider.
-  This app requests no raw USB, radio or touch hardware capability.
+  Their held buttons combine with the touch controls. This app requests no raw
+  USB or radio hardware capability.
+- Touch: the left D-pad and right A/B buttons work simultaneously, including
+  diagonals and separate Select/Start controls. A touch B hold stays B; it does
+  not trigger the navigation Back shortcut. ROMs returns to the picker, Home
+  opens the configured launcher, and Fast/Paper changes presentation intent.
+  Picker rows open on tap; its bottom controls provide Home, Back, mode and
+  previous/next pages. There is no per-app Quick Actions overlay.
+
+Minimal app 1.3.15 adds an ordinary `input.touch.raw@1` grant using the unchanged
+Reader `RiscTouchV1.h`. GT911 public IDs 1–16 own contacts independently of report
+array order; the consumer accepts up to five actual contacts. Missing IDs and
+UP events release their captured controls. A finger that starts outside a
+control cannot activate it by moving into it. The D-pad allows continuous
+sliding within its 144×144 region; A/B each have a 72×72 target. The X4 keeps its
+480×432 game image between the side controls. Smaller supported surfaces use a
+smaller integer game scale to preserve those targets.
+
+The app polls touch at most once per 8 ms and drains its independent event
+subscription even after a partial poll failure. It samples authoritative
+contacts each pass. GAP, fault, invalid/unknown events, explicit cancellation,
+backwards report clocks and 500 ms without a new report timestamp/sequence
+clear every held touch button. Recovery and screen transitions require a
+neutral snapshot before accepting a new finger. Fresh stationary reports keep
+holds alive; repeatedly reading a cached snapshot does not refresh the timer.
+There is no CANCEL event in this ABI; cancellation is local consumer state.
+Touch unsubscribe must succeed before the grant can be released or Home can
+launch another app. An uncertain unsubscribe retains the invocation.
 
 The catalogue holds at most 96 entries and scans at most 512 entries or two
 seconds per folder, with scheduler checkpoints. ROM reads use 4096-byte chunks,
@@ -67,18 +94,33 @@ and notices. Both the production ELF validator and packed-section/relocation
 audit run on the actual Xtensa output. Host tests execute the real emulator/APU
 against an original synthetic ROM, exercise both orientations, validate native
 integer arithmetic and cover malformed inputs, cancellation and retention.
+Contact fixtures cover reordered IDs, every public ID, all five contact slots,
+simultaneous direction/A/B/Select/Start, individual lifts and replacements,
+GAP/fault/timeout/cancel neutralization, touch picker/Home/ROMs and subscription
+cleanup. The real-core fixture checks the combined joypad input passed to the
+emulator, in Fast and Paper modes, while display ownership remains asynchronous.
 They do not execute Xtensa instructions or qualify physical refresh behavior.
+No commercial ROM is bundled or used. The physical panel must still demonstrate
+multiple distinct GT911 contact IDs and continuous held-report cadence; this
+consumer cannot create a second finger on single-contact hardware/configuration.
 
 ## Product integration
 
 Add `gameboy.elf` and `gameboy.json` to the immutable installed store and declare
-exact grants for `display.output@1`, `input.navigation@1`, `storage.volume@1`
-and global `file.open@1`. The X4 .26 provider graph uses instances 3, 6, 9 and 0
-respectively; a new product must verify its actual graph. Add the app to the
+exact grants for `display.output@1`, `input.navigation@1`, `storage.volume@1`,
+global `file.open@1`, and `input.touch.raw@1`. The X4 .26 provider graph uses
+instances 3, 6, 9 and 0 for the original four capabilities. Resolve the exact
+touch-provider instance in the selected product graph; use the multi-contact
+GT911 provider from X4 commit `b87bcf9cc4c35f273e67eb10aca588ab821da1d1` or a
+qualified successor. A new product must verify its actual graph. Add the app to the
 launcher catalogue and rebuild the native/store binding and admission receipt.
 Do not copy this ELF into a frozen old product or claim a generic `.77` stock
 BIN is a qualified X4 native composition. Product integration follows the X4
 owner's power-fix priority.
+
+The existing qualified 1.3.14 ELF and its four-grant manifest remain separate
+integration inputs. This 1.3.15 branch does not replace them in an existing
+product, publish a release or establish hardware qualification.
 
 This is reconstructed source. The earlier unpublished `dcdbc5499...` port and
 its 122,472-byte ELF were lost. This build has a new source ID and byte identity;

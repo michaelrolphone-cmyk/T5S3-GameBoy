@@ -52,7 +52,7 @@ def stage(out):
     (out/'gbemu.c').write_text(text)
     return out/'gbemu.c'
 def sources(stage_dir):
-    return [ROOT/'minimal/app.c',ROOT/'minimal/model.c',stage(stage_dir),ROOT/'src/audio.c',ROOT/'src/minigb_apu/minigb_apu.c',ROOT/'minimal/audio_silent.c',ROOT/'minimal/integer.c']
+    return [ROOT/'minimal/app.c',ROOT/'minimal/model.c',ROOT/'minimal/touch.c',stage(stage_dir),ROOT/'src/audio.c',ROOT/'src/minigb_apu/minigb_apu.c',ROOT/'minimal/audio_silent.c',ROOT/'minimal/integer.c']
 def includes(runtime,stage_dir):
     return ['-I'+str(p) for p in [ROOT/'minimal',ROOT/'minimal/include',ROOT/'minimal/port',stage_dir,ROOT/'src',Path(runtime)/'sdk/app']]
 def build(args):
@@ -86,7 +86,7 @@ def build(args):
     shutil.copy2(ROOT/'minimal/gameboy.json',out/'gameboy.json')
     all_sources=[p for p in (ROOT/'minimal').rglob('*') if p.is_file() and '__pycache__' not in p.parts]+[p for p in (ROOT/'src/crankboy_core').rglob('*') if p.is_file()]
     all_sources += [ROOT/n for n in ['src/gbemu.c','src/gbemu.h','src/audio.c','src/audio.h','src/minigb_apu/minigb_apu.c','src/minigb_apu/minigb_apu.h','src/paperboy_config.h','riscrte/elf_loader_layout.ld']]
-    record={'schema':1,'source':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),'dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True)),'runtime_source':subprocess.check_output(['git','rev-parse','HEAD'],cwd=runtime,text=True).strip(),'runtime_header_sha256':digest(runtime/'sdk/app/RiscRuntimeV1.h'),'version':'1.3.14','compiler':subprocess.check_output([cc,'--version'],text=True).splitlines()[0],'imports':sorted(imports),'exports':sorted(exports),'elf':{'size':elf.stat().st_size,'sha256':digest(elf)},'sources':{str(p.relative_to(ROOT)):digest(p) for p in sorted(set(all_sources))},'hardware_qualified':False}
+    record={'schema':1,'source':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),'dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True)),'runtime_source':subprocess.check_output(['git','rev-parse','HEAD'],cwd=runtime,text=True).strip(),'runtime_header_sha256':digest(runtime/'sdk/app/RiscRuntimeV1.h'),'version':json.loads((ROOT/'minimal/gameboy.json').read_text())['version'],'compiler':subprocess.check_output([cc,'--version'],text=True).splitlines()[0],'imports':sorted(imports),'exports':sorted(exports),'elf':{'size':elf.stat().st_size,'sha256':digest(elf)},'sources':{str(p.relative_to(ROOT)):digest(p) for p in sorted(set(all_sources))},'hardware_qualified':False}
     (out/'build.json').write_text(json.dumps(record,indent=2)+'\n')
     notices=out/'licenses';notices.mkdir(exist_ok=True)
     shutil.copy2(ROOT/'src/minigb_apu/LICENSE',notices/'MiniGB-APU-LICENSE.txt')

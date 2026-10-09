@@ -1,6 +1,7 @@
 #include "model.h"
 #include "font8x8_basic.h"
 #include "gbemu.h"
+#include "touch.h"
 #include <string.h>
 static size_t bounded_length(const char* s,size_t max){size_t n=0;while(n<max && s[n])++n;return n;}
 static bool component(const char* s,size_t n){
@@ -67,8 +68,8 @@ void gb_text(risc_display_surface_v1* s,int x,int y,const char* text,unsigned sc
 }
 bool gb_blit(risc_display_surface_v1* s,const uint8_t* source,size_t bytes){
  unsigned w,h;if(!source || bytes<GBEMU_FRAMEBUFFER_SIZE || !gb_surface(s,&w,&h))return false;
- unsigned scale=(h-32)/GBEMU_SOURCE_HEIGHT;if(scale>3)scale=3;if(!scale)return false;
- int ox=(int)(w-GBEMU_SOURCE_WIDTH*scale)/2,oy=(int)(h-GBEMU_SOURCE_HEIGHT*scale)/2+10;
+ gb_layout layout;gb_layout_make(w,h,&layout);unsigned scale=layout.scale;
+ int ox=layout.game_x,oy=layout.game_y;
  for(unsigned y=0;y<GBEMU_SOURCE_HEIGHT*scale;++y)for(unsigned x=0;x<GBEMU_SOURCE_WIDTH*scale;++x){
   unsigned sx=x/scale*GBEMU_SCALE,sy=y/scale*GBEMU_SCALE;
   bool white=(source[(size_t)sy*GBEMU_FRAME_PITCH_BYTES+sx/8]&(0x80u>>(sx&7)))!=0;

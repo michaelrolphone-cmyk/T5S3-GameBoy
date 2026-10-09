@@ -4,6 +4,7 @@
 #include <RiscStorageVolumeV1.h>
 #include <T5FileOpenApi.h>
 #include "model.h"
+#include "touch.h"
 #include "port.h"
 #include "gbemu.h"
 #include "audio.h"
@@ -15,7 +16,12 @@ static const risc_display_output_api_v1* display;
 static const risc_input_navigation_api_v1* navigation;
 static const risc_storage_volume_api_v1* storage;
 static const t5_file_open_api_v1* files;
-static risc_runtime_capability_v1 grants[4];
+static const risc_touch_api_v1* touch;
+static risc_runtime_capability_v1 grants[5];
+static uint64_t touch_subscription;
+static gb_touch touch_state;
+static gb_touch_output touch_input;
+static uint32_t touch_polled;
 static risc_display_surface_v1 surface;
 static risc_display_present_token_v1 pending;
 static uint32_t submitted,clock_last;
@@ -42,10 +48,29 @@ int64_t minimal_clock_us(void){
  return (int64_t)clock_total*1000;
 }
 static uint32_t now(void){return (uint32_t)((uint64_t)minimal_clock_us()/1000);}
+static void cancel_touch(void){gb_touch_cancel(&touch_state);memset(&touch_input,0,sizeof(touch_input));}
+static void poll_touch(void){
+ touch_input.actions=0;
+ uint32_t time=now();if((uint32_t)(time-touch_polled)<8)return;touch_polled=time;
+ bool healthy=touch->poll(touch->context,16);bool drained=false;
+ // A failed poll can still have produced events. Always drain the subscription.
+ for(unsigned n=0;n<RISC_TOUCH_QUEUE_LENGTH;++n){
+  risc_touch_event_v1 event={0};int32_t result=touch->next(touch->context,touch_subscription,&event);
+  if(!result){drained=true;break;}if(result!=1){healthy=false;break;}
+  gb_touch_event(&touch_state,&event);
+ }
+ if(!healthy || !drained)cancel_touch();
+ risc_touch_snapshot_v1 snapshot={0};
+ if(!touch->snapshot(touch->context,&snapshot)){cancel_touch();return;}
+ touch_input=gb_touch_sample(&touch_state,&snapshot,time,width,height,playing);
+ if(touch_input.actions&GB_TOUCH_HOME)home=true;
+}
 static bool poll(risc_input_navigation_frame_v1* out){
  memset(out,0,sizeof(*out));
  if(!alive() || !navigation->poll(navigation->context,out)){failed=true;return false;}
  if(out->pressed&RISC_NAV_HOME)home=true;
+ poll_touch();
+ if(!playing && (touch_input.actions&GB_TOUCH_BACK))out->pressed|=RISC_NAV_BACK;
  return true;
 }
 static bool close_input(void){
@@ -90,16 +115,17 @@ static void draw_picker(void){
   gb_text(&surface,16,64+(int)i*28,line,2);
  }
  if(!catalog.count)gb_text(&surface,16,90,"No .gb/.gbc ROMs in this folder",2);
- if(catalog.truncated)gb_text(&surface,16,(int)height-70,"Folder limit reached; use subfolders",1);
- gb_text(&surface,16,(int)height-48,message,1);
- gb_text(&surface,16,(int)height-24,paper?"PAPER  Page Back: mode  Arrows: select  OK: open  Back: parent  Home":"FAST   Page Back: mode  Arrows: select  OK: open  Back: parent  Home",1);
+ if(catalog.truncated)gb_text(&surface,16,(int)height-84,"Folder limit reached; use subfolders",1);
+ gb_text(&surface,16,(int)height-68,message,1);
+ gb_draw_controls(&surface,false,paper,0);
  (void)submit(false);
 }
 static void draw_game(void){
  if(!new_surface())return;
- gb_text(&surface,10,4,gbemu_get_rom_title(emulator),2);
- gb_text(&surface,(int)width-304,4,"A: OK  B: Back  Hold Back: ROMs  Home",1);
+ gb_layout layout;gb_layout_make(width,height,&layout);
+ gb_text(&surface,layout.game_x,4,gbemu_get_rom_title(emulator),1);
  if(!gb_blit(&surface,mono,GBEMU_FRAMEBUFFER_SIZE)){failed=true;return;}
+ gb_draw_controls(&surface,true,paper,touch_input.buttons);
  (void)submit(true);
 }
 static bool scan(void){
@@ -153,6 +179,7 @@ static bool load_rom(const char* path){
  if(status!=GBEMU_STATUS_OK){if(next)gbemu_destroy(next);free(candidate);snprintf(message,sizeof(message),"%s",gbemu_status_string(status));return false;}
  if(emulator)gbemu_destroy(emulator);free(rom);emulator=next;rom=candidate;
  audio_set_engine(AUDIO_ENGINE_MUTE);audio_init();audio_set_paused(false);playing=true;redraw=true;
+ cancel_touch(); // The picker/opening finger must lift before becoming a key.
  if(!navigation->reset(navigation->context)){failed=true;return false;}
  return true;
 }
@@ -163,25 +190,35 @@ static bool cleanup(void){
  for(unsigned n=0;pending && n<1002 && !failed;++n){if(settle())break;rt->yield_ms(5);}
  if(pending){hold();return false;}
  if(surface.frame){display->release(display->context,surface.frame);surface.frame=0;}
- for(unsigned i=4;i--;)if(grants[i].api && !rt->release(&grants[i])){hold();return false;}
+ cancel_touch();
+ if(touch_subscription){if(!touch->unsubscribe(touch->context,touch_subscription)){hold();return false;}touch_subscription=0;}
+ for(unsigned i=5;i--;)if(grants[i].api && !rt->release(&grants[i])){hold();return false;}
  audio_deinit();if(emulator)gbemu_destroy(emulator);emulator=NULL;free(rom);rom=NULL;free(mono);mono=NULL;
  return true;
 }
 __attribute__((visibility("default"))) int app_module_init(void){
  rt=risc_runtime_get_api(1);
  if(!rt || rt->struct_size<RISC_RUNTIME_DEFAULT_REQUEST_V1_SIZE || !rt->request_default || !rt->retain_invocation)return -1;
- const char* caps[]={"display.output","input.navigation","storage.volume","file.open"};
- for(unsigned i=0;i<4;++i){grants[i].struct_size=sizeof(grants[i]);if(!rt->acquire(caps[i],1,0,&grants[i]))goto error;}
- display=grants[0].api;navigation=grants[1].api;storage=grants[2].api;files=grants[3].api;
+ const char* caps[]={"display.output","input.navigation","storage.volume","file.open","input.touch.raw"};
+ for(unsigned i=0;i<5;++i){grants[i].struct_size=sizeof(grants[i]);if(!rt->acquire(caps[i],1,0,&grants[i]))goto error;}
+ display=grants[0].api;navigation=grants[1].api;storage=grants[2].api;files=grants[3].api;touch=grants[4].api;
  if(!display || display->api_version!=1 || display->struct_size<sizeof(*display) || !display->get_info || !display->acquire || !display->release || !display->submit || !display->present_status ||
  !navigation || navigation->api_version!=1 || navigation->struct_size<sizeof(*navigation) || !navigation->poll || !navigation->reset ||
  !storage || storage->api_version!=1 || storage->struct_size<sizeof(*storage) || !storage->refresh || !storage->ready || !storage->dir_open || !storage->dir_next || !storage->dir_close || !storage->file_open_read || !storage->file_read || !storage->file_close ||
- !files || files->api_version!=1 || files->struct_size<sizeof(*files) || !files->source_path_get)goto error;
- {risc_display_info_v1 info={0};if(!display->get_info(display->context,&info) || info.api_version!=1 || info.struct_size<sizeof(info) || !(info.supported_formats&RISC_DISPLAY_FORMAT_BIT(RISC_DISPLAY_FORMAT_MONO1)))goto error;}
+ !files || files->api_version!=1 || files->struct_size<sizeof(*files) || !files->source_path_get ||
+ !touch || touch->api_version!=1 || touch->struct_size<sizeof(*touch) || !touch->subscribe || !touch->unsubscribe || !touch->poll || !touch->next || !touch->snapshot)goto error;
+ {risc_display_info_v1 info={0};if(!display->get_info(display->context,&info) || info.api_version!=1 || info.struct_size<sizeof(info) || !(info.supported_formats&RISC_DISPLAY_FORMAT_BIT(RISC_DISPLAY_FORMAT_MONO1)))goto error;
+ width=info.width>info.height?info.width:info.height;height=info.width>info.height?info.height:info.width;
+ if(width<480 || height<432 || width>1024 || height>1024)goto error;}
  mono=malloc(GBEMU_FRAMEBUFFER_SIZE);if(!mono || !navigation->reset(navigation->context))goto error;
+ touch_subscription=touch->subscribe(touch->context);if(!touch_subscription)goto error;
+ cancel_touch();touch_polled=now()-8;
+ {risc_touch_snapshot_v1 snapshot={0};if(!touch->snapshot(touch->context,&snapshot))goto error;
+ (void)gb_touch_sample(&touch_state,&snapshot,now(),width,height,false);}
  return 0;
 error:
- for(unsigned i=4;i--;)if(grants[i].api && !rt->release(&grants[i])){hold();return -1;}
+ if(touch_subscription){if(!touch->unsubscribe(touch->context,touch_subscription)){hold();return -1;}touch_subscription=0;}
+ for(unsigned i=5;i--;)if(grants[i].api && !rt->release(&grants[i])){hold();return -1;}
  free(mono);mono=NULL;return -1;
 }
 __attribute__((visibility("default"))) void app_main(void){
@@ -196,11 +233,13 @@ __attribute__((visibility("default"))) void app_main(void){
   risc_input_navigation_frame_v1 nav;if(!poll(&nav) || home)break;
   (void)settle();if(failed)break;
   uint32_t time=now();
+  if(touch_input.actions&GB_TOUCH_MODE){paper=!paper;redraw=true;}
   if(playing){
-   if(nav.buttons&RISC_NAV_BACK){if(!back_down){back=time;back_down=true;}else if((uint32_t)(time-back)>=900){playing=false;audio_set_paused(true);(void)navigation->reset(navigation->context);(void)scan();}}
+   if(touch_input.actions&GB_TOUCH_ROMS){playing=false;audio_set_paused(true);cancel_touch();(void)navigation->reset(navigation->context);(void)scan();}
+   if(nav.buttons&RISC_NAV_BACK){if(!back_down){back=time;back_down=true;}else if((uint32_t)(time-back)>=900){playing=false;audio_set_paused(true);cancel_touch();(void)navigation->reset(navigation->context);(void)scan();}}
    else back_down=false;
    if(playing && (int32_t)(time-next)>=0){
-    if(!gbemu_run_frame(emulator,mono,GBEMU_FRAMEBUFFER_SIZE,gb_buttons(nav.buttons),false,NULL)){snprintf(message,sizeof(message),"%s",gbemu_get_last_error_string(emulator));playing=false;redraw=true;}
+    if(!gbemu_run_frame(emulator,mono,GBEMU_FRAMEBUFFER_SIZE,gb_buttons(nav.buttons)|touch_input.buttons,false,NULL)){snprintf(message,sizeof(message),"%s",gbemu_get_last_error_string(emulator));playing=false;cancel_touch();redraw=true;}
     else{audio_service_frame();redraw=true;}
     next=time+17; // Bounded one-frame work; no catch-up burst after slow I/O.
    }
@@ -208,10 +247,12 @@ __attribute__((visibility("default"))) void app_main(void){
    if(nav.pressed&RISC_NAV_BACK){if(!strcmp(directory,"/sd"))home=true;else{gb_parent(directory);(void)scan();}}
    int delta=(nav.pressed&(RISC_NAV_UP|RISC_NAV_LEFT))?-1:(nav.pressed&(RISC_NAV_DOWN|RISC_NAV_RIGHT))?1:0;
    if(nav.pressed&RISC_NAV_PAGE_BACK){paper=!paper;redraw=true;}if(nav.pressed&RISC_NAV_PAGE_FORWARD)delta=10;
+   if(touch_input.actions&GB_TOUCH_PREV)delta=-10;if(touch_input.actions&GB_TOUCH_NEXT)delta=10;
    if(delta && catalog.count){int value=(int)selected+delta;if(value<0)value=0;if(value>=(int)catalog.count)value=(int)catalog.count-1;selected=(unsigned)value;redraw=true;}
+   if(touch_input.actions&GB_TOUCH_PICK){unsigned row=selected/10*10+touch_input.row;if(row<catalog.count){selected=row;nav.pressed|=RISC_NAV_CONFIRM;}}
    if((nav.pressed&RISC_NAV_CONFIRM) && catalog.count){
     char path[GB_PATH_MAX];gb_entry* entry=&catalog.entries[selected];
-    if(gb_join(directory,entry->name,path,sizeof(path))){if(entry->directory){strcpy(directory,path);(void)scan();}else{(void)load_rom(path);next=now();redraw=true;}}
+    if(gb_join(directory,entry->name,path,sizeof(path))){cancel_touch();if(entry->directory){strcpy(directory,path);(void)scan();}else{(void)load_rom(path);next=now();redraw=true;}}
    }
   }
   if(redraw && !pending && !failed && !home){if(playing)draw_game();else draw_picker();redraw=false;}
