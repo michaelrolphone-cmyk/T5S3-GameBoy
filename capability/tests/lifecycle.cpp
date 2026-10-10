@@ -3,6 +3,8 @@
 #include "paperboy_ui.h"
 #include "mono_canvas.h"
 #include "builtin_demo_rom.h"
+#include "audio.h"
+#include "epd_video.h"
 #include <RiscRuntimeV1.h>
 #include <RiscDisplayOutputV1.h>
 #include <RiscInputNavigationV1.h>
@@ -26,6 +28,7 @@ namespace f = capability_storage_fixture;
 extern "C" int app_module_init();
 extern "C" void app_main();
 extern "C" void app_module_fini();
+extern "C" void lifecycle_normalize_state(void *,size_t);
 #ifdef GAMEBOY_REAL_GT911
 extern "C" const risc_touch_api_v1 *hid_watch_touch_start();
 extern "C" void hid_watch_touch_stop();
@@ -35,6 +38,13 @@ std::string scenario, output;
 std::set<void *> app_memory;
 std::set<unsigned> grants;
 std::vector<std::string> events, diagnostics;
+bool header_case(){return scenario.rfind("header-",0)==0;}
+bool header_memory(){return scenario=="header-load-memory" || scenario=="header-save-close-retained";}
+bool header_prepared=false;
+bool mailbox_case(){return scenario.rfind("mailbox-",0)==0;}
+bool timing_case(){return scenario.rfind("timing-",0)==0;}
+bool compute_case(){return scenario.find("compute")!=std::string::npos;}
+bool slow_case(){return scenario.find("slow")!=std::string::npos;}
 bool rom_failure_case(){return scenario=="rom-read-failure" || scenario=="rom-open-failure" || scenario=="rom-init-failure";}
 std::vector<uint8_t> pixels(480*800/8);
 risc_runtime_api_v1 runtime{};
@@ -60,6 +70,26 @@ unsigned display_width=480,display_height=800;
 uint64_t token = 0; uint32_t complete_at = 0;
 PaperboyPage view = PaperboyPage::SdCard;
 CapGeometry geometry;
+std::vector<uint8_t> newest_game,final_simulation,submitted_pixels;
+std::vector<unsigned> simulation_times,simulation_inputs,simulation_hashes,presentation_frames;
+unsigned audio_frames=0,newest_game_frame=0,freshness_checks=0;
+bool mailbox_exercised=false;
+gbemu_t *last_emu=nullptr;
+uint32_t hash_bytes(const uint8_t *data,size_t size){uint32_t value=2166136261u;for(size_t i=0;i<size;++i)value=(value^data[i])*16777619u;return value;}
+void check_newest_game(){
+  if(!timing_case() || newest_game.empty())return;
+  unsigned checked=0;
+  for(unsigned y=0;y<geometry.view_height;++y)for(unsigned x=0;x<geometry.view_width;++x){
+    const unsigned sx=x*960/geometry.view_width,sy=y*540/geometry.view_height;
+    const unsigned gx=539-sy-PAPERBOY_GAME_X,gy=sx-PAPERBOY_GAME_Y;
+    if(gx>=GBEMU_FRAME_WIDTH || gy>=GBEMU_FRAME_HEIGHT)continue;
+    unsigned rx,ry;geometry.raw(x+geometry.x,y+geometry.y,rx,ry);
+    const bool actual=(pixels[ry*(display_width/8)+rx/8]&(0x80u>>(rx&7)))!=0;
+    const bool expected=(newest_game[gy*GBEMU_FRAME_PITCH_BYTES+gx/8]&(0x80u>>(gx&7)))==0;
+    assert(actual==expected);++checked;
+  }
+  assert(checked>10000);++freshness_checks;presentation_frames.push_back(newest_game_frame);
+}
 
 void call(const char *name) {
   if (terminal) { std::fprintf(stderr,"CALL AFTER TERMINAL: %s\n",name); std::abort(); }
@@ -68,7 +98,14 @@ void call(const char *name) {
 }
 void next_phase(unsigned value) { phase=value;phase_started=now;std::printf("phase=%u t=%u\n",phase,now); }
 void drive() {
-  if (scenario != "journey" && scenario != "file-handoff" && scenario != "save-terminal" && scenario != "launch-terminal" && !rom_failure_case() && scenario!="rom-retry") return;
+  if(header_case()){
+    if(phase==0 && game_frames>=3 && now>phase_started+150)next_phase(header_memory()?3:5);
+    if(phase==4 && saved && now>phase_started+150)next_phase(5);
+    if(phase==6 && now>phase_started+250)next_phase(9);
+    return;
+  }
+  if(timing_case()){if(now>=11000 && phase!=9)next_phase(9);return;}
+  if (scenario != "journey" && scenario != "slow-journey" && scenario != "file-handoff" && scenario != "save-terminal" && scenario != "launch-terminal" && !rom_failure_case() && scenario!="rom-retry") return;
   if (phase==0 && frame_count && now>phase_started+150) next_phase(scenario=="file-handoff"?2:1);
   if (phase==10 && now>phase_started+150)next_phase(1);
   if (phase==1 && view==PaperboyPage::Game) next_phase(2);
@@ -82,7 +119,7 @@ void capture(const char *name) {
   FILE *file=std::fopen(path.c_str(),"wb");assert(file);
   std::fprintf(file,"P4\n%u %u\n",display_width,display_height);assert(std::fwrite(pixels.data(),1,pixels.size(),file)==pixels.size());std::fclose(file);
 }
-bool health(risc_runtime_health_v1 *out) { call("health");++now;out->uptime_ms=now;std::strcpy(out->target,"X4 host lifecycle fixture");return true; }
+bool health(risc_runtime_health_v1 *out) { call("health");if(!timing_case() && !mailbox_case())++now;out->uptime_ms=now;std::strcpy(out->target,"X4 host lifecycle fixture");return true; }
 void yield(uint32_t ms) { call("yield");now+=ms?ms:1;drive(); }
 bool diagnostic(const char *line) {
   call("diagnostic");
@@ -129,7 +166,19 @@ bool display_submit(void *,uint64_t frame,const risc_display_rect_v1 *damage,siz
   call("display_submit");assert(acquired && frame==1 && !pending);assert(count<=1 && options && options->queue_policy==RISC_DISPLAY_QUEUE_FIFO);
   if(count){assert(damage && damage->x>=0 && damage->y>=0 && damage->width && damage->height && unsigned(damage->x)+damage->width<=display_width && unsigned(damage->y)+damage->height<=display_height);}
   acquired=false;pending=true;*out=++token;++frame_count;
-  complete_at=now+(scenario=="input-error-pending"?80:5);
+  complete_at=now+((mailbox_case() || scenario=="slow-journey" || scenario=="header-load-display-retained")?2300:timing_case()?(slow_case()?2300:scenario=="timing-lcd"?17:1):scenario=="input-error-pending"?80:5);
+  if(mailbox_case() && frame_count==2){
+    assert(scenario=="mailbox-latest" && count==1);
+    const unsigned first=20*geometry.view_height/540,last=(49*geometry.view_height+539)/540;
+    assert(damage->x==int(geometry.raw_width-geometry.y-last) && damage->y==int(geometry.x));
+    assert(damage->width==last-first && damage->height==geometry.view_width);
+    for(unsigned y=0;y<geometry.view_height;++y)for(unsigned x=0;x<geometry.view_width;++x){
+      unsigned rx,ry;geometry.raw(x+geometry.x,y+geometry.y,rx,ry);
+      const unsigned sx=x*960/geometry.view_width;
+      assert(bool(pixels[ry*(display_width/8)+rx/8]&(0x80u>>(rx&7)))==bool(20u&(0x80u>>(sx&7))));
+    }
+  }
+  check_newest_game();submitted_pixels=pixels;
   if(view==PaperboyPage::SdCard){if(!library_frames++)capture("library");}
   if(view==PaperboyPage::Settings){if(!settings_frames++)capture("settings");}
   if(view==PaperboyPage::Game){if(!game_presents++)capture("game");if(game_frames>=3)capture("game-play");}
@@ -137,7 +186,8 @@ bool display_submit(void *,uint64_t frame,const risc_display_rect_v1 *damage,siz
 }
 bool present_status(void *,uint64_t value,risc_display_present_status_v1 *out) {
   call("present_status");assert(value==token);++status_calls;
-  if(scenario=="display-terminal"){return false;}
+  if(timing_case() && pending)assert(pixels==submitted_pixels);
+  if((scenario=="header-load-display-retained" && phase==6) || scenario=="display-terminal" || (scenario=="display-terminal-vsync" && status_calls==2) || (scenario=="display-terminal-ready" && status_calls==3)){return false;}
   if(pending && now>=complete_at){pending=false;out->state=RISC_DISPLAY_PRESENT_COMPLETE;}
   else out->state=pending?RISC_DISPLAY_PRESENT_ACTIVE:RISC_DISPLAY_PRESENT_COMPLETE;
   if(input_failed && pending)++error_pending_polls;
@@ -148,6 +198,10 @@ bool nav_poll(void *,risc_input_navigation_frame_v1 *out) {
   call("nav_poll");drive();
   if(scenario=="input-error-pending" && pending){input_failed=true;return false;}
   uint32_t buttons=0;
+  if(timing_case() && phase!=9){
+    static const uint32_t sequence[]={RISC_NAV_RIGHT,RISC_NAV_CONFIRM,0,RISC_NAV_DOWN,RISC_NAV_LEFT,RISC_NAV_BACK,RISC_NAV_UP,0};
+    buttons=sequence[((now-1000)/137)%8];
+  }
   if(phase==1 && now-phase_started<100){buttons=RISC_NAV_CONFIRM;if(scenario=="launch-terminal")f::fail_file_close=true;
     if(scenario=="rom-read-failure" || (scenario=="rom-retry" && diagnostics.end()==std::find_if(diagnostics.begin(),diagnostics.end(),[](const std::string &line){return line.find("stage=selected-rom-load result=failed")!=std::string::npos;})))f::fail_read=true;
     if(scenario=="rom-open-failure")f::files.erase("/Test.gb");
@@ -181,7 +235,7 @@ bool touch_snapshot(void *,risc_touch_snapshot_v1 *out) {
 bool battery_read(void *,risc_battery_sample_v1 *out){call("battery");*out={3980,75,0};return true;}
 int32_t realtime_read(void *,risc_realtime_snapshot_v1 *out){call("realtime");if(scenario=="realtime-terminal")return RISC_REALTIME_CONTEXT;out->validity=RISC_REALTIME_VALID;out->epoch_seconds=1791536400;return 0;}
 int32_t key_get(void *,const char *,void *,uint32_t,uint32_t *size){call("kv_get");*size=0;return RISC_KEY_VALUE_NOT_FOUND;}
-bool source_get(char *out,size_t capacity){call("file_source");source_taken=true;if(scenario!="file-handoff" && scenario!="file-handoff-terminal")return false;assert(capacity>std::strlen("/sd/Test.gb"));std::strcpy(out,"/sd/Test.gb");return true;}
+bool source_get(char *out,size_t capacity){call("file_source");source_taken=true;if(!header_case() && scenario!="file-handoff" && scenario!="file-handoff-terminal" && !timing_case() && !mailbox_case() && scenario.rfind("display-terminal-",0)!=0)return false;assert(capacity>std::strlen("/sd/Test.gb"));std::strcpy(out,"/sd/Test.gb");return true;}
 }
 #ifdef GAMEBOY_REAL_GT911
 extern "C" void hid_renderer_watch_report(risc_touch_snapshot_v1 *sample){assert(touch_snapshot(nullptr,sample));}
@@ -192,8 +246,53 @@ extern "C" void *lifecycle_malloc(size_t n) noexcept {if(terminal){++memory_afte
 extern "C" void *lifecycle_calloc(size_t n,size_t size) noexcept {if(terminal){++memory_after_terminal;std::abort();}void *p=std::calloc(n,size);if(p)app_memory.insert(p);return p;}
 extern "C" void *lifecycle_realloc(void *p,size_t n) noexcept {if(terminal){++memory_after_terminal;std::abort();}if(p)assert(app_memory.count(p));void *q=std::realloc(p,n);if(q){app_memory.erase(p);app_memory.insert(q);}return q;}
 extern "C" void lifecycle_free(void *p) noexcept {if(terminal){++memory_after_terminal;std::fprintf(stderr,"FREE AFTER TERMINAL\n");std::abort();}if(p)assert(app_memory.erase(p)==1);std::free(p);}
-extern "C" bool lifecycle_run_frame(gbemu_t *emu,uint8_t *frame,size_t size,uint8_t input,bool skip,gbemu_frame_stats_t *stats){assert(!terminal);const bool result=gbemu_run_frame(emu,frame,size,input,skip,stats);if(result)++game_frames;return result;}
-uint32_t lifecycle_map_actions(const touch_state_t *state,PaperboyPage page){assert(!terminal);view=page;const uint32_t actions=paperboy_ui_map_actions(state,page);if(actions&PAPERBOY_ACTION_SAVE){next_phase(4);if(scenario=="save-terminal")f::fail_file_close=true;}if(actions&PAPERBOY_ACTION_LOAD)next_phase(6);if(actions&PAPERBOY_ACTION_SETTINGS)next_phase(8);return actions;}
+extern "C" bool lifecycle_run_frame(gbemu_t *emu,uint8_t *frame,size_t size,uint8_t input,bool skip,gbemu_frame_stats_t *stats){
+  assert(!terminal);
+  if(timing_case()){simulation_times.push_back(now);simulation_inputs.push_back(input);if(compute_case())now+=30;}
+  const bool result=gbemu_run_frame(emu,frame,size,input,skip,stats);
+  if(result){++game_frames;last_emu=emu;
+    if(header_case() && !header_prepared){
+      header_prepared=true;
+      if(!header_memory() && scenario!="header-load-missing"){
+        std::vector<uint8_t> state(gbemu_get_state_size(emu));assert(gbemu_save_state(emu,state.data(),state.size()));
+        if(scenario=="header-load-corrupt")state[0]^=0xff;
+        f::add_file("/System/State/Applications/gameboy/Test.gb.state",state.size());f::files["/System/State/Applications/gameboy/Test.gb.state"]=state;
+      }
+    }
+    if(timing_case() && !skip){assert(frame && size==GBEMU_FRAMEBUFFER_SIZE);newest_game.assign(frame,frame+size);newest_game_frame=game_frames;}}
+  return result;
+}
+extern "C" void lifecycle_audio_service_frame(){
+  audio_service_frame();
+  if(timing_case()){
+    ++audio_frames;assert(last_emu);final_simulation.resize(gbemu_get_state_size(last_emu));
+    assert(gbemu_save_state(last_emu,final_simulation.data(),final_simulation.size()));
+    lifecycle_normalize_state(final_simulation.data(),final_simulation.size());
+    simulation_hashes.push_back(hash_bytes(final_simulation.data(),final_simulation.size()));
+  }
+}
+uint32_t lifecycle_map_actions(const touch_state_t *state,PaperboyPage page){assert(!terminal);view=page;
+  if(mailbox_case() && !mailbox_exercised){
+    mailbox_exercised=true;assert(pending && frame_count==1);
+    const auto original_pixels=pixels;const uint32_t started_at=now;
+    for(unsigned i=1;i<=20;++i){
+      std::memset(epd_video_get_backbuffer(),int(i),epd_video_get_backbuffer_size());
+      assert(epd_video_submit(uint16_t(19+i),10));
+      assert(frame_count==1 && pending && pixels==original_pixels && now==started_at);
+    }
+    std::memset(epd_video_get_backbuffer(),0xfe,epd_video_get_backbuffer_size());
+    if(scenario=="mailbox-latest"){
+      now=complete_at;cap_service_display();assert(frame_count==2 && pending);
+    }
+    cap_exit();return 0;
+  }
+const uint32_t actions=paperboy_ui_map_actions(state,page);
+  if(header_case() && (actions&PAPERBOY_ACTION_LOAD)){
+    if(scenario=="header-load-close-retained")f::fail_file_close=true;
+    if(scenario=="header-load-read-failure")f::fail_read=true;
+    if(scenario=="header-load-read-retained"){f::terminal_at=f::calls+15;f::on_terminal=[](){cap_hold("header-load-provider");};}
+  }
+  if(scenario=="header-save-close-retained" && (actions&PAPERBOY_ACTION_SAVE))f::fail_file_close=true;if(actions&PAPERBOY_ACTION_SAVE){if(scenario=="slow-journey")assert(pending && frame_count==1);next_phase(4);if(scenario=="save-terminal")f::fail_file_close=true;}if(actions&PAPERBOY_ACTION_LOAD)next_phase(6);if(actions&PAPERBOY_ACTION_SETTINGS)next_phase(8);return actions;}
 void lifecycle_draw_page(uint8_t *buffer,PaperboyPage page,const PaperboyBatteryStatus *status,const char *version,const char *title,bool touch_ready,const PaperboyRomLibraryView *library,const UsbGamepadTestStatus *gamepad){assert(!terminal);view=page;paperboy_ui_draw_page(buffer,page,status,version,title,touch_ready,library,gamepad);}
 extern "C" void lifecycle_clear(uint8_t *buffer,size_t size,bool white){assert(!terminal);mono_clear(buffer,size,white);}
 #ifdef GAMEBOY_REAL_RUNTIME
@@ -232,7 +331,7 @@ int main(int argc,char **argv){
 #endif
   battery={1,sizeof(battery),nullptr,battery_read};realtime={1,sizeof(realtime),nullptr,realtime_read};kv={1,sizeof(kv),nullptr,key_get,nullptr};
   file_open.api_version=1;file_open.struct_size=sizeof(file_open);file_open.source_path_get=source_get;
-  if(scenario=="file-handoff")view=PaperboyPage::Game;
+  if(header_case() || scenario=="file-handoff" || timing_case() || mailbox_case() || scenario.rfind("display-terminal-",0)==0)view=PaperboyPage::Game;
   phase_started=now;
 #ifdef GAMEBOY_REAL_RUNTIME
   assert(scenario=="journey");
@@ -256,8 +355,29 @@ int main(int argc,char **argv){
     hid_watch_touch_stop();
 #endif
     if(scenario=="input-error-pending")assert(input_failed && error_pending_polls && home_requests==0);
+    else if(header_case()){
+      assert(header_prepared && home_requests==1);
+      const bool expected_load=scenario=="header-load-disk" || scenario=="header-load-memory";
+      assert(loaded==unsigned(expected_load));
+      assert(saved==unsigned(scenario=="header-load-memory"));
+    }
+    else if(mailbox_case()){assert(mailbox_exercised && !saved && !loaded && home_requests==1);assert(frame_count==(scenario=="mailbox-latest"?2:1));}
+    else if(timing_case()){
+      assert(home_requests==1 && !saved && !loaded && audio_frames==game_frames);
+      assert(game_frames>=(compute_case()?300:596) && game_frames<=(compute_case()?330:600));
+      assert(freshness_checks>=(slow_case()?4:100));
+      if(slow_case())assert(presentation_frames.back()>presentation_frames.front()+400 || compute_case());
+      FILE *trace=std::fopen((output+"/simulation.json").c_str(),"wb");assert(trace);
+      std::fprintf(trace,"{\"frames\":%u,\"audio_frames\":%u,\"freshness_checks\":%u,\"presents\":%u,\"steps\":[",game_frames,audio_frames,freshness_checks,frame_count);
+      for(size_t i=0;i<simulation_times.size();++i)std::fprintf(trace,"%s[%u,%u,%u]",i?",":"",simulation_times[i],simulation_inputs[i],simulation_hashes[i]);
+      std::fprintf(trace,"],\"presented_frames\":[");
+      for(size_t i=0;i<presentation_frames.size();++i)std::fprintf(trace,"%s%u",i?",":"",presentation_frames[i]);
+      std::fprintf(trace,"]}\n");std::fclose(trace);
+      FILE *state=std::fopen((output+"/final-state.bin").c_str(),"wb");assert(state);assert(std::fwrite(final_simulation.data(),1,final_simulation.size(),state)==final_simulation.size());std::fclose(state);
+      std::printf("TIMING simulated=%u audio=%u physical=%u fresh=%u last_visual=%u injected_compute_ms=%u\n",game_frames,audio_frames,frame_count,freshness_checks,newest_game_frame,compute_case()?30:0);
+    }
     else if(rom_failure_case()){assert(home_requests==1 && !saved && !loaded);}
-    else {assert(source_taken && game_frames>=3 && saved==1 && loaded==1 && settings_frames && home_requests==1);assert(f::files.count("/System/State/Applications/gameboy/Test.gb.state"));if(scenario=="journey" || scenario=="rom-retry")assert(library_frames);else assert(library_frames==0);}
+    else {assert(source_taken && game_frames>=3 && saved==1 && loaded==1 && settings_frames && home_requests==1);assert(f::files.count("/System/State/Applications/gameboy/Test.gb.state"));if(scenario=="journey" || scenario=="slow-journey" || scenario=="rom-retry")assert(library_frames);else assert(library_frames==0);}
   }
   // Every operation log is bounded, carries one attempt ID and a monotonic
   // timestamp. Successful spans cannot accidentally use a failure code.

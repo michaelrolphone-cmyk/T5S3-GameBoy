@@ -42,6 +42,11 @@ risc_display_present_token_v1 pending;
 risc_display_surface_v1 surface;
 uint8_t *buffers[2];
 unsigned back;
+// Writable/newest-complete slots never alias a pending provider-owned frame.
+bool queued_scene,next_scene_playable,queued_scene_playable;
+uint32_t queued_rom_attempt;
+uint16_t queued_y,queued_height;
+bool present_latest();
 CapGeometry geometry;
 constexpr size_t frame_bytes=960u*540u/8u;
 risc_input_navigation_frame_v1 nav;
@@ -77,6 +82,7 @@ bool complete_present() {
   return false;
 }
 bool drain_display() {
+  queued_scene=false; // Discard unsubmitted visuals on owner exit.
   for(unsigned n=0;pending && n<2002 && cap_ready();++n) {
     if(complete_present())break;
     if(cap_ready())rt->yield_ms(5);
@@ -136,6 +142,7 @@ void cap_logf(const char *severity,const char *format,...){
   cap_log("application",severity,text);
 }
 void cap_rom_begin(const char *path){if(!cap_ready())return;++rom_load_attempt;rom_load_started=cap_millis();rom_frame_stage=0;rom_first_token=0;cap_log("selected-rom-request","begin",path);}
+void cap_rom_scene(){if(cap_ready())next_scene_playable=rom_frame_stage>=2;}
 void cap_rom_ready(){if(!cap_ready())return;rom_frame_stage=1;cap_log("selected-rom-emulator","start",nullptr);}
 void cap_rom_frame(bool rendered){if(cap_ready() && rendered && rom_frame_stage==1){rom_frame_stage=2;cap_log("rom-first-emulated-frame","ok",nullptr);}}
 void cap_fail(const char *operation,const char *detail){
@@ -201,8 +208,10 @@ size_t epd_video_get_backbuffer_size(){return frame_bytes;}
 bool epd_video_can_submit(){return cap_running() && complete_present();}
 bool epd_video_submit_pending(){return cap_ready() && !complete_present();}
 uint32_t epd_video_get_vsync_count(){if(cap_ready())(void)complete_present();return vsync_count;}
-bool epd_video_submit(uint16_t dirty_y,uint16_t dirty_height){
-  if(!epd_video_can_submit())return false;
+namespace {
+bool present_latest(){
+  if(!queued_scene || !cap_running() || !complete_present())return false;
+  const uint16_t dirty_y=queued_y,dirty_height=queued_height;
   surface={};
   if(!display->acquire(display->context,RISC_DISPLAY_FORMAT_MONO1,&surface)){cap_fail("display-frame-acquire","refused");return false;}
   const unsigned w=surface.width>surface.height?surface.width:surface.height;
@@ -211,7 +220,7 @@ bool epd_video_submit(uint16_t dirty_y,uint16_t dirty_height){
   memset(surface.pixels,0,surface.size_bytes);
   // Aspect-preserving 960x540 -> 800x450 in the physical landscape viewport.
   // The original portrait UI consequently occupies 450x800, centered on X4.
-  const uint8_t *source=buffers[back];
+  const uint8_t *source=buffers[back^1];
   for(unsigned y=0;y<geometry.view_height;++y)for(unsigned x=0;x<geometry.view_width;++x){
     unsigned sx=x*960/geometry.view_width,sy=y*540/geometry.view_height;
     if(!(source[sy*120+sx/8]&(0x80u>>(sx&7))))continue;
@@ -233,11 +242,27 @@ bool epd_video_submit(uint16_t dirty_y,uint16_t dirty_height){
   if(!display->submit(display->context,surface.frame,count?&damage:nullptr,count,&options,&token)){cap_fail("display-submit","refused");return false;}
   surface={};
   if(!token){cap_hold("display-submit-token");return false;}
-  if(rom_frame_stage==2){rom_first_token=token;rom_frame_stage=3;cap_log("rom-first-playable-frame","submit","low-latency");}
-  pending=token;submitted_ms=cap_millis();back^=1;clean_next=false;return true;
+  if(rom_frame_stage==2 && queued_scene_playable && queued_rom_attempt==rom_load_attempt){rom_first_token=token;rom_frame_stage=3;cap_log("rom-first-playable-frame","submit","low-latency");}
+  pending=token;submitted_ms=cap_millis();queued_scene=false;clean_next=false;return true;
+}
+}
+void cap_service_display(){if(cap_running())(void)present_latest();}
+bool epd_video_submit(uint16_t dirty_y,uint16_t dirty_height){
+  if(!cap_running())return false;
+  if(!dirty_height || dirty_y>=540 || unsigned(dirty_y)+dirty_height>540){dirty_y=0;dirty_height=540;}
+  if(queued_scene){
+    const unsigned first=dirty_y<queued_y?dirty_y:queued_y;
+    const unsigned a=unsigned(dirty_y)+dirty_height,b=unsigned(queued_y)+queued_height;
+    dirty_y=uint16_t(first);dirty_height=uint16_t((a>b?a:b)-first);
+  }
+  queued_y=dirty_y;queued_height=dirty_height;queued_scene=true;
+  queued_scene_playable=next_scene_playable;queued_rom_attempt=rom_load_attempt;next_scene_playable=false;
+  back^=1;
+  memcpy(buffers[back],buffers[back^1],frame_bytes);
+  (void)present_latest();
+  return cap_running();
 }
 void epd_video_flip(uint16_t y,uint16_t h){
-  while(cap_running() && !epd_video_can_submit())cap_yield();
   if(cap_running())(void)epd_video_submit(y,h);
 }
 void cap_wait_display(uint8_t hold_frames){
@@ -289,7 +314,7 @@ void battery_service(){}
 bool battery_read_status(PaperboyBatteryStatus &out){
   out={};if(!cap_ready() || !battery)return false;risc_battery_sample_v1 s={};
   if(!battery->read(battery->context,&s))return false;
-  out.gauge_found=out.gauge_read_ok=true;out.soc_percent=s.percent;out.voltage_mv=s.millivolts;out.charging=s.charging!=0;out.low_battery=s.percent<=10;return true;
+  out.gauge_found=out.gauge_read_ok=true;out.soc_percent=s.percent;out.voltage_mv=s.millivolts;out.charging=(s.flags&RISC_BATTERY_CHARGING)!=0;out.low_battery=s.percent<=10;return true;
 }
 void night_light_init(){/* The launch level is read once from persisted shell settings. */}
 void night_light_set_launch_level(uint8_t p){launch_light=light=uint16_t(p)*10;}
@@ -306,7 +331,7 @@ extern "C" __attribute__((visibility("default"))) int app_module_init(){
   return 0;
 }
 static int begin_application(){
-  cap_log("init","begin","original-ui 1.3.22");
+  cap_log("init","begin","original-ui 1.3.24");
   for(unsigned i=0;i<8;++i){grants[i].struct_size=sizeof(grants[i]);cap_log("capability-acquire","begin",names[i]);if(!rt->acquire(names[i],1,0,&grants[i])){cap_fail("capability-acquire",names[i]);cleanup();return -1;}cap_log("capability-acquire","ok",names[i]);}
   display=static_cast<const risc_display_output_api_v1*>(grants[0].api);navigation=static_cast<const risc_input_navigation_api_v1*>(grants[1].api);storage=static_cast<const risc_storage_volume_api_v1*>(grants[2].api);files=static_cast<const t5_file_open_api_v1*>(grants[3].api);touch=static_cast<const risc_touch_api_v1*>(grants[4].api);battery=static_cast<const risc_battery_gauge_api_v1*>(grants[5].api);realtime=static_cast<const risc_realtime_api_v1*>(grants[6].api);preferences=static_cast<const risc_key_value_v1*>(grants[7].api);
 #define TABLE(p) ((p) && (p)->api_version==1 && (p)->struct_size>=sizeof(*(p)))

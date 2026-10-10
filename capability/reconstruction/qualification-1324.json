@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "source_provenance": "recovered 1.3.22 adapter plus reconstructed header and timing changes; not exact e429db5",
+  "qualified_at": "2026-10-10T12:18:14Z",
+  "cases": 33,
+  "normal_and_asan_ubsan": true,
+  "normal_sanitized_histories_and_final_states_equal": true,
+  "timing": [
+    {
+      "baseline": "timing-fast",
+      "case": "timing-lcd",
+      "frames": 597,
+      "equal_input_times_and_state_history": true,
+      "equal_final_cpu_apu_state": true
+    },
+    {
+      "baseline": "timing-fast",
+      "case": "timing-slow",
+      "frames": 597,
+      "equal_input_times_and_state_history": true,
+      "equal_final_cpu_apu_state": true
+    },
+    {
+      "baseline": "timing-compute-fast",
+      "case": "timing-compute-slow",
+      "frames": 323,
+      "equal_input_times_and_state_history": true,
+      "equal_final_cpu_apu_state": true
+    }
+  ],
+  "original_src_exact": 57,
+  "minimal_support_exact": 8,
+  "manifest_equal_except_version": true,
+  "ui": {
+    "rendered_images": 18,
+    "original_to_x4_control_cases": 71,
+    "controller_checks": 8,
+    "scaled_source_pixels_checked": 3240000,
+    "letterbox_pixels_checked": 216000,
+    "target_touch_pixels_classified": 1152000,
+    "two_finger_cases": 3,
+    "actual_backend_geometry_edge_parity": true,
+    "reverse_landscape_pixel_parity": true,
+    "buffer_canaries": true,
+    "page_change_and_held_tap_suppression": true
+  },
+  "storage_fault_cases": 29,
+  "storage_terminal_boundaries": 96,
+  "actual_runtime_phase": true,
+  "native_800_480_journeys": true,
+  "hardware_qualified": false,
+  "physical_audio": "existing silent backend",
+  "production_sources": {
+    "capability/backend.cpp": "591351a7ed7b2ad91aaf4b9f4d326c711dacbdff9e3520201a4976b2cca3b1d9",
+    "capability/build.py": "9923bbd1b3c2101df090d571763a6d98216ff9706345c30235f61413d87eaf98",
+    "capability/display_loop.py": "e3030b0de831928b76e138d5f7ad12cf4087b2ed2fb8eb907ab7f8705556a39b",
+    "capability/geometry.hpp": "e4266012ec16febd49a5af30566f687c99bb5dcaddafd77c054cecb72ed48684",
+    "capability/header_load.py": "8a06c19a7c6a0a727838e4af1fa26b0559779bb42bacf80caf3e029c263eba6f",
+    "capability/libc_compat.c": "be43a9c238e75734e0b48c372da9f462c39b69b01ef84cefa7da85d55c579651",
+    "capability/load_trace.hpp": "4924b745f07f09a8d08cdfc7b5f708871aeb59eccc07eb6afbf28a0d1f4e0e6f",
+    "capability/platform.hpp": "923434c77b0745cbdc84ee54302325c51b52e07a293e50203feb2ea196490d32",
+    "capability/stage.py": "d21ffc862a0485dad17dc7ca75f4f19f22c0b372c27fb13aceac70411de9043e",
+    "capability/storage.cpp": "f64d87cfb61a63a0243ce8d2fa907106909fb5b1bb1dda4692d67fcd9e03aa7b"
+  }
+}

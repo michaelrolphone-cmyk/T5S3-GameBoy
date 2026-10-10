@@ -32,7 +32,7 @@ def stage(out):
         'bool read_expander_button(bool &pressed) { pressed=false; return cap_ready(); }')
     s=span(s,'void clean_panel_white_black_white(','void refresh_current_page(',
         'void clean_panel_white_black_white(const char *reason) {\n'
-        '  wait_epd_idle(); cap_log("display-clean", "begin", reason);\n'
+        '  cap_log("display-clean", "begin", reason);\n'
         '  if (cap_ready()) (void)cap_clean_display();\n}')
     s=span(s,'[[noreturn]] void enter_power_off()','void run_console(',
         'void enter_power_off() { cap_exit(); }')
@@ -117,6 +117,13 @@ def stage(out):
     s=once(s,'t5s3_epd::kBoardName, kFirmwareVersion','cap_device_label(), kFirmwareVersion')
     s=once(s,'      audio_engine_name(audio_get_engine()),\n      rtc_timestamp',
         '      "silent capability backend",\n      rtc_timestamp')
+    import importlib.util
+    spec=importlib.util.spec_from_file_location('gameboy_display_loop',ROOT/'capability/display_loop.py')
+    display_loop=importlib.util.module_from_spec(spec);spec.loader.exec_module(display_loop)
+    s=display_loop.adapt(s,once,span)
+    spec=importlib.util.spec_from_file_location('gameboy_header_load',ROOT/'capability/header_load.py')
+    header=importlib.util.module_from_spec(spec);spec.loader.exec_module(header)
+    s=header.adapt(s,once,span)
     # Hardware-free UI uses the existing frame and all application state.
     s+='''\nvoid cap_console_cleanup() {
   if (cap_retained()) return;
