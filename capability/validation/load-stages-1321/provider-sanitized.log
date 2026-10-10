@@ -1,0 +1,74 @@
+Canonical SDK headers: 71
+LOAD stage=directory-scan result=begin 
+LOAD stage=directory-scan result=ok elapsed_ms=1 code=0 roms=1 truncated=0
+PROVIDER phase=initial-scan payload_bytes=0 file_opens=0 file_reads=0 read_bytes=0 stat_calls=2 directory_reads=2 sector_reads=3 sector_writes=0 gpio_calls=68381 sleeps=3
+LOAD stage=rom-load result=begin /sd/Test.gb
+LOAD stage=rom-file-open result=begin /sd/Test.gb
+LOAD stage=rom-file-open result=ok elapsed_ms=0 code=0 bytes=32768
+LOAD stage=rom-allocation result=begin bytes=32768
+LOAD stage=rom-allocation result=ok elapsed_ms=0 code=0 
+LOAD stage=rom-read result=begin bytes=32768
+LOAD stage=rom-read result=ok elapsed_ms=16 code=0 bytes=32768 read_calls=8
+LOAD stage=rom-load result=ok elapsed_ms=16 code=0 bytes=32768 read_calls=8
+PROVIDER phase=selected-rom payload_bytes=32768 file_opens=2 file_reads=8 read_bytes=32768 stat_calls=0 directory_reads=0 sector_reads=65 sector_writes=0 gpio_calls=1370590 sleeps=8
+HOST actual SD/FatFs wire-model elapsed_ms=99.070 (not hardware timing)
+LOAD stage=directory-scan result=begin 
+LOAD stage=directory-scan result=ok elapsed_ms=1 code=0 roms=1 truncated=0
+PROVIDER phase=initial-scan payload_bytes=0 file_opens=0 file_reads=0 read_bytes=0 stat_calls=2 directory_reads=2 sector_reads=3 sector_writes=0 gpio_calls=68381 sleeps=3
+LOAD stage=rom-load result=begin /sd/Test.gb
+LOAD stage=rom-file-open result=begin /sd/Test.gb
+LOAD stage=rom-file-open result=ok elapsed_ms=0 code=0 bytes=262144
+LOAD stage=rom-allocation result=begin bytes=262144
+LOAD stage=rom-allocation result=ok elapsed_ms=0 code=0 
+LOAD stage=rom-read result=begin bytes=262144
+LOAD stage=rom-read result=progress bytes=262144 read_calls=64 elapsed_ms=128
+LOAD stage=rom-read result=ok elapsed_ms=129 code=0 bytes=262144 read_calls=64
+LOAD stage=rom-load result=ok elapsed_ms=129 code=0 bytes=262144 read_calls=64
+PROVIDER phase=selected-rom payload_bytes=262144 file_opens=2 file_reads=64 read_bytes=262144 stat_calls=0 directory_reads=0 sector_reads=517 sector_writes=0 gpio_calls=10901462 sleeps=65
+HOST actual SD/FatFs wire-model elapsed_ms=761.847 (not hardware timing)
+LOAD stage=directory-scan result=begin 
+LOAD stage=directory-scan result=ok elapsed_ms=1 code=0 roms=1 truncated=0
+PROVIDER phase=initial-scan payload_bytes=0 file_opens=0 file_reads=0 read_bytes=0 stat_calls=2 directory_reads=2 sector_reads=3 sector_writes=0 gpio_calls=68381 sleeps=3
+LOAD stage=rom-load result=begin /sd/Test.gb
+LOAD stage=rom-file-open result=begin /sd/Test.gb
+LOAD stage=rom-file-open result=ok elapsed_ms=0 code=0 bytes=1048576
+LOAD stage=rom-allocation result=begin bytes=1048576
+LOAD stage=rom-allocation result=ok elapsed_ms=0 code=0 
+LOAD stage=rom-read result=begin bytes=1048576
+LOAD stage=rom-read result=progress bytes=262144 read_calls=64 elapsed_ms=128
+LOAD stage=rom-read result=progress bytes=524288 read_calls=128 elapsed_ms=256
+LOAD stage=rom-read result=progress bytes=786432 read_calls=192 elapsed_ms=385
+LOAD stage=rom-read result=progress bytes=1048576 read_calls=256 elapsed_ms=513
+LOAD stage=rom-read result=ok elapsed_ms=514 code=0 bytes=1048576 read_calls=256
+LOAD stage=rom-load result=ok elapsed_ms=514 code=0 bytes=1048576 read_calls=256
+PROVIDER phase=selected-rom payload_bytes=1048576 file_opens=2 file_reads=256 read_bytes=1048576 stat_calls=0 directory_reads=0 sector_reads=2065 sector_writes=0 gpio_calls=43542590 sleeps=258
+HOST actual SD/FatFs wire-model elapsed_ms=3253.870 (not hardware timing)
+LOAD stage=directory-scan result=begin 
+LOAD stage=directory-scan result=ok elapsed_ms=1 code=0 roms=1 truncated=0
+PROVIDER phase=initial-scan payload_bytes=0 file_opens=0 file_reads=0 read_bytes=0 stat_calls=2 directory_reads=2 sector_reads=3 sector_writes=0 gpio_calls=68381 sleeps=3
+LOAD stage=rom-load result=begin /sd/Test.gb
+LOAD stage=rom-file-open result=begin /sd/Test.gb
+LOAD stage=rom-file-open result=ok elapsed_ms=0 code=0 bytes=4194304
+LOAD stage=rom-allocation result=begin bytes=4194304
+LOAD stage=rom-allocation result=ok elapsed_ms=0 code=0 
+LOAD stage=rom-read result=begin bytes=4194304
+LOAD stage=rom-read result=progress bytes=262144 read_calls=64 elapsed_ms=128
+LOAD stage=rom-read result=progress bytes=524288 read_calls=128 elapsed_ms=256
+LOAD stage=rom-read result=progress bytes=786432 read_calls=192 elapsed_ms=385
+LOAD stage=rom-read result=progress bytes=1048576 read_calls=256 elapsed_ms=513
+LOAD stage=rom-read result=progress bytes=1310720 read_calls=320 elapsed_ms=642
+LOAD stage=rom-read result=progress bytes=1572864 read_calls=384 elapsed_ms=770
+LOAD stage=rom-read result=progress bytes=1835008 read_calls=448 elapsed_ms=899
+LOAD stage=rom-read result=progress bytes=2097152 read_calls=512 elapsed_ms=1027
+LOAD stage=rom-read result=progress bytes=2359296 read_calls=576 elapsed_ms=1156
+LOAD stage=rom-read result=progress bytes=2621440 read_calls=640 elapsed_ms=1284
+LOAD stage=rom-read result=progress bytes=2883584 read_calls=704 elapsed_ms=1413
+LOAD stage=rom-read result=progress bytes=3145728 read_calls=768 elapsed_ms=1541
+LOAD stage=rom-read result=progress bytes=3407872 read_calls=832 elapsed_ms=1670
+LOAD stage=rom-read result=progress bytes=3670016 read_calls=896 elapsed_ms=1798
+LOAD stage=rom-read result=progress bytes=3932160 read_calls=960 elapsed_ms=1927
+LOAD stage=rom-read result=progress bytes=4194304 read_calls=1024 elapsed_ms=2055
+LOAD stage=rom-read result=ok elapsed_ms=2056 code=0 bytes=4194304 read_calls=1024
+LOAD stage=rom-load result=ok elapsed_ms=2056 code=0 bytes=4194304 read_calls=1024
+PROVIDER phase=selected-rom payload_bytes=4194304 file_opens=2 file_reads=1024 read_bytes=4194304 stat_calls=0 directory_reads=0 sector_reads=8257 sector_writes=0 gpio_calls=174107102 sleeps=1032
+HOST actual SD/FatFs wire-model elapsed_ms=12651.793 (not hardware timing)

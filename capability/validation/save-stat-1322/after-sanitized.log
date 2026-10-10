@@ -1,0 +1,7 @@
+Canonical SDK headers: 71
+LOAD stage=directory-scan result=begin 
+LOAD stage=directory-scan result=ok elapsed_ms=1 code=0 roms=1 truncated=0
+PROVIDER phase=initial-scan payload_bytes=0 file_opens=0 file_reads=0 read_bytes=0 stat_calls=2 directory_reads=2 sector_reads=3 sector_writes=0 gpio_calls=68381 sleeps=3
+CONTRACT real FatFs stat requires both outputs; null outputs refuse an existing ROM
+PROVIDER phase=saved-state payload_bytes=51340 file_opens=7 file_reads=231 read_bytes=205468 stat_calls=50 directory_reads=2 sector_reads=678 sector_writes=273 gpio_calls=20217083 sleeps=146
+PASS actual SD/FatFs existing ROM/config detection and exact 51340-byte saved-state overwrite/readback

@@ -12,10 +12,9 @@ They are present on published commit 164008d447724f42d027d5a59a844b8fdc7a545b.
 build receipt is retained beside it. Original source must remain byte-for-byte
 unchanged. Runtime adaptation belongs in this directory and its staged output.
 
-Missing source consists of nine production files: backend.cpp, build.py,
+A later Drive recovery supplied original 1.3.22 adapter source (commit 9424f9e225a8351fa38e1956469221047999d03a), including all nine production files: backend.cpp, build.py,
 geometry.hpp, include/Arduino.h, libc_compat.c, load_trace.hpp, platform.hpp,
-stage.py and storage.cpp. Seven host-test files and twenty old validation records
-are also missing. Old logs cannot substitute for fresh verification.
+stage.py and storage.cpp. The seven host-test files and twenty earlier validation records were also recovered. Comparison to the 1.3.23 receipt leaves five substantive changed files plus a version-only build change and two missing header-state validation records. Their behavior is being reconstructed and freshly qualified. Old logs cannot substitute for fresh verification. The provisional adapter rewrite is superseded by this recovered predecessor.
 
 ## Milestones
 

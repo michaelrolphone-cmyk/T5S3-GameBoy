@@ -1,0 +1,7 @@
+Canonical SDK headers: 71
+load-test: /workspace/shared/gameboy-save-stat-contract/tests/capability_provider_load_test.cpp:29: int main(int, char**): Assertion `paperboy_storage_file_exists("/sd/Test.gb")' failed.
+Traceback (most recent call last):
+  File "/workspace/shared/gameboy-save-stat-contract/tests/run_capability_provider_load.py", line 22, in <module>
+    (out/f'{size}.log').write_text(result.stdout+result.stderr);print(result.stdout+result.stderr,end='');assert result.returncode==0
+                                                                                                                 ^^^^^^^^^^^^^^^^^^^^
+AssertionError

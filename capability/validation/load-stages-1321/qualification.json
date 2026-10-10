@@ -1,0 +1,74 @@
+{
+  "version": "1.3.21",
+  "base": "206b1e9d42663e2958931a726a6475d172c83263",
+  "commands": {
+    "lifecycle": "python3 capability/tests/run_lifecycle.py --runtime RUNTIME --system SYSTEM --sdk SDK --output OUTPUT [--sanitize]",
+    "production_storage": "python3 tests/run_capability_provider_load.py --x4 X4 --runtime RUNTIME --reader READER --output OUTPUT [--sanitize]",
+    "known_stat_defect": "python3 tests/run_capability_provider_load.py --x4 X4 --runtime RUNTIME --reader READER --output OUTPUT --size 32768 --stat-contract"
+  },
+  "pins": {
+    "runtime": {
+      "source": "faa8f62936a5889c65cce3f271758d9d95f21d7b",
+      "path": "/workspace/shared/x4-runtime-logging-repair-0181"
+    },
+    "system": {
+      "source": "095e3f23a7c0fd73e848c46cdd1b790aa7fbc661",
+      "path": "/workspace/shared/x4-single-quick-shell"
+    },
+    "x4": {
+      "source": "798724aed06ed56deafc3e0ac3338999e6c3a80b",
+      "path": "/workspace/shared/x4-gameboy-touch-043"
+    },
+    "reader": {
+      "source": "86241815411a925b6f246ff8437a33dce3d20af6",
+      "path": "/workspace/shared/x4-usb-preparation-reader"
+    }
+  },
+  "lifecycle_cases": 15,
+  "normal": true,
+  "asan_ubsan": true,
+  "lsan": false,
+  "rom_sizes": [
+    32768,
+    262144,
+    1048576,
+    4194304
+  ],
+  "logging": "one load-attempt ID, timestamp and named operation; progress every 256 KiB, once for first playable frame; Runtime ring callback only",
+  "hardware_performance_measured": false,
+  "native_performance_input": "3c3665e9c6ef5375a69f38c7bbc3f94a1131444b",
+  "known_defects": [
+    "Existing stat output-pointer mismatch can hide present save/config files; helper success does not prove saved bytes were restored. Separate repair queued.",
+    "Nested ROM discovery remains deferred."
+  ],
+  "logs": {
+    "lifecycle-sanitized.log": {
+      "bytes": 66375,
+      "sha256": "6a05b3be1890c1ade8b934ce74b023993743c6b2d9af95e2a32c2f2a4d1f2796"
+    },
+    "lifecycle.log": {
+      "bytes": 66375,
+      "sha256": "6a05b3be1890c1ade8b934ce74b023993743c6b2d9af95e2a32c2f2a4d1f2796"
+    },
+    "provider-sanitized.log": {
+      "bytes": 5816,
+      "sha256": "fad0d69b9a0362ddd4cc73153ef6a26df8b62f5ca6ad17d3591164e9bac91bb3"
+    },
+    "provider.log": {
+      "bytes": 5815,
+      "sha256": "2479bd90d4591933c26ed958d3b63807db09fd3d163a3e84f4d22ff6bed47aa0"
+    },
+    "stat-contract-known-defect.log": {
+      "bytes": 489,
+      "sha256": "c7e7288e3d765062a72ff74f33f408fb9aef4c400c3aba82cb87849d0a53e99a"
+    },
+    "storage-sanitized.log": {
+      "bytes": 941,
+      "sha256": "3e54a4b100a3ba1dbdc468bfc5390f1e9989e6800d6b26cf9073bc88cba4eede"
+    },
+    "storage.log": {
+      "bytes": 925,
+      "sha256": "813fa2bd46211fe86c5af30ccaa28a4346e455dea8942da076975ddfa0e6b2aa"
+    }
+  }
+}

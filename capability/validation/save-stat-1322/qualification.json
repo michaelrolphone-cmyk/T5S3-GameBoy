@@ -1,0 +1,24 @@
+{
+  "version": "1.3.22",
+  "base": "c77f415bcb9d0f06866b59758e75fd83a0593dd8",
+  "production_change": "Supply both required stat output pointers and copy requested values only after successful admitted return.",
+  "normal_and_sanitized_real_sd_fatfs": true,
+  "strict_storage_cases": 29,
+  "terminal_boundaries": 96,
+  "sanitized_original_app_cases": 15,
+  "saved_state_bytes": 51340,
+  "scope": "Existing save/config data preservation; no ROM directory traversal algorithm or UI change.",
+  "commands": [
+    "python3 tests/run_capability_provider_load.py --x4 X4 --runtime RUNTIME --reader READER --output OUTPUT --size 32768 --stat-contract [--sanitize]",
+    "python3 tests/test_capability_storage.py --sdk SDK --build OUTPUT [--sanitize]",
+    "python3 capability/tests/run_lifecycle.py --runtime RUNTIME --system SYSTEM --sdk SDK --output OUTPUT --sanitize"
+  ],
+  "logs": {
+    "lifecycle-sanitized.log": "90215a690e334e1aeb9dfc891f4156b9914781ad17ff0b8dd20f069973202389",
+    "before.log": "a6c7d725ad9c1d8b819b1125cdd58e77290c3eda1dd3bb8ce73798bf4f41235c",
+    "storage.log": "813fa2bd46211fe86c5af30ccaa28a4346e455dea8942da076975ddfa0e6b2aa",
+    "storage-sanitized.log": "3e54a4b100a3ba1dbdc468bfc5390f1e9989e6800d6b26cf9073bc88cba4eede",
+    "after-sanitized.log": "7786f49871bb6d83a16049d27c76215908be8b49737e6deedd2ed7028710840e",
+    "after.log": "7786f49871bb6d83a16049d27c76215908be8b49737e6deedd2ed7028710840e"
+  }
+}

@@ -1,0 +1,60 @@
+{
+  "checked_at": "2026-10-09T10:41:13Z",
+  "version": "1.3.21",
+  "tags": {
+    "status": "fulfilled",
+    "value": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Action completed."
+        }
+      ],
+      "structuredContent": {
+        "content": "[{\"ref\":\"refs/tags/v1.2.0\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMi4w\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.2.0\",\"object\":{\"sha\":\"d81263a15710802319ae63c5b248a1afc5488981\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/d81263a15710802319ae63c5b248a1afc5488981\"}},{\"ref\":\"refs/tags/v1.2.1\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMi4x\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.2.1\",\"object\":{\"sha\":\"db3244d9a34cdd6ab0ed5ba65f0b555082c63886\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/db3244d9a34cdd6ab0ed5ba65f0b555082c63886\"}},{\"ref\":\"refs/tags/v1.2.2\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMi4y\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.2.2\",\"object\":{\"sha\":\"97b5070d09a7803194883e2d98c023dc25ad88b5\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/97b5070d09a7803194883e2d98c023dc25ad88b5\"}},{\"ref\":\"refs/tags/v1.3.0\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMy4w\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.0\",\"object\":{\"sha\":\"2c4d8e673500d745c6b6925234d6afee84730e06\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/2c4d8e673500d745c6b6925234d6afee84730e06\"}},{\"ref\":\"refs/tags/v1.3.1\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMy4x\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.1\",\"object\":{\"sha\":\"c61cd4a9d9cb4575b38ceb5b2cfdfa72115197e6\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/c61cd4a9d9cb4575b38ceb5b2cfdfa72115197e6\"}},{\"ref\":\"refs/tags/v1.3.10\",\"node_id\":\"REF_kwDOUh9dxLFyZWZzL3RhZ3MvdjEuMy4xMA\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.10\",\"object\":{\"sha\":\"d14f00c89589d64e568dee0c8b38c236836d430a\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/d14f00c89589d64e568dee0c8b38c236836d430a\"}},{\"ref\":\"refs/tags/v1.3.11\",\"node_id\":\"REF_kwDOUh9dxLFyZWZzL3RhZ3MvdjEuMy4xMQ\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.11\",\"object\":{\"sha\":\"ebfaf303ebe86c7d666fb459e3e186ba9a10ad15\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/ebfaf303ebe86c7d666fb459e3e186ba9a10ad15\"}},{\"ref\":\"refs/tags/v1.3.2\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMy4y\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.2\",\"object\":{\"sha\":\"b6e96bf8ab1f20638dbd5de6db9f404fc458cac1\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/b6e96bf8ab1f20638dbd5de6db9f404fc458cac1\"}},{\"ref\":\"refs/tags/v1.3.3\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMy4z\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.3\",\"object\":{\"sha\":\"ab6fda3b99b263240a469251a544b6a907fd568d\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/ab6fda3b99b263240a469251a544b6a907fd568d\"}},{\"ref\":\"refs/tags/v1.3.4\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMy40\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.4\",\"object\":{\"sha\":\"c21ccfcba5d4bed78d0e63e19c54d4997b0ff8eb\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/c21ccfcba5d4bed78d0e63e19c54d4997b0ff8eb\"}},{\"ref\":\"refs/tags/v1.3.5\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMy41\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.5\",\"object\":{\"sha\":\"eaf37a3bccda760c24ac6e7def17a887370f5207\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/eaf37a3bccda760c24ac6e7def17a887370f5207\"}},{\"ref\":\"refs/tags/v1.3.6\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMy42\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.6\",\"object\":{\"sha\":\"87dccd956fc91beb31dc6c9b5edb07560b8f461d\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/87dccd956fc91beb31dc6c9b5edb07560b8f461d\"}}]",
+        "title": "tags",
+        "modified_date": null,
+        "url": "https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/matching-refs/tags/",
+        "display_url": "https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/matching-refs/tags/",
+        "display_title": "tags",
+        "structuredContent": {
+          "title": "tags",
+          "content": "[{\"ref\":\"refs/tags/v1.2.0\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMi4w\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.2.0\",\"object\":{\"sha\":\"d81263a15710802319ae63c5b248a1afc5488981\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/d81263a15710802319ae63c5b248a1afc5488981\"}},{\"ref\":\"refs/tags/v1.2.1\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMi4x\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.2.1\",\"object\":{\"sha\":\"db3244d9a34cdd6ab0ed5ba65f0b555082c63886\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/db3244d9a34cdd6ab0ed5ba65f0b555082c63886\"}},{\"ref\":\"refs/tags/v1.2.2\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMi4y\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.2.2\",\"object\":{\"sha\":\"97b5070d09a7803194883e2d98c023dc25ad88b5\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/97b5070d09a7803194883e2d98c023dc25ad88b5\"}},{\"ref\":\"refs/tags/v1.3.0\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMy4w\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.0\",\"object\":{\"sha\":\"2c4d8e673500d745c6b6925234d6afee84730e06\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/2c4d8e673500d745c6b6925234d6afee84730e06\"}},{\"ref\":\"refs/tags/v1.3.1\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMy4x\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.1\",\"object\":{\"sha\":\"c61cd4a9d9cb4575b38ceb5b2cfdfa72115197e6\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/c61cd4a9d9cb4575b38ceb5b2cfdfa72115197e6\"}},{\"ref\":\"refs/tags/v1.3.10\",\"node_id\":\"REF_kwDOUh9dxLFyZWZzL3RhZ3MvdjEuMy4xMA\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.10\",\"object\":{\"sha\":\"d14f00c89589d64e568dee0c8b38c236836d430a\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/d14f00c89589d64e568dee0c8b38c236836d430a\"}},{\"ref\":\"refs/tags/v1.3.11\",\"node_id\":\"REF_kwDOUh9dxLFyZWZzL3RhZ3MvdjEuMy4xMQ\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.11\",\"object\":{\"sha\":\"ebfaf303ebe86c7d666fb459e3e186ba9a10ad15\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/ebfaf303ebe86c7d666fb459e3e186ba9a10ad15\"}},{\"ref\":\"refs/tags/v1.3.2\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMy4y\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.2\",\"object\":{\"sha\":\"b6e96bf8ab1f20638dbd5de6db9f404fc458cac1\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/b6e96bf8ab1f20638dbd5de6db9f404fc458cac1\"}},{\"ref\":\"refs/tags/v1.3.3\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMy4z\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.3\",\"object\":{\"sha\":\"ab6fda3b99b263240a469251a544b6a907fd568d\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/ab6fda3b99b263240a469251a544b6a907fd568d\"}},{\"ref\":\"refs/tags/v1.3.4\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMy40\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.4\",\"object\":{\"sha\":\"c21ccfcba5d4bed78d0e63e19c54d4997b0ff8eb\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/c21ccfcba5d4bed78d0e63e19c54d4997b0ff8eb\"}},{\"ref\":\"refs/tags/v1.3.5\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMy41\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.5\",\"object\":{\"sha\":\"eaf37a3bccda760c24ac6e7def17a887370f5207\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/eaf37a3bccda760c24ac6e7def17a887370f5207\"}},{\"ref\":\"refs/tags/v1.3.6\",\"node_id\":\"REF_kwDOUh9dxLByZWZzL3RhZ3MvdjEuMy42\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/refs/tags/v1.3.6\",\"object\":{\"sha\":\"87dccd956fc91beb31dc6c9b5edb07560b8f461d\",\"type\":\"tag\",\"url\":\"https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/tags/87dccd956fc91beb31dc6c9b5edb07560b8f461d\"}}]",
+          "display_url": "https://api.github.com/repos/michaelrolphone-cmyk/T5S3-GameBoy/git/matching-refs/tags/"
+        }
+      },
+      "isError": false
+    }
+  },
+  "branches": {
+    "status": "fulfilled",
+    "value": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Action completed."
+        }
+      ],
+      "structuredContent": {
+        "branches": [],
+        "cursor": null
+      },
+      "isError": false
+    }
+  },
+  "prs": {
+    "status": "fulfilled",
+    "value": {
+      "content": [
+        {
+          "type": "text",
+          "text": "Action completed."
+        }
+      ],
+      "structuredContent": {
+        "issues": []
+      },
+      "isError": false
+    }
+  }
+}

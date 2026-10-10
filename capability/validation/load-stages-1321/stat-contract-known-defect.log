@@ -1,0 +1,6 @@
+Canonical SDK headers: 71
+LOAD stage=directory-scan result=begin 
+LOAD stage=directory-scan result=ok elapsed_ms=1 code=0 roms=1 truncated=0
+PROVIDER phase=initial-scan payload_bytes=0 file_opens=0 file_reads=0 stat_calls=2 directory_reads=2 sector_reads=3 sector_writes=0 gpio_calls=68381 sleeps=3
+KNOWN_DEFECT real FatFs stat requires both outputs; null outputs refuse an existing ROM
+KNOWN_DEFECT GameBoy reports the present ROM absent and treats the present last-ROM config as default
