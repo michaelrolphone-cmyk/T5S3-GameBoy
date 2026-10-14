@@ -28,6 +28,13 @@ def module(path, name):
 original = module(ROOT/'capability/stage.py', 'original_stage')
 old = module(ROOT/'minimal/build.py', 'core_stage')
 main = original.stage(stage); core = old.stage(stage)
+with main.open('a') as f:f.write('''
+extern "C" bool lifecycle_reload_last(void *out,size_t size) {
+ gbemu_t *previous=g_emu;
+ return launch_sd_rom(g_storage_config.last_rom,true,false) && g_emu!=previous &&
+     gbemu_save_state(g_emu,out,size);
+}
+''')
 assert 'wait_epd_idle' not in main.read_text()
 assert 'wait_vsync_frames' not in main.read_text()
 text = core.read_text().replace('#include "port.h"', '#include "port.h"\nvoid *cap_core_calloc(size_t,size_t);\nvoid cap_core_free(void *);')
@@ -47,7 +54,7 @@ if a.gt911_root:
 include = [ROOT/'capability/include',ROOT/'capability',a.sdk,ROOT/'minimal/include',ROOT/'minimal',ROOT/'minimal/port',stage,ROOT/'src',ROOT/'riscrte',a.runtime/'sdk/app',a.system/'lib/PortableApps/include']
 if a.real_runtime:
     include += [a.runtime/p for p in ['src','sdk/driver','sdk/hardware','lib/ArduinoJson/src','test/drivers/stubs']]
-flags = ['-O1','-g','-DGBEMU_FAST_MONO=1','-DPAPERBOY_FIRMWARE_VERSION="1.3.24"','-Wall','-Wextra','-Wno-unused-function','-Wno-misleading-indentation']+['-I'+str(v) for v in include]
+flags = ['-O1','-g','-DGBEMU_FAST_MONO=1','-DPAPERBOY_FIRMWARE_VERSION="1.3.25"','-Wall','-Wextra','-Wno-unused-function','-Wno-misleading-indentation']+['-I'+str(v) for v in include]
 if a.gt911_root:flags+=['-DGAMEBOY_REAL_GT911']
 if a.sanitize: flags += ['-fsanitize=address,undefined','-fno-omit-frame-pointer','-fno-pie','-no-pie']
 objects = []
@@ -77,7 +84,7 @@ commands.append(command)
 result = subprocess.run(command,text=True,capture_output=True)
 if result.returncode: raise RuntimeError(result.stdout+result.stderr)
 (out/'commands.json').write_text(json.dumps(commands,indent=2)+'\n')
-cases = a.case or (['journey'] if a.real_runtime else ['journey','slow-journey','file-handoff','input-error-pending','display-terminal','display-terminal-vsync','display-terminal-ready','storage-terminal','realtime-terminal','touch-release-terminal','config-terminal','file-handoff-terminal','launch-terminal','save-terminal','rom-open-failure','rom-read-failure','rom-init-failure','rom-retry','timing-fast','timing-lcd','timing-slow','timing-compute-fast','timing-compute-slow','mailbox-latest','mailbox-quit','header-load-disk','header-load-memory','header-load-missing','header-load-corrupt','header-save-close-retained','header-load-close-retained','header-load-read-failure','header-load-display-retained'])
+cases = a.case or (['journey'] if a.real_runtime else ['journey','slow-journey','file-handoff','input-error-pending','display-terminal','display-terminal-vsync','display-terminal-ready','storage-terminal','realtime-terminal','touch-release-terminal','config-terminal','file-handoff-terminal','launch-terminal','save-terminal','rom-open-failure','rom-read-failure','rom-init-failure','rom-retry','timing-fast','timing-lcd','timing-slow','timing-compute-fast','timing-compute-slow','mailbox-latest','mailbox-quit','header-load-disk','header-load-new-instance','header-save-failure','header-save-sync-failure','header-save-rename-failure','header-load-corrupt-bank','header-load-memory','header-load-missing','header-load-corrupt','header-save-close-retained','header-load-close-retained','header-load-read-failure','header-load-display-retained'])
 results = []
 for case in cases:
     folder = out/case; folder.mkdir(exist_ok=True)

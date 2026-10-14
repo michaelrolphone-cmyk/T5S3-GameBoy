@@ -29,6 +29,8 @@ extern "C" int app_module_init();
 extern "C" void app_main();
 extern "C" void app_module_fini();
 extern "C" void lifecycle_normalize_state(void *,size_t);
+extern "C" void lifecycle_corrupt_bank(void *,size_t);
+extern "C" bool lifecycle_reload_last(void *,size_t);
 #ifdef GAMEBOY_REAL_GT911
 extern "C" const risc_touch_api_v1 *hid_watch_touch_start();
 extern "C" void hid_watch_touch_stop();
@@ -39,8 +41,10 @@ std::set<void *> app_memory;
 std::set<unsigned> grants;
 std::vector<std::string> events, diagnostics;
 bool header_case(){return scenario.rfind("header-",0)==0;}
-bool header_memory(){return scenario=="header-load-memory" || scenario=="header-save-close-retained";}
+bool save_failure(){return scenario=="header-save-failure" || scenario=="header-save-sync-failure" || scenario=="header-save-rename-failure";}
+bool header_memory(){return scenario=="header-load-memory" || scenario=="header-save-close-retained" || save_failure();}
 bool header_prepared=false;
+std::vector<uint8_t> durable_state;
 bool mailbox_case(){return scenario.rfind("mailbox-",0)==0;}
 bool timing_case(){return scenario.rfind("timing-",0)==0;}
 bool compute_case(){return scenario.find("compute")!=std::string::npos;}
@@ -100,7 +104,7 @@ void next_phase(unsigned value) { phase=value;phase_started=now;std::printf("pha
 void drive() {
   if(header_case()){
     if(phase==0 && game_frames>=3 && now>phase_started+150)next_phase(header_memory()?3:5);
-    if(phase==4 && saved && now>phase_started+150)next_phase(5);
+    if(phase==4 && (saved || save_failure()) && now>phase_started+150)next_phase(5);
     if(phase==6 && now>phase_started+250)next_phase(9);
     return;
   }
@@ -253,9 +257,11 @@ extern "C" bool lifecycle_run_frame(gbemu_t *emu,uint8_t *frame,size_t size,uint
   if(result){++game_frames;last_emu=emu;
     if(header_case() && !header_prepared){
       header_prepared=true;
-      if(!header_memory() && scenario!="header-load-missing"){
+      if((!header_memory() || save_failure()) && scenario!="header-load-missing"){
         std::vector<uint8_t> state(gbemu_get_state_size(emu));assert(gbemu_save_state(emu,state.data(),state.size()));
         if(scenario=="header-load-corrupt")state[0]^=0xff;
+        if(scenario=="header-load-corrupt-bank")lifecycle_corrupt_bank(state.data(),state.size());
+        durable_state=state;
         f::add_file("/System/State/Applications/gameboy/Test.gb.state",state.size());f::files["/System/State/Applications/gameboy/Test.gb.state"]=state;
       }
     }
@@ -287,7 +293,23 @@ uint32_t lifecycle_map_actions(const touch_state_t *state,PaperboyPage page){ass
     cap_exit();return 0;
   }
 const uint32_t actions=paperboy_ui_map_actions(state,page);
+  if(save_failure() && (actions&PAPERBOY_ACTION_SAVE)){
+    f::fail_write=scenario=="header-save-failure";
+    f::fail_sync=scenario=="header-save-sync-failure";
+    if(scenario=="header-save-rename-failure")f::fail_rename_calls.insert(f::renames+1);
+  }
+  if(scenario=="header-load-new-instance" && (actions&PAPERBOY_ACTION_LOAD)){
+    std::vector<uint8_t> restored(durable_state.size());
+    assert(lifecycle_reload_last(restored.data(),restored.size()));
+    auto expected=durable_state;
+    lifecycle_normalize_state(restored.data(),restored.size());
+    lifecycle_normalize_state(expected.data(),expected.size());
+    assert(restored==expected);
+    assert(f::files["/System/State/Applications/gameboy/Test.gb.state"]==durable_state);
+    ++loaded;next_phase(6);return 0;
+  }
   if(header_case() && (actions&PAPERBOY_ACTION_LOAD)){
+    if(save_failure()){f::fail_write=false;f::fail_sync=false;f::fail_rename_calls.clear();}
     if(scenario=="header-load-close-retained")f::fail_file_close=true;
     if(scenario=="header-load-read-failure")f::fail_read=true;
     if(scenario=="header-load-read-retained"){f::terminal_at=f::calls+15;f::on_terminal=[](){cap_hold("header-load-provider");};}
@@ -357,9 +379,13 @@ int main(int argc,char **argv){
     if(scenario=="input-error-pending")assert(input_failed && error_pending_polls && home_requests==0);
     else if(header_case()){
       assert(header_prepared && home_requests==1);
-      const bool expected_load=scenario=="header-load-disk" || scenario=="header-load-memory";
+      const bool expected_load=scenario=="header-load-disk" || scenario=="header-load-memory" || save_failure() || scenario=="header-load-new-instance";
       assert(loaded==unsigned(expected_load));
       assert(saved==unsigned(scenario=="header-load-memory"));
+      if(save_failure()){
+        assert(f::files["/System/State/Applications/gameboy/Test.gb.state"]==durable_state);
+        assert(std::any_of(diagnostics.begin(),diagnostics.end(),[](const std::string &v){return v.find("stage=header-state-source result=disk")!=std::string::npos;}));
+      }
     }
     else if(mailbox_case()){assert(mailbox_exercised && !saved && !loaded && home_requests==1);assert(frame_count==(scenario=="mailbox-latest"?2:1));}
     else if(timing_case()){

@@ -49,6 +49,10 @@ def stage(out):
     text=text.replace('esp_timer_get_time()','minimal_clock_us()')
     if text.count('heap_caps_free(')!=10:raise ValueError('Core release call sites changed')
     text=text.replace('heap_caps_free(','free(')
+    guards=(ROOT/'capability/state_guards.inc').read_text()
+    text=once(text,'bool gbemu_load_state(',guards+'\n'+'bool gbemu_load_state(')
+    text=once(text,'    error = gb_state_load(', '    if(!cap_state_geometry_valid(emu,buffer,buffer_size))return false;\n    error = gb_state_load(')
+    text=once(text,'  error = gb_state_load(\n      &emu->core,','  if(!cap_state_geometry_valid(emu,payload,header.payload_size))return false;\n  error = gb_state_load(\n      &emu->core,')
     (out/'gbemu.c').write_text(text)
     return out/'gbemu.c'
 def sources(stage_dir):

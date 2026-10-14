@@ -1,0 +1,23 @@
+[
+  {
+    "baseline": "timing-fast",
+    "case": "timing-lcd",
+    "frames": 597,
+    "equal_input_times_and_state_history": true,
+    "equal_final_cpu_apu_state": true
+  },
+  {
+    "baseline": "timing-fast",
+    "case": "timing-slow",
+    "frames": 597,
+    "equal_input_times_and_state_history": true,
+    "equal_final_cpu_apu_state": true
+  },
+  {
+    "baseline": "timing-compute-fast",
+    "case": "timing-compute-slow",
+    "frames": 323,
+    "equal_input_times_and_state_history": true,
+    "equal_final_cpu_apu_state": true
+  }
+]

@@ -373,13 +373,17 @@ bool verify_contents(const char *path, const void *data, size_t size) {
 }
 
 bool host_write_atomic(const char *path, const void *data, size_t size) {
+  CapLoadTrace total("save-atomic",path);
   char temporary[RISC_STORAGE_VOLUME_PATH_MAX], backup[RISC_STORAGE_VOLUME_PATH_MAX];
   if (!usable() || g_writer || g_reader || g_directory ||
       !atomic_paths(path, temporary, backup) || !ensure_parent(path) ||
       !recover_atomic_target(path)) return false;
   g_io_failed = false;
+  CapLoadTrace opening("save-open");
   g_writer = g_storage->file_open_write(g_storage->context, volume_path(temporary));
+  opening.end(cap_ready() && g_writer);
   if (!cap_ready() || !g_writer) return false;
+  CapLoadTrace writing("save-write");
   bool written = true;
   size_t offset = 0;
   while (offset < size && written && cap_ready()) {
@@ -396,13 +400,22 @@ bool host_write_atomic(const char *path, const void *data, size_t size) {
     if (written) cap_yield();
   }
   if (!cap_ready()) return false;
+  writing.end(written && offset==size);
+  CapLoadTrace syncing("save-sync");
   if (written) written = g_volume->file_sync(g_storage->context, g_writer);
-  if (!cap_ready() || !close_file(g_writer, written)) return false;
+  syncing.end(written);
+  if(!cap_ready())return false;
+  CapLoadTrace closing("save-close");
+  const bool closed=close_file(g_writer,written);closing.end(closed);
+  if (!cap_ready() || !closed) return false;
   if (!written) return false;
-  if (!verify_contents(temporary, data, size)) {
+  CapLoadTrace verifying("save-verify");
+  const bool verified=verify_contents(temporary,data,size);verifying.end(verified);
+  if (!verified) {
     if (cap_ready()) (void)host_remove(temporary);
     return false;
   }
+  CapLoadTrace commit("save-commit");
   bool directory = false;
   const bool had_target = host_stat(path, nullptr, &directory);
   if (!cap_ready()) return false;
@@ -420,6 +433,7 @@ bool host_write_atomic(const char *path, const void *data, size_t size) {
     return false;
   }
   if (had_target && !host_remove(backup)) return false;
+  commit.end(cap_ready());total.end(cap_ready());
   return cap_ready();
 }
 

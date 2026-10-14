@@ -42,4 +42,27 @@ def adapt(s,once,span):
     for anchor in ['  const bool loaded = gbemu_load_state(emu, state_data, state_size);',
                    '  const bool loaded = gbemu_import_persist(']:
         if anchor in s:s=once(s,anchor,'  if(!cap_ready())return false;\n'+anchor)
+    # A failed durable save must not publish a newer in-memory snapshot over
+    # the last successful save. Capture into a separate candidate and commit
+    # the memory fallback only after the disk snapshot is committed.
+    s=once(s,'  if (!capture_current_quicksave()) {\n    return false;\n  }\n\n  bool state_saved','''  const size_t next_size=gbemu_get_state_size(g_emu);
+  uint8_t *next=next_size?allocate_buffer(next_size,false):nullptr;
+  CapLoadTrace capture("state-capture");
+  const bool captured=next && gbemu_save_state(g_emu,next,next_size);
+  capture.end(captured);
+  if(!captured){if(next)cap_free(next);return false;}
+
+  bool state_saved''')
+    s=once(s,'            state_path, g_quicksave, g_quicksave_size);','            state_path, next, next_size);')
+    s=once(s,'  refresh_last_snapshot_availability();\n  if(!cap_ready())return false;\n  header.end(state_saved && config_saved);','''  if(!cap_ready())return false;
+  if(state_saved){
+    if(g_quicksave)cap_free(g_quicksave);
+    g_quicksave=next;g_quicksave_size=next_size;g_memory_quicksave_valid=true;
+  }else cap_free(next);
+  refresh_last_snapshot_availability();
+  if(!cap_ready())return false;
+  header.end(state_saved && config_saved);''')
+    s=once(s,'  const bool loaded = gbemu_load_state(emu, state_data, state_size);','''  CapLoadTrace decode("state-decode");
+  const bool loaded = gbemu_load_state(emu, state_data, state_size);
+  decode.end(loaded);''')
     return s

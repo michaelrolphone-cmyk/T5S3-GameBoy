@@ -23,7 +23,7 @@ def build(a):
  c=[core,ROOT/'src/audio.c',ROOT/'src/minigb_apu/minigb_apu.c',ROOT/'minimal/audio_silent.c',ROOT/'minimal/integer.c',stage/'rom_port.c',ROOT/'capability/libc_compat.c']
  c += [a.system/'lib/PortableApps/src'/n for n in ['PortableTimeZone.c','PortableTimeZoneCatalog.c','PortableTimeZonePreference.c']]
  include=[ROOT/'capability/include',ROOT/'capability',a.sdk,ROOT/'minimal/include',ROOT/'minimal',ROOT/'minimal/port',stage,ROOT/'src',ROOT/'riscrte',a.runtime/'sdk/app',a.sdk,a.system/'lib/PortableApps/include']
- flags=['-O2','-fPIC','-mtext-section-literals','-mlongcalls','-fvisibility=hidden','-ffunction-sections','-fdata-sections','-fno-builtin','-DGBEMU_FAST_MONO=1','-DPAPERBOY_FIRMWARE_VERSION="1.3.24"']+['-I'+str(p) for p in include]
+ flags=['-O2','-fPIC','-mtext-section-literals','-mlongcalls','-fvisibility=hidden','-ffunction-sections','-fdata-sections','-fno-builtin','-DGBEMU_FAST_MONO=1','-DPAPERBOY_FIRMWARE_VERSION="1.3.25"']+['-I'+str(p) for p in include]
  objects=[]
  for i,p in enumerate(c+cpp):
   if a.compile_available and not p.exists():continue
@@ -40,9 +40,9 @@ def build(a):
  if not imports<=allowed:raise ValueError('Unexpected imports: '+str(imports-allowed))
  validator=out/'validate-elf';subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Werror','-I'+str(a.runtime/'test/native_apps/stubs'),'-I'+str(a.runtime/'lib/elf_loader/include'),str(a.runtime/'lib/elf_loader/src/esp_elf_validate.c'),str(a.runtime/'test/native_apps/validate_test.c'),'-o',str(validator)],check=True);subprocess.run([str(validator),str(elf)],check=True)
  subprocess.run([os.environ.get('ELF_AUDIT_PYTHON','python3'),str(ROOT/'riscrte/audit_elf_layout.py'),str(elf)],check=True)
- manifest=json.loads((ROOT/'minimal/gameboy.json').read_text());manifest['version']='1.3.24';manifest['requires'] += [{'capability':n,'api':1} for n in ['board.battery','runtime.realtime','storage.key-value']];(out/'gameboy.json').write_text(json.dumps(manifest,indent=2)+'\n')
+ manifest=json.loads((ROOT/'minimal/gameboy.json').read_text());manifest['version']='1.3.25';manifest['requires'] += [{'capability':n,'api':1} for n in ['board.battery','runtime.realtime','storage.key-value']];(out/'gameboy.json').write_text(json.dumps(manifest,indent=2)+'\n')
  tracked=[p for folder in [ROOT/'src',ROOT/'capability',ROOT/'minimal/port',ROOT/'minimal/include'] for p in folder.rglob('*') if p.is_file() and '__pycache__' not in p.parts and 'render-output' not in p.parts]
- record={'schema':1,'source':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),'dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True)),'runtime_source':subprocess.check_output(['git','rev-parse','HEAD'],cwd=a.runtime,text=True).strip(),'system_source':revision(a.system),'version':'1.3.24','compiler':subprocess.check_output([a.cc,'--version'],text=True).splitlines()[0],'elf':{'size':elf.stat().st_size,'sha256':sha(elf)},'imports':sorted(imports),'sources':{str(p.relative_to(ROOT)):sha(p) for p in sorted(set(tracked))},'staged_sources':{str(p.relative_to(stage)):sha(p) for p in sorted(stage.rglob('*')) if p.is_file()},'hardware_qualified':False}
+ record={'schema':1,'source':subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),'dirty':bool(subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True)),'runtime_source':subprocess.check_output(['git','rev-parse','HEAD'],cwd=a.runtime,text=True).strip(),'system_source':revision(a.system),'version':'1.3.25','compiler':subprocess.check_output([a.cc,'--version'],text=True).splitlines()[0],'elf':{'size':elf.stat().st_size,'sha256':sha(elf)},'imports':sorted(imports),'sources':{str(p.relative_to(ROOT)):sha(p) for p in sorted(set(tracked))},'staged_sources':{str(p.relative_to(stage)):sha(p) for p in sorted(stage.rglob('*')) if p.is_file()},'hardware_qualified':False}
  record['reconstructed']=True
  record['recovered_predecessor']='9424f9e225a8351fa38e1956469221047999d03a'
  record['not_recovered_revision']='e429db588040c19d6ca152066c36a32a564afa0a'

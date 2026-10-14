@@ -14,3 +14,11 @@ void lifecycle_normalize_state(void *buffer, size_t size) {
   CLEAR_POINTER(breakpoints);CLEAR_POINTER(xram);CLEAR_POINTER(audio.audio_mem);
 #undef CLEAR_POINTER
 }
+
+void lifecycle_corrupt_bank(void *buffer,size_t size) {
+ const size_t offset=sizeof(gbemu_state_header_t)+sizeof(struct StateHeader);
+ if(size<offset+sizeof(gb_s))abort();
+ gb_s saved;memcpy(&saved,(uint8_t*)buffer+offset,sizeof(saved));
+ saved.zero_bank_base=0x40000000u;
+ memcpy((uint8_t*)buffer+offset,&saved,sizeof(saved));
+}
