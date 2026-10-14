@@ -239,7 +239,18 @@ bool touch_snapshot(void *,risc_touch_snapshot_v1 *out) {
 bool battery_read(void *,risc_battery_sample_v1 *out){call("battery");*out={3980,75,0};return true;}
 int32_t realtime_read(void *,risc_realtime_snapshot_v1 *out){call("realtime");if(scenario=="realtime-terminal")return RISC_REALTIME_CONTEXT;out->validity=RISC_REALTIME_VALID;out->epoch_seconds=1791536400;return 0;}
 int32_t key_get(void *,const char *,void *,uint32_t,uint32_t *size){call("kv_get");*size=0;return RISC_KEY_VALUE_NOT_FOUND;}
-bool source_get(char *out,size_t capacity){call("file_source");source_taken=true;if(!header_case() && scenario!="file-handoff" && scenario!="file-handoff-terminal" && !timing_case() && !mailbox_case() && scenario.rfind("display-terminal-",0)!=0)return false;assert(capacity>std::strlen("/sd/Test.gb"));std::strcpy(out,"/sd/Test.gb");return true;}
+bool source_get(char *out,size_t capacity){call("file_source");source_taken=true;
+ if(scenario=="header-load-new-instance"){
+   // A durable save predates normal Play and belongs to a destroyed emulator.
+   gbemu_t *prior=gbemu_create();assert(prior);
+   assert(gbemu_init(prior,builtin_demo_rom_data(),builtin_demo_rom_size())==GBEMU_STATUS_OK);
+   for(unsigned i=0;i<31;i++)assert(gbemu_run_frame(prior,nullptr,0,0,true,nullptr));
+   durable_state.resize(gbemu_get_state_size(prior));assert(gbemu_save_state(prior,durable_state.data(),durable_state.size()));
+   gbemu_destroy(prior);
+   f::add_file("/System/State/Applications/gameboy/Test.gb.state",durable_state.size());
+   f::files["/System/State/Applications/gameboy/Test.gb.state"]=durable_state;header_prepared=true;
+ }
+if(!header_case() && scenario!="file-handoff" && scenario!="file-handoff-terminal" && !timing_case() && !mailbox_case() && scenario.rfind("display-terminal-",0)!=0)return false;assert(capacity>std::strlen("/sd/Test.gb"));std::strcpy(out,"/sd/Test.gb");return true;}
 }
 #ifdef GAMEBOY_REAL_GT911
 extern "C" void hid_renderer_watch_report(risc_touch_snapshot_v1 *sample){assert(touch_snapshot(nullptr,sample));}
@@ -255,6 +266,7 @@ extern "C" bool lifecycle_run_frame(gbemu_t *emu,uint8_t *frame,size_t size,uint
   if(timing_case()){simulation_times.push_back(now);simulation_inputs.push_back(input);if(compute_case())now+=30;}
   const bool result=gbemu_run_frame(emu,frame,size,input,skip,stats);
   if(result){++game_frames;last_emu=emu;
+    if(scenario=="header-load-new-instance")assert(f::files["/System/State/Applications/gameboy/Test.gb.state"]==durable_state);
     if(header_case() && !header_prepared){
       header_prepared=true;
       if((!header_memory() || save_failure()) && scenario!="header-load-missing"){

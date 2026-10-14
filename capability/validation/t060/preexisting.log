@@ -1,0 +1,151 @@
+GAMEBOY t_ms=1001 load=0 stage=entry result=begin original application/controller
+GAMEBOY t_ms=1002 load=0 stage=init result=begin original-ui 1.3.24
+GAMEBOY t_ms=1003 load=0 stage=capability-acquire result=begin display.output
+GAMEBOY t_ms=1004 load=0 stage=capability-acquire result=ok display.output
+GAMEBOY t_ms=1005 load=0 stage=capability-acquire result=begin input.navigation
+GAMEBOY t_ms=1006 load=0 stage=capability-acquire result=ok input.navigation
+GAMEBOY t_ms=1007 load=0 stage=capability-acquire result=begin storage.volume
+GAMEBOY t_ms=1008 load=0 stage=capability-acquire result=ok storage.volume
+GAMEBOY t_ms=1009 load=0 stage=capability-acquire result=begin file.open
+GAMEBOY t_ms=1010 load=0 stage=capability-acquire result=ok file.open
+GAMEBOY t_ms=1011 load=0 stage=capability-acquire result=begin input.touch.raw
+GAMEBOY t_ms=1012 load=0 stage=capability-acquire result=ok input.touch.raw
+GAMEBOY t_ms=1013 load=0 stage=capability-acquire result=begin board.battery
+GAMEBOY t_ms=1014 load=0 stage=capability-acquire result=ok board.battery
+GAMEBOY t_ms=1015 load=0 stage=capability-acquire result=begin runtime.realtime
+GAMEBOY t_ms=1016 load=0 stage=capability-acquire result=ok runtime.realtime
+GAMEBOY t_ms=1017 load=0 stage=capability-acquire result=begin storage.key-value
+GAMEBOY t_ms=1018 load=0 stage=capability-acquire result=ok storage.key-value
+GAMEBOY t_ms=1022 load=0 stage=touch-geometry result=compatible display=480x800 touch=480x800
+GAMEBOY t_ms=1023 load=0 stage=init result=complete 
+GAMEBOY t_ms=1024 load=0 stage=application result=info starting X4 host lifecycle fixture firmware=1.3.25
+GAMEBOY t_ms=1025 load=0 stage=application result=info battery management initialization=ready
+GAMEBOY t_ms=1027 load=0 stage=directory-scan result=begin 
+GAMEBOY t_ms=1030 load=0 stage=directory-scan result=ok elapsed_ms=3 code=0 roms=1 truncated=0
+GAMEBOY t_ms=1032 load=0 stage=application result=info storage=mounted scan=ok roms=1 audio=silent capability backend rtc=ready
+GAMEBOY t_ms=1033 load=0 stage=application result=info ROM source: Bundled T5S3-GameBoy homebrew demo
+GAMEBOY t_ms=1034 load=0 stage=application result=info quick-save buffer ready: 51276 bytes
+GAMEBOY t_ms=1067 load=1 stage=selected-rom-request result=begin /sd/Test.gb
+GAMEBOY t_ms=1069 load=1 stage=selected-rom-load result=begin 
+GAMEBOY t_ms=1071 load=1 stage=previous-cartridge-save result=begin 
+GAMEBOY t_ms=1073 load=1 stage=previous-cartridge-save result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1075 load=1 stage=rom-load result=begin /sd/Test.gb
+GAMEBOY t_ms=1077 load=1 stage=rom-file-open result=begin /sd/Test.gb
+GAMEBOY t_ms=1079 load=1 stage=rom-file-open result=ok elapsed_ms=2 code=0 bytes=32768
+GAMEBOY t_ms=1081 load=1 stage=rom-allocation result=begin bytes=32768
+GAMEBOY t_ms=1083 load=1 stage=rom-allocation result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1085 load=1 stage=rom-read result=begin bytes=32768
+GAMEBOY t_ms=1096 load=1 stage=rom-read result=ok elapsed_ms=11 code=0 bytes=32768 read_calls=8
+GAMEBOY t_ms=1098 load=1 stage=rom-load result=ok elapsed_ms=23 code=0 bytes=32768 read_calls=8
+GAMEBOY t_ms=1100 load=1 stage=emulator-allocation result=begin 
+GAMEBOY t_ms=1102 load=1 stage=emulator-allocation result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1104 load=1 stage=rom-header-emulator-init result=begin 
+GAMEBOY t_ms=1106 load=1 stage=rom-header-emulator-init result=ok elapsed_ms=2 code=0 ok
+GAMEBOY t_ms=1108 load=1 stage=save-ram-restore result=begin 
+GAMEBOY t_ms=1110 load=1 stage=save-ram-restore result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1111 load=1 stage=save-state-restore result=skipped normal Play request
+GAMEBOY t_ms=1112 load=1 stage=application result=info quick-save buffer ready: 51276 bytes
+GAMEBOY t_ms=1114 load=1 stage=selected-rom-config-save result=begin 
+GAMEBOY t_ms=1116 load=1 stage=save-atomic result=begin /sd/paperboy.cfg
+GAMEBOY t_ms=1118 load=1 stage=save-open result=begin 
+GAMEBOY t_ms=1120 load=1 stage=save-open result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1122 load=1 stage=save-write result=begin 
+GAMEBOY t_ms=1125 load=1 stage=save-write result=ok elapsed_ms=3 code=0 
+GAMEBOY t_ms=1127 load=1 stage=save-sync result=begin 
+GAMEBOY t_ms=1129 load=1 stage=save-sync result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1131 load=1 stage=save-close result=begin 
+GAMEBOY t_ms=1133 load=1 stage=save-close result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1135 load=1 stage=save-verify result=begin 
+GAMEBOY t_ms=1138 load=1 stage=save-verify result=ok elapsed_ms=3 code=0 
+GAMEBOY t_ms=1140 load=1 stage=save-commit result=begin 
+GAMEBOY t_ms=1142 load=1 stage=save-commit result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1144 load=1 stage=save-atomic result=ok elapsed_ms=28 code=0 
+GAMEBOY t_ms=1146 load=1 stage=selected-rom-config-save result=ok elapsed_ms=32 code=0 
+GAMEBOY t_ms=1148 load=1 stage=application result=info launched SD ROM path=/sd/Test.gb title="T5S3 GAMEBOY" bytes=32768 psram=0
+GAMEBOY t_ms=1150 load=1 stage=selected-rom-load result=ok elapsed_ms=81 code=0 
+GAMEBOY t_ms=1151 load=1 stage=selected-rom-emulator result=start 
+GAMEBOY t_ms=1152 load=1 stage=application result=info ready title="T5S3 GAMEBOY" touch=ready logical=540x960 game=480x432 scale=3 portrait
+GAMEBOY t_ms=1158 load=1 stage=application result=info battery probe=ok gauge=online charger=missing soc=75 voltage=3980 current=0 avg=0 usb=no
+GAMEBOY t_ms=1159 load=1 stage=application result=info charger enabled=0 hiz=0 batfet_disabled=0 otg=0 status=0 fault=0x00 input=0/0 mA ichg=0 adc=0 mA vre
+GAMEBOY t_ms=1162 load=1 stage=original-ui-first-frame result=submit low-latency, original renderer
+GAMEBOY t_ms=1171 load=1 stage=display-first-completion result=ok first visible frame
+GAMEBOY t_ms=1186 load=1 stage=rom-first-emulated-frame result=ok 
+GAMEBOY t_ms=1190 load=1 stage=rom-first-playable-frame result=submit low-latency
+GAMEBOY t_ms=1197 load=1 stage=rom-first-playable-completion result=ok elapsed_ms=130 present_state=3
+phase=5 t=1207
+GAMEBOY t_ms=1217 load=2 stage=selected-rom-request result=begin /sd/Test.gb
+GAMEBOY t_ms=1219 load=2 stage=selected-rom-load result=begin 
+GAMEBOY t_ms=1221 load=2 stage=previous-cartridge-save result=begin 
+GAMEBOY t_ms=1223 load=2 stage=previous-cartridge-save result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1225 load=2 stage=rom-load result=begin /sd/Test.gb
+GAMEBOY t_ms=1227 load=2 stage=rom-file-open result=begin /sd/Test.gb
+GAMEBOY t_ms=1229 load=2 stage=rom-file-open result=ok elapsed_ms=2 code=0 bytes=32768
+GAMEBOY t_ms=1231 load=2 stage=rom-allocation result=begin bytes=32768
+GAMEBOY t_ms=1233 load=2 stage=rom-allocation result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1235 load=2 stage=rom-read result=begin bytes=32768
+GAMEBOY t_ms=1246 load=2 stage=rom-read result=ok elapsed_ms=11 code=0 bytes=32768 read_calls=8
+GAMEBOY t_ms=1248 load=2 stage=rom-load result=ok elapsed_ms=23 code=0 bytes=32768 read_calls=8
+GAMEBOY t_ms=1250 load=2 stage=emulator-allocation result=begin 
+GAMEBOY t_ms=1252 load=2 stage=emulator-allocation result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1254 load=2 stage=rom-header-emulator-init result=begin 
+GAMEBOY t_ms=1256 load=2 stage=rom-header-emulator-init result=ok elapsed_ms=2 code=0 ok
+GAMEBOY t_ms=1258 load=2 stage=save-ram-restore result=begin 
+GAMEBOY t_ms=1260 load=2 stage=save-ram-restore result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1262 load=2 stage=save-state-restore result=begin 
+GAMEBOY t_ms=1264 load=2 stage=save-blob-load result=begin /sd/System/State/Applications/gameboy/Test.gb.state
+GAMEBOY t_ms=1266 load=2 stage=save-blob-size result=begin /sd/System/State/Applications/gameboy/Test.gb.state
+GAMEBOY t_ms=1268 load=2 stage=save-blob-size result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1270 load=2 stage=save-blob-allocation result=begin 
+GAMEBOY t_ms=1272 load=2 stage=save-blob-allocation result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1274 load=2 stage=save-blob-read result=begin /sd/System/State/Applications/gameboy/Test.gb.state
+GAMEBOY t_ms=1289 load=2 stage=save-blob-read result=ok elapsed_ms=15 code=0 
+GAMEBOY t_ms=1291 load=2 stage=save-blob-load result=ok elapsed_ms=27 code=0 
+GAMEBOY t_ms=1293 load=2 stage=state-decode result=begin 
+GAMEBOY t_ms=1295 load=2 stage=state-decode result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1296 load=2 stage=application result=info snapshot restored path=/sd/System/State/Applications/gameboy/Test.gb.state size=51276
+GAMEBOY t_ms=1298 load=2 stage=save-state-restore result=ok elapsed_ms=36 code=0 
+GAMEBOY t_ms=1299 load=2 stage=application result=info quick-save buffer ready: 51276 bytes
+GAMEBOY t_ms=1301 load=2 stage=selected-rom-config-save result=begin 
+GAMEBOY t_ms=1303 load=2 stage=save-atomic result=begin /sd/paperboy.cfg
+GAMEBOY t_ms=1305 load=2 stage=save-open result=begin 
+GAMEBOY t_ms=1307 load=2 stage=save-open result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1309 load=2 stage=save-write result=begin 
+GAMEBOY t_ms=1312 load=2 stage=save-write result=ok elapsed_ms=3 code=0 
+GAMEBOY t_ms=1314 load=2 stage=save-sync result=begin 
+GAMEBOY t_ms=1316 load=2 stage=save-sync result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1318 load=2 stage=save-close result=begin 
+GAMEBOY t_ms=1320 load=2 stage=save-close result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1322 load=2 stage=save-verify result=begin 
+GAMEBOY t_ms=1325 load=2 stage=save-verify result=ok elapsed_ms=3 code=0 
+GAMEBOY t_ms=1327 load=2 stage=save-commit result=begin 
+GAMEBOY t_ms=1329 load=2 stage=save-commit result=ok elapsed_ms=2 code=0 
+GAMEBOY t_ms=1331 load=2 stage=save-atomic result=ok elapsed_ms=28 code=0 
+GAMEBOY t_ms=1333 load=2 stage=selected-rom-config-save result=ok elapsed_ms=32 code=0 
+GAMEBOY t_ms=1335 load=2 stage=application result=info launched SD ROM path=/sd/Test.gb title="T5S3 GAMEBOY" bytes=32768 psram=0
+GAMEBOY t_ms=1337 load=2 stage=selected-rom-load result=ok elapsed_ms=118 code=0 
+GAMEBOY t_ms=1338 load=2 stage=selected-rom-emulator result=start 
+phase=6 t=1338
+GAMEBOY t_ms=1339 load=2 stage=application result=info touch down points=1 first=470,40
+GAMEBOY t_ms=1344 load=2 stage=rom-first-emulated-frame result=ok 
+GAMEBOY t_ms=1348 load=2 stage=rom-first-playable-frame result=submit low-latency
+GAMEBOY t_ms=1356 load=2 stage=rom-first-playable-completion result=ok elapsed_ms=139 present_state=3
+phase=9 t=1589
+GAMEBOY t_ms=1590 load=2 stage=capability-release result=begin storage.key-value
+GAMEBOY t_ms=1591 load=2 stage=capability-release result=ok storage.key-value
+GAMEBOY t_ms=1592 load=2 stage=capability-release result=begin runtime.realtime
+GAMEBOY t_ms=1593 load=2 stage=capability-release result=ok runtime.realtime
+GAMEBOY t_ms=1594 load=2 stage=capability-release result=begin board.battery
+GAMEBOY t_ms=1595 load=2 stage=capability-release result=ok board.battery
+GAMEBOY t_ms=1596 load=2 stage=capability-release result=begin input.touch.raw
+GAMEBOY t_ms=1597 load=2 stage=capability-release result=ok input.touch.raw
+GAMEBOY t_ms=1598 load=2 stage=capability-release result=begin file.open
+GAMEBOY t_ms=1599 load=2 stage=capability-release result=ok file.open
+GAMEBOY t_ms=1600 load=2 stage=capability-release result=begin storage.volume
+GAMEBOY t_ms=1601 load=2 stage=capability-release result=ok storage.volume
+GAMEBOY t_ms=1602 load=2 stage=capability-release result=begin input.navigation
+GAMEBOY t_ms=1603 load=2 stage=capability-release result=ok input.navigation
+GAMEBOY t_ms=1604 load=2 stage=capability-release result=begin display.output
+GAMEBOY t_ms=1605 load=2 stage=capability-release result=ok display.output
+GAMEBOY t_ms=1606 load=2 stage=home-request result=begin 
+GAMEBOY t_ms=1607 load=2 stage=entry result=returned 
+PASS header-load-new-instance frames=10 game=18 library=0 settings=0 saved=0 loaded=1 retained=0 calls=954 allocations=0
