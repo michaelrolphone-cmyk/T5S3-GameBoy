@@ -1,0 +1,76 @@
+name: Shared Game Boy preservation and delivery
+on:
+  pull_request:
+    paths: ['capability/**', 'shared/**', 'scripts/*shared_gameboy*', 'docs/SHARED_GAMEBOY.md', '.github/workflows/shared-gameboy.yml']
+permissions:
+  contents: read
+jobs:
+  preservation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: michaelrolphone-cmyk/RiscRTE-System-Apps
+          ref: 83afd19e5184eb511cc205299c83eb9cb5c05430
+          path: .deps/System
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: michaelrolphone-cmyk/RiscRTE
+          ref: 0052d1fc42e9cfc82d626c5a247d460919c87935
+          path: .deps/Runtime
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: michaelrolphone-cmyk/T5S3-Reader
+          ref: c98e4222048244b1e729869ed47aa99130025fd3
+          path: .deps/Reader
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: michaelrolphone-cmyk/RiscRTE-XTEINK-X4-PRO
+          ref: 6b7d1abe9b2dcc236f6086d07c0f619244c907cb
+          path: .deps/Interfaces
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Stage exact SDK closure and preserve source
+        run: |
+          python -m pip install Pillow==11.3.0 pyelftools==0.32
+          mkdir -p out/sdk out/source
+          cp .deps/Reader/sdk/driver/*.h out/sdk/
+          cp .deps/System/lib/PortableApps/include/*.h out/sdk/
+          cp .deps/Interfaces/minimal/t039/profile/target-x4/sdk/include/RiscRealtimeV1.h out/sdk/
+          cp .deps/Reader/lib/NativeApps/include/T5FileOpenApi.h out/sdk/
+          cp .deps/Runtime/sdk/app/*.h out/sdk/
+          python - <<'PY'
+          import sys
+          from pathlib import Path
+          sys.path.insert(0,'.deps/System/scripts')
+          from shared_home_sdk import stage_home_headers
+          stage_home_headers(Path('.deps/System'),Path('out/sdk'),roots=('PortableHomeCanvas.h','PortableHomeCanvasTouch.h','RiscCanvasInputV1.h'))
+          PY
+          git archive HEAD | gzip -n > out/source/GameBoy.tar.gz
+          for repo in System Runtime Reader Interfaces; do
+            git -C ".deps/$repo" archive HEAD | gzip -n > "out/source/$repo.tar.gz"
+            git -C ".deps/$repo" rev-parse HEAD > "out/source/$repo.head"
+          done
+      - name: Original source UI and lifecycle preservation
+        run: |
+          set -euo pipefail
+          for mode in normal sanitized; do
+            flags=(); if [ "$mode" = sanitized ]; then flags+=(--sanitize); fi
+            python capability/tests/run_lifecycle.py --runtime .deps/Runtime --system .deps/System --sdk out/sdk --output "out/baseline-$mode" "${flags[@]}" > "out/baseline-$mode.log" 2>&1
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shared-gameboy-preservation-${{ github.event.pull_request.head.sha }}
+          path: out/
+          if-no-files-found: error
